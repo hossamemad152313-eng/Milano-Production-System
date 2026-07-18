@@ -54,6 +54,27 @@
   #print-rank-output table.print-onepage th, #print-rank-output table.print-onepage td{
     padding:10px 14px; font-size:13px;
   }
+  #print-rank-output .target-print-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; text-align:right;
+  }
+  #print-rank-output .target-print-card{ break-inside:avoid; page-break-inside:avoid; }
+  #print-rank-output .target-print-card-full{ grid-column:1 / -1; display:flex; justify-content:center; }
+  #print-rank-output .target-print-card-full table.target-print-table{ width:50%; min-width:280px; }
+  #print-rank-output table.target-print-table{ width:100%; min-width:0; margin:0; }
+  #print-rank-output table.target-print-table tr.total-row td{ background:#F4E7D3; font-weight:800; text-align:center; }
+  #print-rank-output table.target-print-table th{
+    font-size:14px; font-weight:800;
+  }
+  #print-rank-output table.target-print-table thead tr:first-child th{
+    background:#2A2A2A; color:#fff; font-size:14px; text-align:center;
+  }
+  #print-rank-output table.target-print-table td{
+    font-size:13.5px; font-weight:700; padding:8px 10px;
+  }
+  @media print{
+    #print-rank-output .target-print-grid{ gap:8px; }
+    #print-rank-output .target-print-card table{ box-shadow:none; }
+  }
   :root{
     --navy:#12161F;
     --navy-2:#1D2433;
@@ -3018,7 +3039,7 @@ function renderTargetTab(){
       <button class="apply-btn" onclick="applyTargetFilter()">اعرض النتيجة</button>
       <button class="apply-btn" onclick="renderTargetSummary()">📋 ملخص التارجت</button>
       <button class="apply-btn" onclick="renderAndPrintTargetSummary()">🖨️ طباعة الملخص</button>
-      <button class="apply-btn" style="background:#3A4257;" onclick="window.print()">🖨️ طباعة الصفحة</button>
+      <button class="apply-btn" style="background:#3A4257;" onclick="printTargetDetails()">🖨️ طباعة تفاصيل التارجت</button>
     </div>
     <div id="target-results"></div>
     <div id="target-summary" style="margin-top:14px;"></div>
@@ -3100,6 +3121,64 @@ function renderTargetSummary(){
     ${totalsHtml}
   `;
 
+}
+
+function printTargetDetails(){
+  const from = document.getElementById('tf-from').value;
+  const to = document.getElementById('tf-to').value;
+  const hall = document.getElementById('tf-hall').value;
+  const restrictedToOwnHall = currentUser.hall && !userSeesAllHalls();
+  if(restrictedToOwnHall && hall !== currentUser.hall){
+    showToast(`🔒 تفاصيل التارجت متاحة لصالتك (${currentUser.hall}) بس`);
+    return;
+  }
+  let plans = TARGET_PLANS.filter(p => p.from <= to && p.to >= from);
+  if(hall !== '__ALL__') plans = plans.filter(p=>p.hall===hall);
+  if(!plans.length){ showToast('⚠️ مفيش خطط تارجت في الفترة دي عشان تتطبع'); return; }
+
+  const body = plans.map(p => {
+    const lineCount = p.lines.length;
+    const linesHtml = p.lines.map((l, idx) => {
+      const rows = (l.rows||[]).filter(r=>r.article||r.qty||r.h||r.m);
+      let totalMinutes = 0;
+      rows.forEach(r => { totalMinutes += (Number(r.h)||0)*60 + (Number(r.m)||0); });
+      const totalH = Math.floor(totalMinutes/60);
+      const totalM = totalMinutes%60;
+      const isLoneLast = (lineCount % 2 === 1) && (idx === lineCount - 1);
+      const floorTotal = (l.floorWork||[]).reduce((s,w)=> s + normalizeNumber(w.qty||0), 0);
+      const lineWorkTotal = (l.lineWork||[]).reduce((s,w)=> s + normalizeNumber(w.qty||0), 0);
+      return `
+        <div class="target-print-card${isLoneLast? ' target-print-card-full':''}">
+          <table class="print-onepage target-print-table">
+            <thead>
+              <tr><th colspan="4">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
+              <tr><th>أرتيكل</th><th>العدد</th><th>ساعات</th><th>دقايق</th></tr>
+            </thead>
+            <tbody>
+              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td><b>${r.qty||'-'}</b></td><td>${r.h||0}</td><td>${r.m||0}</td></tr>`).join('') : '<tr><td colspan="4">لا يوجد</td></tr>'}
+              <tr class="total-row"><td colspan="2">إجمالي الوقت</td><td colspan="2"><b>${totalH} ساعة و${totalM} دقيقة</b></td></tr>
+              <tr class="total-row"><td colspan="2">إجمالي عدد التارجت المطلوب للخط</td><td colspan="2"><b>${fmtNum(l.lineTarget||0)}</b></td></tr>
+              ${floorTotal ? `<tr class="total-row"><td colspan="2">شغل الأرض</td><td colspan="2"><b>${fmtNum(floorTotal)}</b></td></tr>` : ''}
+              ${lineWorkTotal ? `<tr class="total-row"><td colspan="2">شغل الخط</td><td colspan="2"><b>${fmtNum(lineWorkTotal)}</b></td></tr>` : ''}
+            </tbody>
+          </table>
+        </div>`;
+    }).join('');
+    return `
+      <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
+      <h3>الفترة: ${p.from} إلى ${p.to}${p.hallTargetDeliveries? ` — إجمالي تارجت التسليم: ${p.hallTargetDeliveries}` : ''}</h3>
+      <div class="target-print-grid">${linesHtml}</div>
+    `;
+  }).join('<div style="height:2px;background:#E7DCCF;margin:16px 0;"></div>');
+
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(
+    'MILANO SPORT SHOES — تفاصيل التارجت',
+    hall === '__ALL__' ? `كل الصالات — من ${from} إلى ${to}` : `${hall} — من ${from} إلى ${to}`,
+    body
+  );
+  document.body.classList.add('print-rank-only');
+  window.print();
+  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
 }
 
 function renderAndPrintTargetSummary(){ renderTargetSummary(); printTargetSummary(); }
