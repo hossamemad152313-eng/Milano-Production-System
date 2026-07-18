@@ -822,16 +822,16 @@ function initApp(){
   else if(currentUser.role === 'admin'){
     tabs = [
       ['report','📊 تقييم الأداء'],['entry','📝 تسجيل الأداء'],['records','🛠️ تصحيح الأداء'],['bestperf','🏅 أفضل أداء'],
-      ['jard','📦 الجرد'],['jardreg','📝 تسجيل الجرد'],['jardcorrect','🛠️ تصحيح الجرد'],
-      ['target','🎯 التارجت'],['targetreg','📝 تسجيل التارجت'],['targetcorrect','🛠️ تصحيح التارجت'],
-      ['hallpower','💪 قوة الصالة'],['hallpowerreg','📝 تسجيل قوة الصالة'],['hallpowercorrect','🛠️ تصحيح قوة الصالة'],
-      ['nightpower','🌙 قوة السهر'],['nightpowerreg','📝 تسجيل قوة السهر'],['nightpowercorrect','🛠️ تصحيح قوة السهر'],
+      ['jard','📦 الجرد'],['jardreg','📝 تسجيل الجرد'],
+      ['target','🎯 التارجت'],['targetreg','📝 تسجيل التارجت'],
+      ['hallpower','💪 قوة الصالة'],['hallpowerreg','📝 تسجيل قوة الصالة'],
+      ['nightpower','🌙 قوة السهر'],['nightpowerreg','📝 تسجيل قوة السهر'],
       ['operators','👥 العاملين']
     ];
     if(currentUser.user === 'Hossam.Emad') tabs.push(['users','🔑 المستخدمين']);
   }
   else if(currentUser.role === 'entry') tabs = [['entry','📝 تسجيل الأداء'],['records','🛠️ تصحيح الأداء']];
-  else if(currentUser.role === 'jardentry') tabs = [['jardreg','📝 تسجيل الجرد'],['jardcorrect','🛠️ تصحيح الجرد']];
+  else if(currentUser.role === 'jardentry') tabs = [['jardreg','📝 تسجيل الجرد']];
   else if(currentUser.role === 'powerentry') tabs = [['hallpowerreg','📝 تسجيل قوة الصالة'],['nightpowerreg','📝 تسجيل قوة السهر']];
   else if(currentUser.role === 'qualityhead') tabs = [['jard','📦 الجرد'],['target','🎯 التارجت'],['hallpower','💪 قوة الصالة'],['bestperf','🏅 أفضل أداء']];
   else if(currentUser.role === 'techhead') tabs = [['report','📊 تقييم الأداء'],['bestperf','🏅 أفضل أداء'],['hallpower','💪 قوة الصالة'],['nightpower','🌙 قوة السهر']];
@@ -854,17 +854,13 @@ function switchTab(key){
   if(key === 'users') renderUsersTab();
   if(key === 'jard') renderJardTab();
   if(key === 'jardreg') renderJardRegTab();
-  if(key === 'jardcorrect') renderJardCorrectTab();
   if(key === 'target') renderTargetTab();
   if(key === 'targetreg') renderTargetRegTab();
-  if(key === 'targetcorrect') renderTargetCorrectTab();
   if(key === 'bestperf') renderBestPerfTab();
   if(key === 'hallpower') renderHallPowerTab();
   if(key === 'hallpowerreg') renderHallPowerRegTab();
-  if(key === 'hallpowercorrect') renderHallPowerCorrectTab();
   if(key === 'nightpower') renderNightPowerTab();
   if(key === 'nightpowerreg') renderNightPowerRegTab();
-  if(key === 'nightpowercorrect') renderNightPowerCorrectTab();
 }
 
 /* ---------------- REPORT TAB ---------------- */
@@ -1987,16 +1983,12 @@ const TAB_CATALOG = [
   {key:'bestperf', label:'🏅 أفضل أداء'},
   {key:'jard', label:'📦 الجرد'},
   {key:'jardreg', label:'📝 تسجيل الجرد'},
-  {key:'jardcorrect', label:'🛠️ تصحيح الجرد'},
   {key:'target', label:'🎯 التارجت'},
   {key:'targetreg', label:'📝 تسجيل التارجت'},
-  {key:'targetcorrect', label:'🛠️ تصحيح التارجت'},
   {key:'hallpower', label:'💪 قوة الصالة'},
   {key:'hallpowerreg', label:'📝 تسجيل قوة الصالة'},
-  {key:'hallpowercorrect', label:'🛠️ تصحيح قوة الصالة'},
   {key:'nightpower', label:'🌙 قوة السهر'},
   {key:'nightpowerreg', label:'📝 تسجيل قوة السهر'},
-  {key:'nightpowercorrect', label:'🛠️ تصحيح قوة السهر'},
   {key:'operators', label:'👥 العاملين'}
 ];
 async function saveUserPermissions(username, btn){
@@ -2166,8 +2158,8 @@ function renderJardRegTab(){
     <div class="entry-header-box">
       <div class="ehb-eyebrow">// فترة الجرد</div>
       <div class="grid3">
-        <div><label>من تاريخ</label><input type="date" id="jard-from"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="jard-to"></div>
+        <div><label>من تاريخ</label><input type="date" id="jard-from" onchange="renderJardSessionsList()"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="jard-to" onchange="renderJardSessionsList()"></div>
         <div><label>الصالة</label>
           <select id="jard-hall" onchange="onJardHallChange()">${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select>
         </div>
@@ -2199,11 +2191,8 @@ function renderJardRegTab(){
     pendingJardLineIds = [];
     document.getElementById('jard-hall').value = HALLS[0];
     onJardHallChange();
-    renderJardFlatTable();
-    renderJardSessionsList();
   }
 }
-function renderJardCorrectTab(){ renderJardRegTab(); }
 function renderJardTab(){
   const main = document.getElementById('main-content');
   main.innerHTML = `
@@ -2213,12 +2202,47 @@ function renderJardTab(){
   renderJardDashboardFilters();
 }
 
+/* ---------- ترحيل أرتيكلات الإصلاح المستنية من آخر جرد لنفس الصالة ---------- */
+function getJardCarryoverRows(hall){
+  const priorSessions = JARD.filter(s => s.hall===hall && s.id!==editingJardSessionId);
+  if(!priorSessions.length) return [];
+  const latest = priorSessions.reduce((a,b) => (b.to > a.to ? b : a));
+  const rows = [];
+  (latest.lines||[]).forEach(l => {
+    (l.articles||[]).forEach(a => {
+      if(a.eslah===null || a.eslah===undefined){
+        rows.push({line:l.line, code:a.code});
+      }
+    });
+  });
+  return rows;
+}
+function applyJardCarryover(hall){
+  const rows = getJardCarryoverRows(hall);
+  rows.forEach((r, i) => {
+    if(i >= JARD_FLAT_ROWS) return;
+    document.getElementById('jflat-line-'+i).value = r.line;
+    document.getElementById('jflat-article-'+i).value = r.code;
+    document.getElementById('jflat-qty-'+i).value = 0;
+    document.getElementById('jflat-halak-'+i).value = 0;
+    markJardFlatFilled(i);
+  });
+  if(rows.length){
+    showToast(`↩️ اترحّل ${rows.length} أرتيكل لسه مستني إصلاح من آخر جرد لصالة ${hall} — حط قيمة الإصلاح بتاعتهم`);
+  }
+}
+
 /* ---------- إدخال/تعديل جلسة جرد ---------- */
 function onJardHallChange(){
   const hall = document.getElementById('jard-hall').value;
   pendingJardLineIds = [];
   (HALL_LINES[hall]||[]).forEach(lineNum => { pendingJardLineIds.push(jardLineCounter++); });
   renderJardLinesContainer(pendingJardLineIds.map((id,i)=>({id, line: HALL_LINES[hall][i]})));
+  if(editingJardSessionId===null){
+    renderJardFlatTable();
+    applyJardCarryover(hall);
+  }
+  renderJardSessionsList();
 }
 function renderJardLinesContainer(idsWithLineNums){
   document.getElementById('jard-lines-container').innerHTML =
@@ -2308,7 +2332,8 @@ async function saveJardSession(){
     const code = document.getElementById('jflat-article-'+i).value;
     const qty = Number(document.getElementById('jflat-qty-'+i).value)||0;
     const halak = Number(document.getElementById('jflat-halak-'+i).value)||0;
-    const eslah = Number(document.getElementById('jflat-eslah-'+i).value)||0;
+    const eslahRaw = document.getElementById('jflat-eslah-'+i).value;
+    const eslah = eslahRaw === '' ? null : (Number(eslahRaw)||0);
     if(line || code || qty || halak || eslah) flatRows.push({line, code, qty, halak, eslah});
   }
 
@@ -2359,7 +2384,13 @@ function cancelJardEdit(){
 function renderJardSessionsList(){
   const list = document.getElementById('jard-sessions-list');
   if(!list) return;
-  const sorted = [...JARD].sort((a,b)=> (b.from).localeCompare(a.from));
+  const hall = document.getElementById('jard-hall')?.value;
+  const from = document.getElementById('jard-from')?.value;
+  const to = document.getElementById('jard-to')?.value;
+  let sessions = [...JARD];
+  if(hall) sessions = sessions.filter(s => s.hall === hall);
+  if(from && to) sessions = sessions.filter(s => s.from <= to && s.to >= from);
+  const sorted = sessions.sort((a,b)=> (b.from).localeCompare(a.from));
   list.innerHTML = sorted.slice(0,30).map(s => `
     <div class="record-row">
       <div class="rtop">
@@ -2370,7 +2401,7 @@ function renderJardSessionsList(){
         </div>
       </div>
     </div>
-  `).join('') || '<div class="empty-state">مفيش جرد متسجل لسه</div>';
+  `).join('') || '<div class="empty-state">مفيش جرد متسجل للصالة والفترة دي</div>';
 }
 function editJardSession(id){
   const s = JARD.find(x=>x.id===id);
@@ -2410,7 +2441,7 @@ function editJardSession(id){
       document.getElementById('jflat-article-'+rowIdx).value = a.code||'';
       document.getElementById('jflat-qty-'+rowIdx).value = a.qty||'';
       document.getElementById('jflat-halak-'+rowIdx).value = a.halak||'';
-      document.getElementById('jflat-eslah-'+rowIdx).value = a.eslah||'';
+      document.getElementById('jflat-eslah-'+rowIdx).value = (a.eslah===null||a.eslah===undefined) ? '' : a.eslah;
       markJardFlatFilled(rowIdx);
       rowIdx++;
     });
@@ -2681,8 +2712,8 @@ function renderTargetRegTab(){
     <div class="entry-header-box">
       <div class="ehb-eyebrow">// فترة التارجت</div>
       <div class="grid3">
-        <div><label>من تاريخ</label><input type="date" id="target-from"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="target-to"></div>
+        <div><label>من تاريخ</label><input type="date" id="target-from" onchange="renderTargetPlansList()"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="target-to" onchange="renderTargetPlansList()"></div>
         <div><label>الصالة</label>
           <select id="target-hall" onchange="onTargetHallChange()">${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select>
         </div>
@@ -2705,15 +2736,14 @@ function renderTargetRegTab(){
     pendingTargetLineIds = [];
     document.getElementById('target-hall').value = HALLS[0];
     onTargetHallChange();
-    renderTargetPlansList();
   }
 }
-function renderTargetCorrectTab(){ renderTargetRegTab(); }
 function onTargetHallChange(){
   const hall = document.getElementById('target-hall').value;
   pendingTargetLineIds = [];
   (HALL_LINES[hall]||[]).forEach(() => pendingTargetLineIds.push(targetLineCounter++));
   renderTargetLinesContainer(pendingTargetLineIds.map((id,i)=>({id, line: HALL_LINES[hall][i]})));
+  renderTargetPlansList();
 }
 function renderTargetLinesContainer(idsWithLineNums){
   document.getElementById('target-lines-container').innerHTML =
@@ -2864,7 +2894,13 @@ function cancelTargetEdit(){
 function renderTargetPlansList(){
   const list = document.getElementById('target-plans-list');
   if(!list) return;
-  const sorted = [...TARGET_PLANS].sort((a,b)=> (b.from).localeCompare(a.from));
+  const hall = document.getElementById('target-hall')?.value;
+  const from = document.getElementById('target-from')?.value;
+  const to = document.getElementById('target-to')?.value;
+  let plans = [...TARGET_PLANS];
+  if(hall) plans = plans.filter(p => p.hall === hall);
+  if(from && to) plans = plans.filter(p => p.from <= to && p.to >= from);
+  const sorted = plans.sort((a,b)=> (b.from).localeCompare(a.from));
   list.innerHTML = sorted.slice(0,30).map(p => `
     <div class="record-row">
       <div class="rtop">
@@ -2875,7 +2911,7 @@ function renderTargetPlansList(){
         </div>
       </div>
     </div>
-  `).join('') || '<div class="empty-state">مفيش خطط تارجت متسجلة لسه</div>';
+  `).join('') || '<div class="empty-state">مفيش خطط تارجت متسجلة للصالة والفترة دي</div>';
 }
 function editTargetPlan(id){
   const p = TARGET_PLANS.find(x=>x.id===id);
@@ -3109,7 +3145,7 @@ function renderHallPowerRegTab(){
     <div class="section-title">💪 تسجيل قوة الصالة — كل الصالات مع بعض <span class="count" id="hp-edit-label"></span></div>
     <div class="entry-header-box">
       <div class="ehb-eyebrow">// يوم التسجيل</div>
-      <input type="date" id="hp-date" value="${todayStr()}">
+      <input type="date" id="hp-date" value="${todayStr()}" onchange="renderHpList()">
     </div>
     <div id="hp-lines-container"></div>
     <button class="save-btn" style="margin-bottom:10px;" onclick="saveHallPower()">💾 حفظ قوة كل الصالات</button>
@@ -3225,7 +3261,10 @@ function cancelHpEdit(){ editingHallPowerId = null; renderHallPowerRegTab(); }
 function renderHpList(){
   const list = document.getElementById('hp-list');
   if(!list) return;
-  const sorted = [...HALL_POWER].sort((a,b)=>(b.date).localeCompare(a.date));
+  const date = document.getElementById('hp-date')?.value;
+  let records = [...HALL_POWER];
+  if(date) records = records.filter(p => p.date === date);
+  const sorted = records.sort((a,b)=>(b.date).localeCompare(a.date));
   list.innerHTML = sorted.slice(0,30).map(p => `
     <div class="record-row">
       <div class="rtop">
@@ -3236,7 +3275,7 @@ function renderHpList(){
         </div>
       </div>
     </div>
-  `).join('') || '<div class="empty-state">مفيش سجلات لسه</div>';
+  `).join('') || '<div class="empty-state">مفيش سجلات لليوم ده</div>';
 }
 function editHallPower(id){
   const p = HALL_POWER.find(x=>x.id===id);
@@ -3267,7 +3306,6 @@ async function deleteHallPower(id){
   showToast('🗑️ اتمسح السجل');
   renderHpList();
 }
-function renderHallPowerCorrectTab(){ renderHallPowerRegTab(); }
 
 function renderHallPowerTab(){
   const main = document.getElementById('main-content');
@@ -3421,7 +3459,7 @@ function renderNightPowerRegTab(){
     <div class="section-title">🌙 تسجيل قوة السهر — كل الصالات مع بعض <span class="count" id="np-edit-label"></span></div>
     <div class="entry-header-box">
       <label>التاريخ</label>
-      <input type="date" id="np-date" value="${todayStr()}">
+      <input type="date" id="np-date" value="${todayStr()}" onchange="renderNpList()">
     </div>
     <div class="np-grid" id="np-halls-container">
       ${NIGHT_HALLS.map(h => `
@@ -3460,7 +3498,10 @@ function cancelNpEdit(){ editingNightPowerId = null; renderNightPowerRegTab(); }
 function renderNpList(){
   const list = document.getElementById('np-list');
   if(!list) return;
-  const sorted = [...NIGHT_POWER].sort((a,b)=>(b.date).localeCompare(a.date));
+  const date = document.getElementById('np-date')?.value;
+  let records = [...NIGHT_POWER];
+  if(date) records = records.filter(p => p.date === date);
+  const sorted = records.sort((a,b)=>(b.date).localeCompare(a.date));
   list.innerHTML = sorted.slice(0,30).map(p => `
     <div class="record-row">
       <div class="rtop">
@@ -3471,7 +3512,7 @@ function renderNpList(){
         </div>
       </div>
     </div>
-  `).join('') || '<div class="empty-state">مفيش سجلات لسه</div>';
+  `).join('') || '<div class="empty-state">مفيش سجلات لليوم ده</div>';
 }
 function editNightPower(id){
   const p = NIGHT_POWER.find(x=>x.id===id);
@@ -3494,7 +3535,6 @@ async function deleteNightPower(id){
   showToast('🗑️ اتمسح السجل');
   renderNpList();
 }
-function renderNightPowerCorrectTab(){ renderNightPowerRegTab(); }
 
 function renderNightPowerTab(){
   const main = document.getElementById('main-content');
