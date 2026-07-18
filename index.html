@@ -2158,8 +2158,8 @@ function renderJardRegTab(){
     <div class="entry-header-box">
       <div class="ehb-eyebrow">// فترة الجرد</div>
       <div class="grid3">
-        <div><label>من تاريخ</label><input type="date" id="jard-from" onchange="renderJardSessionsList()"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="jard-to" onchange="renderJardSessionsList()"></div>
+        <div><label>من تاريخ</label><input type="date" id="jard-from" onchange="renderJardSessionsList(); applyJardTargetAutofill(document.getElementById('jard-hall').value)"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="jard-to" onchange="renderJardSessionsList(); applyJardTargetAutofill(document.getElementById('jard-hall').value)"></div>
         <div><label>الصالة</label>
           <select id="jard-hall" onchange="onJardHallChange()">${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select>
         </div>
@@ -2202,6 +2202,29 @@ function renderJardTab(){
   renderJardDashboardFilters();
 }
 
+/* ---------- جلب تارجت الإنتاج للخط تلقائي من التارجت ---------- */
+function getLineTargetProduction(hall, from, to, lineNum){
+  if(!hall || !from || !to) return null;
+  const plans = TARGET_PLANS.filter(p => p.hall===hall && p.from<=to && p.to>=from);
+  if(!plans.length) return null;
+  const latest = plans.reduce((a,b) => (b.from > a.from ? b : a));
+  const line = (latest.lines||[]).find(l => l.line===lineNum);
+  return line ? (line.lineTarget||0) : null;
+}
+function applyJardTargetAutofill(hall){
+  if(editingJardSessionId!==null) return;
+  const from = document.getElementById('jard-from')?.value;
+  const to = document.getElementById('jard-to')?.value;
+  pendingJardLineIds.forEach((lid, i) => {
+    const lineNum = (HALL_LINES[hall]||[])[i];
+    if(!lineNum) return;
+    const el = document.getElementById('jline-target-'+lid);
+    if(!el || el.value.trim() !== '') return;
+    const t = getLineTargetProduction(hall, from, to, lineNum);
+    if(t!==null) el.value = t;
+  });
+}
+
 /* ---------- ترحيل أرتيكلات الإصلاح المستنية من آخر جرد لنفس الصالة ---------- */
 function getJardCarryoverRows(hall){
   const priorSessions = JARD.filter(s => s.hall===hall && s.id!==editingJardSessionId);
@@ -2241,6 +2264,7 @@ function onJardHallChange(){
   if(editingJardSessionId===null){
     renderJardFlatTable();
     applyJardCarryover(hall);
+    applyJardTargetAutofill(hall);
   }
   renderJardSessionsList();
 }
@@ -2661,12 +2685,13 @@ function minutesToHM(mins){
   const h = Math.floor(mins/60), m = mins%60;
   return `${h}:${String(m).padStart(2,'0')}`;
 }
+const LINE_WEEKLY_CAPACITY_MIN = 57*60; // سعة الخط الأسبوعية = 57 ساعة
 function updateLineTimeTotal(lineId){
   let totalMinutes = 0, articleCount = 0;
   for(let i=0;i<TARGET_ROWS;i++){
-    const article = document.getElementById('trow-article-'+lineId+'-'+i);
-    const hEl = document.getElementById('trow-h-'+lineId+'-'+i);
-    const mEl = document.getElementById('trow-m-'+lineId+'-'+i);
+    const article = document.getElementById('trow-'+lineId+'-article-'+i);
+    const hEl = document.getElementById('trow-'+lineId+'-h-'+i);
+    const mEl = document.getElementById('trow-'+lineId+'-m-'+i);
     if(!article) continue;
     if(article.value.trim()) articleCount++;
     const h = Math.abs(Number(hEl ? hEl.value : 0)||0);
@@ -2675,7 +2700,19 @@ function updateLineTimeTotal(lineId){
   }
   const lineTarget = Number(document.getElementById('target-line-total-input-'+lineId)?.value) || 0;
   const el = document.getElementById('target-line-total-'+lineId);
-  if(el) el.textContent = `عدد الأرتيكلات المكتوبة: ${articleCount} — إجمالي الوقت المتوقع: ${Math.floor(totalMinutes/60)} ساعة و${totalMinutes%60} دقيقة — إجمالي تارجت الخط: ${fmtNum(lineTarget)}`;
+  if(el){
+    const usedH = Math.floor(totalMinutes/60), usedM = totalMinutes%60;
+    const remaining = LINE_WEEKLY_CAPACITY_MIN - totalMinutes;
+    let remainingText, remainingColor;
+    if(remaining >= 0){
+      remainingText = `⏳ لسه فاضلك ${Math.floor(remaining/60)} ساعة و${remaining%60} دقيقة من أصل 57 ساعة — تقدر تحط أرتيكلات تانية`;
+      remainingColor = remaining < 180 ? 'var(--amber-dark)' : 'var(--muted)';
+    } else {
+      remainingText = `⚠️ الخط اتعدى سعته الأسبوعية بـ ${Math.floor(-remaining/60)} ساعة و${(-remaining)%60} دقيقة`;
+      remainingColor = 'var(--red)';
+    }
+    el.innerHTML = `عدد الأرتيكلات المكتوبة: ${articleCount} — إجمالي الوقت المكتوب: ${usedH} ساعة و${usedM} دقيقة — إجمالي تارجت الخط: ${fmtNum(lineTarget)}<br><span style="color:${remainingColor};font-weight:700;">${remainingText}</span>`;
+  }
   updateHallProductionTotal();
 }
 function updateLineTotals(lineId){
@@ -2690,8 +2727,8 @@ function updateHallProductionTotal(){
     const lineTarget = Number(lineTargetInput ? lineTargetInput.value : '') || 0;
     totalLineTargets += lineTarget;
     for(let i=0;i<TARGET_ROWS;i++){
-      const artEl = document.getElementById('trow-article-'+id+'-'+i);
-      const qtyEl = document.getElementById('trow-qty-'+id+'-'+i);
+      const artEl = document.getElementById('trow-'+id+'-article-'+i);
+      const qtyEl = document.getElementById('trow-'+id+'-qty-'+i);
       if(!artEl) continue;
       if(artEl.value.trim()) totalArticles++;
       const n = parseFloat(qtyEl ? qtyEl.value : '');
@@ -2935,10 +2972,10 @@ function editTargetPlan(id){
     document.getElementById('target-supervisor-'+lid).value = _src.supervisor||'';
     (_src.rows||[]).forEach((r,i) => {
       if(i>=TARGET_ROWS) return;
-      document.getElementById('trow-article-'+lid+'-'+i).value = r.article||'';
-      document.getElementById('trow-qty-'+lid+'-'+i).value = r.qty||'';
-      document.getElementById('trow-h-'+lid+'-'+i).value = r.h||'';
-      document.getElementById('trow-m-'+lid+'-'+i).value = r.m||'';
+      document.getElementById('trow-'+lid+'-article-'+i).value = r.article||'';
+      document.getElementById('trow-'+lid+'-qty-'+i).value = r.qty||'';
+      document.getElementById('trow-'+lid+'-h-'+i).value = r.h||'';
+      document.getElementById('trow-'+lid+'-m-'+i).value = r.m||'';
     });
     document.getElementById('target-line-total-input-'+lid).value = _src.lineTarget || '';
     (_src.floorWork||[]).forEach((r,i) => {
