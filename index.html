@@ -12,6 +12,7 @@
 <style>
   @media print{
     @page{ size:A4; margin:10mm; }
+    @page landscape-page{ size:A4 landscape; margin:10mm; }
     body.print-rank-only .phone{ display:none !important; }
     body.print-rank-only #print-rank-output{ display:block !important; }
     body:not(.print-rank-only) #print-rank-output{ display:none !important; }
@@ -19,16 +20,18 @@
     body, .phone{ background:#fff !important; box-shadow:none !important; max-width:100% !important; display:block !important; }
     .phone{ margin:0 auto !important; }
     .worker-card{ break-inside:avoid; }
-    #print-rank-output table{ page-break-inside:avoid; }
+    #print-rank-output table tr{ page-break-inside:avoid; break-inside:avoid; }
+    #print-rank-output table thead{ display:table-header-group; }
   }
   #print-rank-output{ display:none; padding:24px; font-family:'Cairo',sans-serif; direction:rtl; text-align:center; color:#000; }
   #print-rank-output .print-sheet{ min-height:100%; }
   #print-rank-output .print-header{ margin-bottom:18px; padding-bottom:12px; border-bottom:1px solid #E7DCCF; }
   #print-rank-output .print-header-top{ font-size:12px; color:#777; margin-bottom:6px; }
+  #print-rank-output .print-title-row{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }
   #print-rank-output .print-title{ font-size:20px; font-weight:800; margin-bottom:4px; }
+  #print-rank-output .print-signature{ font-size:10px; font-weight:400; color:#999; letter-spacing:.3px; }
   #print-rank-output .print-period{ font-size:13px; color:#333; }
   #print-rank-output .print-body{ margin-bottom:24px; }
-  #print-rank-output .print-footer{ margin-top:24px; padding-top:12px; border-top:1px solid #E7DCCF; font-size:12px; color:#666; }
   #print-rank-output h2{ font-size:20px; margin-bottom:4px; text-align:center; font-weight:800; }
   #print-rank-output h3{ font-size:14px; color:#333; margin-bottom:16px; font-weight:700; text-align:center; }
   #print-rank-output table{
@@ -54,6 +57,14 @@
   #print-rank-output table.print-onepage th, #print-rank-output table.print-onepage td{
     padding:10px 14px; font-size:13px;
   }
+  #print-rank-output.deficit-compact-print{ padding:14px; }
+  #print-rank-output.deficit-compact-print h2{ font-size:16px; margin-bottom:2px; }
+  #print-rank-output.deficit-compact-print h3{ font-size:10.5px; margin-bottom:8px; font-weight:700; }
+  #print-rank-output.deficit-compact-print table{ margin:0 auto 10px; box-shadow:none; border-radius:10px; }
+  #print-rank-output.deficit-compact-print table.print-onepage th,
+  #print-rank-output.deficit-compact-print table.print-onepage td{
+    padding:4px 8px; font-size:11px; font-weight:800;
+  }
   #print-rank-output .target-print-grid{
     display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; text-align:right;
   }
@@ -74,6 +85,69 @@
   @media print{
     #print-rank-output .target-print-grid{ gap:8px; }
     #print-rank-output .target-print-card table{ box-shadow:none; }
+  }
+  #print-rank-output.landscape-mode{ page: landscape-page; }
+  #print-rank-output .power-print-grid{
+    display:flex; flex-wrap:wrap; align-items:flex-start; gap:12px; margin-bottom:14px;
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  #print-rank-output .power-print-card{
+    flex:0 0 calc(25% - 9px); max-width:calc(25% - 9px); break-inside:avoid; page-break-inside:avoid;
+  }
+  #print-rank-output table.power-print-table{ width:100%; min-width:0; margin:0; }
+  #print-rank-output table.power-print-table th{ font-size:14px; font-weight:800; }
+  #print-rank-output table.power-print-table thead tr:first-child th{
+    background:#2A2A2A; color:#fff; font-size:14px; text-align:center;
+  }
+  #print-rank-output table.power-print-table td{
+    font-size:13.5px; font-weight:700; padding:7px 9px; text-align:center;
+  }
+  #print-rank-output table.power-print-table tr.total-row td{
+    background:#F4E7D3; font-weight:800;
+  }
+  #print-rank-output .power-print-total table.power-print-table thead tr:first-child th{
+    background:#3A4257;
+  }
+  #print-rank-output .hp-print-card{ flex:0 0 calc(25% - 9px); max-width:calc(25% - 9px); }
+  #print-rank-output table.hp-print-table{ width:100%; min-width:0; margin:0; }
+  #print-rank-output table.hp-print-table th{ font-size:9.5px; font-weight:800; padding:2.5px 4px; }
+  #print-rank-output table.hp-print-table thead tr:first-child th{
+    background:#2A2A2A; color:#fff; font-size:10px; text-align:center;
+  }
+  #print-rank-output table.hp-print-table td{
+    font-size:9px; font-weight:800; padding:2px 4px; text-align:center;
+  }
+  #print-rank-output table.hp-print-table tr.total-row td{
+    background:#F4E7D3; font-weight:800;
+  }
+  #print-rank-output .power-print-total table.hp-print-table thead tr:first-child th{
+    background:#3A4257;
+  }
+  #print-rank-output .power-print-total-bar{
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    background:#3A4257; color:#fff; border-radius:8px; padding:6px 14px; margin-top:5px;
+    break-inside:avoid; page-break-inside:avoid;
+  }
+  #print-rank-output .power-print-total-bar .ptb-label{ font-weight:800; font-size:11.5px; white-space:nowrap; }
+  #print-rank-output .power-print-total-bar .ptb-item{ display:flex; gap:6px; align-items:baseline; font-size:10.5px; white-space:nowrap; }
+  #print-rank-output .power-print-total-bar .ptb-item span{ opacity:.75; font-weight:600; }
+  #print-rank-output .power-print-total-bar .ptb-item b{ font-weight:800; font-size:12.5px; }
+  #print-rank-output.hp-compact-print{ padding:10px; }
+  #print-rank-output.hp-compact-print .print-header{ margin-bottom:5px; padding-bottom:4px; }
+  #print-rank-output.hp-compact-print .print-title{ font-size:15px; }
+  #print-rank-output.hp-compact-print .print-signature{ font-size:8px; }
+  #print-rank-output.hp-compact-print .print-period{ font-size:10px; }
+  #print-rank-output.hp-compact-print .power-print-grid{ gap:5px; margin-bottom:5px; }
+  #print-rank-output.hp-compact-print h2{ font-size:12px; margin-bottom:1px; }
+  #print-rank-output.hp-compact-print h3{ font-size:9px; margin-bottom:4px; }
+  #print-rank-output .power-print-card.target-card{ flex:0 0 calc(20% - 6px); max-width:calc(20% - 6px); }
+  #print-rank-output.hp-compact-print table.target-print-table{ border-radius:8px; }
+  #print-rank-output.hp-compact-print table.target-print-table th{
+    font-weight:800; font-size:9.5px; padding:3px 4px;
+  }
+  #print-rank-output.hp-compact-print table.target-print-table thead tr:first-child th{ font-size:9.5px; padding:3px 4px; }
+  #print-rank-output.hp-compact-print table.target-print-table td{
+    font-weight:800; font-size:9px; padding:2.5px 4px;
   }
   :root{
     --navy:#12161F;
@@ -514,11 +588,13 @@ function buildPrintLayout(title, periodText, bodyHtml){
     <div class="print-sheet">
       <div class="print-header">
         <div class="print-header-top">الفترة المحددة</div>
-        <div class="print-title">${title}</div>
+        <div class="print-title-row">
+          <span class="print-title">${title}</span>
+          <span class="print-signature">HOSSAM EMAD - ADMIN</span>
+        </div>
         <div class="print-period">${periodText}</div>
       </div>
       <div class="print-body">${bodyHtml}</div>
-      <div class="print-footer">HOSSAM EMAD - ADMIN</div>
     </div>
   `;
 }
@@ -1329,9 +1405,13 @@ function printBestPerfDeficit(){
   const hall = document.getElementById('bf-hall').value;
   const deficitRows = computeLineDeficitPerformance(from, to);
   if(!deficitRows.length){ showToast('⚠️ مفيش بيانات لنسبة العجز للطباعة'); return; }
+  const deficitRanks = computeTieRankLabels(deficitRows, r => r.successPct);
+  const totalTargetMinutes = deficitRows.reduce((sum,r)=>sum+r.targetMinutes,0);
+  const totalDeficitMinutes = deficitRows.reduce((sum,r)=>sum+r.deficitMinutes,0);
+  const overallSuccessPct = totalTargetMinutes ? 1 - (totalDeficitMinutes/totalTargetMinutes) : 0;
   const deficitRowsHtml = deficitRows.map((row, idx) => `
       <tr>
-        <td>${idx + 1}</td>
+        <td>${deficitRanks[idx]}</td>
         <td>${row.line}</td>
         <td>${row.supervisor || '-'}</td>
         <td>${fmtMinutes(row.deficitMinutes)}</td>
@@ -1341,14 +1421,32 @@ function printBestPerfDeficit(){
   document.getElementById('print-rank-output').innerHTML = `
     <h2>أفضل أداء لنسبة العجز</h2>
     <h3>الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:4px auto 8px;max-width:100%;">
+      <div style="background:#fff;border:1px solid #DAD4C6;border-radius:8px;padding:5px;text-align:center;">
+        <div style="font-size:9px;color:#6B7280;margin-bottom:2px;">عدد الخطوط</div>
+        <div style="font-size:13px;font-weight:800;">${fmtNum(deficitRows.length)}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #DAD4C6;border-radius:8px;padding:5px;text-align:center;">
+        <div style="font-size:9px;color:#6B7280;margin-bottom:2px;">إجمالي العجز بالوقت</div>
+        <div style="font-size:13px;font-weight:800;">${fmtMinutes(totalDeficitMinutes)}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #DAD4C6;border-radius:8px;padding:5px;text-align:center;">
+        <div style="font-size:9px;color:#6B7280;margin-bottom:2px;">نسبة النجاح الإجمالية</div>
+        <div style="font-size:13px;font-weight:800;">${fmtPct(overallSuccessPct)}</div>
+      </div>
+    </div>
     <table class="print-onepage">
       <thead><tr><th>المركز</th><th>الخط</th><th>اسم المشرف</th><th>العجز</th><th>نسبة النجاح</th></tr></thead>
       <tbody>${deficitRowsHtml || '<tr><td colspan="5">مفيش بيانات عجز</td></tr>'}</tbody>
     </table>
   `;
   document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('deficit-compact-print');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('deficit-compact-print');
+  }, 800);
 }
 
 function renderBestPerfTab(){
@@ -2202,6 +2300,10 @@ function renderJardRegTab(){
       </table>
     </div>
 
+    <div id="jard-missing-print-btns" style="display:${editingJardSessionId!==null ? 'flex':'none'};gap:8px;margin:0 0 12px;">
+      <button class="apply-btn" style="background:#8891A4;padding:6px 14px;font-size:12px;" onclick="printJardMissingHalak()">🖨️ ناقص الهالك</button>
+      <button class="apply-btn" style="background:#8891A4;padding:6px 14px;font-size:12px;" onclick="printJardMissingEslah()">🖨️ ناقص الإصلاح</button>
+    </div>
     <button class="save-btn" style="margin-bottom:10px;margin-top:14px;" onclick="saveJardSession()">💾 حفظ الجرد</button>
     <button class="apply-btn" style="background:#8891A4;margin-bottom:18px;" onclick="cancelJardEdit()">✖️ إلغاء / جرد جديد فاضي</button>
 
@@ -2390,7 +2492,8 @@ async function saveJardSession(){
     const line = Number(document.getElementById('jflat-line-'+i).value)||0;
     const code = document.getElementById('jflat-article-'+i).value;
     const qty = Number(document.getElementById('jflat-qty-'+i).value)||0;
-    const halak = Number(document.getElementById('jflat-halak-'+i).value)||0;
+    const halakRaw = document.getElementById('jflat-halak-'+i).value;
+    const halak = halakRaw === '' ? null : (Number(halakRaw)||0);
     const eslahRaw = document.getElementById('jflat-eslah-'+i).value;
     const eslah = eslahRaw === '' ? null : (Number(eslahRaw)||0);
     if(line || code || qty || halak || eslah) flatRows.push({line, code, qty, halak, eslah});
@@ -2440,6 +2543,66 @@ function cancelJardEdit(){
   editingJardSessionId = null;
   renderJardTab();
 }
+function collectJardFlatRows(){
+  const rows = [];
+  for(let i=0;i<JARD_FLAT_ROWS;i++){
+    const lineEl = document.getElementById('jflat-line-'+i);
+    if(!lineEl) break;
+    const line = lineEl.value;
+    const code = document.getElementById('jflat-article-'+i).value;
+    const qty = document.getElementById('jflat-qty-'+i).value;
+    const halak = document.getElementById('jflat-halak-'+i).value;
+    const eslah = document.getElementById('jflat-eslah-'+i).value;
+    if(!line && !code && !qty) continue;
+    rows.push({line, code, qty, halak, eslah});
+  }
+  return rows;
+}
+function printJardMissingField(fieldKey, fieldLabel, printTitle){
+  if(editingJardSessionId===null){ showToast('⚠️ افتح جرد للتعديل الأول عشان تطبع الأرتيكلات الناقصة'); return; }
+  const hall = document.getElementById('jard-hall').value;
+  const from = document.getElementById('jard-from').value;
+  const to = document.getElementById('jard-to').value;
+  const rows = collectJardFlatRows().filter(r => r[fieldKey] === '' || r[fieldKey]===undefined || r[fieldKey]===null);
+  if(!rows.length){ showToast(`✅ كل الأرتيكلات مسجلها ${fieldLabel}`); return; }
+
+  // تجميع الأرتيكلات الناقصة في كارت لكل خط، بنفس ستايل قوة الصالة/السهر (كروت مجمّعة في صفحة واحدة لاند سكيب)
+  const lineMap = new Map();
+  rows.forEach(r => {
+    const key = r.line || '-';
+    if(!lineMap.has(key)) lineMap.set(key, []);
+    lineMap.get(key).push(r);
+  });
+  const linesOrdered = [...lineMap.keys()].sort((a,b)=>String(a).localeCompare(String(b),'en',{numeric:true}));
+
+  const cardsHtml = linesOrdered.map(line => {
+    const items = lineMap.get(line);
+    return `
+      <div class="power-print-card">
+        <table class="print-onepage power-print-table">
+          <thead>
+            <tr><th colspan="3">خط ${line}</th></tr>
+            <tr><th>أرتيكل</th><th>العدد</th><th>${fieldLabel}</th></tr>
+          </thead>
+          <tbody>
+            ${items.map(r=>`<tr><td><b>${r.code||'-'}</b></td><td>${r.qty||'-'}</td><td></td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }).join('');
+
+  const body = `<div class="power-print-grid">${cardsHtml}</div>`;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(printTitle, `${hall} — من ${from} إلى ${to}`, body);
+  document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode', 'hp-compact-print');
+  window.print();
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print');
+  }, 800);
+}
+function printJardMissingHalak(){ printJardMissingField('halak','الهالك','MILANO SPORT SHOES — أرتيكلات ناقصة الهالك'); }
+function printJardMissingEslah(){ printJardMissingField('eslah','الإصلاح','MILANO SPORT SHOES — أرتيكلات ناقصة الإصلاح'); }
 function renderJardSessionsList(){
   const list = document.getElementById('jard-sessions-list');
   if(!list) return;
@@ -2499,13 +2662,15 @@ function editJardSession(id){
       document.getElementById('jflat-line-'+rowIdx).value = l.line;
       document.getElementById('jflat-article-'+rowIdx).value = a.code||'';
       document.getElementById('jflat-qty-'+rowIdx).value = a.qty||'';
-      document.getElementById('jflat-halak-'+rowIdx).value = a.halak||'';
+      document.getElementById('jflat-halak-'+rowIdx).value = (a.halak===null||a.halak===undefined) ? '' : a.halak;
       document.getElementById('jflat-eslah-'+rowIdx).value = (a.eslah===null||a.eslah===undefined) ? '' : a.eslah;
       markJardFlatFilled(rowIdx);
       rowIdx++;
     });
   });
   showToast('✏️ بتعدّل الجرد ده — اعمل التغييرات ودوس حفظ الجرد');
+  const missBtns = document.getElementById('jard-missing-print-btns');
+  if(missBtns) missBtns.style.display = 'flex';
   window.scrollTo(0,0);
 }
 async function deleteJardSession(id){
@@ -3158,11 +3323,12 @@ function printTargetDetails(){
       rows.forEach(r => { totalMinutes += (Number(r.h)||0)*60 + (Number(r.m)||0); });
       const totalH = Math.floor(totalMinutes/60);
       const totalM = totalMinutes%60;
-      const isLoneLast = (lineCount % 2 === 1) && (idx === lineCount - 1);
       const floorTotal = (l.floorWork||[]).reduce((s,w)=> s + normalizeNumber(w.qty||0), 0);
       const lineWorkTotal = (l.lineWork||[]).reduce((s,w)=> s + normalizeNumber(w.qty||0), 0);
+      const floorDetail = (l.floorWork||[]).map(w=>`${w.article||'-'} (${w.qty||0})`).join('، ');
+      const lineWorkDetail = (l.lineWork||[]).map(w=>`${w.article||'-'} (${w.qty||0})`).join('، ');
       return `
-        <div class="target-print-card${isLoneLast? ' target-print-card-full':''}">
+        <div class="power-print-card target-card">
           <table class="print-onepage target-print-table">
             <thead>
               <tr><th colspan="4">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
@@ -3172,8 +3338,8 @@ function printTargetDetails(){
               ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td><b>${r.qty||'-'}</b></td><td>${r.h||0}</td><td>${r.m||0}</td></tr>`).join('') : '<tr><td colspan="4">لا يوجد</td></tr>'}
               <tr class="total-row"><td colspan="2">إجمالي الوقت</td><td colspan="2"><b>${totalH} ساعة و${totalM} دقيقة</b></td></tr>
               <tr class="total-row"><td colspan="2">إجمالي عدد التارجت المطلوب للخط</td><td colspan="2"><b>${fmtNum(l.lineTarget||0)}</b></td></tr>
-              ${floorTotal ? `<tr class="total-row"><td colspan="2">شغل الأرض</td><td colspan="2"><b>${fmtNum(floorTotal)}</b></td></tr>` : ''}
-              ${lineWorkTotal ? `<tr class="total-row"><td colspan="2">شغل الخط</td><td colspan="2"><b>${fmtNum(lineWorkTotal)}</b></td></tr>` : ''}
+              ${floorTotal ? `<tr class="total-row"><td colspan="2">شغل الأرض (${fmtNum(floorTotal)})</td><td colspan="2" style="font-size:8px;font-weight:700;">${floorDetail}</td></tr>` : ''}
+              ${lineWorkTotal ? `<tr class="total-row"><td colspan="2">شغل الخط (${fmtNum(lineWorkTotal)})</td><td colspan="2" style="font-size:8px;font-weight:700;">${lineWorkDetail}</td></tr>` : ''}
             </tbody>
           </table>
         </div>`;
@@ -3181,9 +3347,9 @@ function printTargetDetails(){
     return `
       <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
       <h3>الفترة: ${p.from} إلى ${p.to}${p.hallTargetDeliveries? ` — إجمالي تارجت التسليم: ${p.hallTargetDeliveries}` : ''}</h3>
-      <div class="target-print-grid">${linesHtml}</div>
+      <div class="power-print-grid">${linesHtml}</div>
     `;
-  }).join('<div style="height:2px;background:#E7DCCF;margin:16px 0;"></div>');
+  }).join('<div style="height:2px;background:#E7DCCF;margin:8px 0;"></div>');
 
   document.getElementById('print-rank-output').innerHTML = buildPrintLayout(
     'MILANO SPORT SHOES — تفاصيل التارجت',
@@ -3191,8 +3357,12 @@ function printTargetDetails(){
     body
   );
   document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode', 'hp-compact-print');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print');
+  }, 800);
 }
 
 function renderAndPrintTargetSummary(){ renderTargetSummary(); printTargetSummary(); }
@@ -3550,32 +3720,77 @@ function printHallPower(){
   const isRange = from !== to;
   const hallsOrdered = HALL_POWER_HALLS.filter(h => entries.some(e=>e.hall===h));
   const totals = entries.reduce((a,e)=>({basic:a.basic+e.basicSum, clear:a.clear+e.clearanceSum, abs:a.abs+e.absenceSum, act:a.act+e.actualSum}), {basic:0, clear:0, abs:0, act:0});
-  const body = `
-    <h2>MILANO SPORT SHOES — قوة الصالة</h2>
-    <h3>${isRange ? `الفترة من ${from} إلى ${to}` : `يوم ${from}`}${hall!=='__ALL__' ? ' — '+hall : ' — كل الصالات'}</h3>
-    <table class="print-onepage">
-      <thead><tr><th>الصالة</th><th>الخط</th><th>أساسي</th><th>تصفية</th><th>غياب</th><th>${isRange?'متوسط فعلي':'فعلي'}</th></tr></thead>
-      <tbody>
-        ${hallsOrdered.map(h => {
-          const rows = entries.filter(e=>e.hall===h).sort((a,b)=>String(a.line).localeCompare(String(b.line),'en',{numeric:true}));
-          return rows.map((e,i) => `
-            <tr>
-              ${i===0 ? `<td rowspan="${rows.length}"><b>${h}</b></td>` : ''}
-              <td>${e.line}</td>
-              <td>${isRange ? (e.basicSum/e.days).toFixed(1) : fmtNum(e.basicSum)}</td>
-              <td>${fmtNum(e.clearanceSum)}</td>
-              <td>${fmtNum(e.absenceSum)}</td>
-              <td><b>${isRange ? (e.actualSum/e.days).toFixed(1) : fmtNum(e.actualSum)}</b></td>
-            </tr>`).join('');
-        }).join('')}
-        <tr class="total-row"><td colspan="2">الإجمالي</td><td>${fmtNum(totals.basic)}</td><td>${fmtNum(totals.clear)}</td><td>${fmtNum(totals.abs)}</td><td><b>${fmtNum(totals.act)}</b></td></tr>
-      </tbody>
-    </table>
-  `;
-  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES', `${isRange ? `من ${from} إلى ${to}` : `يوم ${from}`}`, body);
+
+  const topClearance = [...entries].sort((a,b)=>b.clearanceSum-a.clearanceSum)[0];
+  const topAbsence = [...entries].sort((a,b)=>b.absenceSum-a.absenceSum)[0];
+
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin:0 auto 8px;max-width:100%;">
+      <div style="background:#fff;border:1px solid #DAD4C6;border-radius:8px;padding:7px;text-align:center;">
+        <div style="font-size:9.5px;color:#6B7280;margin-bottom:3px;">أعلى تصفية</div>
+        <div style="font-size:13px;font-weight:800;">${topClearance ? `${topClearance.hall} — خط ${topClearance.line} (${fmtNum(topClearance.clearanceSum)})` : '-'}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #DAD4C6;border-radius:8px;padding:7px;text-align:center;">
+        <div style="font-size:9.5px;color:#6B7280;margin-bottom:3px;">أعلى غياب</div>
+        <div style="font-size:13px;font-weight:800;">${topAbsence ? `${topAbsence.hall} — خط ${topAbsence.line} (${fmtNum(topAbsence.absenceSum)})` : '-'}</div>
+      </div>
+    </div>`;
+
+  // الترتيب ثابت زي ما هو في HALL_POWER_HALLS: A B C D E G ثم اللسان ثم الكنترول ثم الجودة
+  const hallCards = hallsOrdered.map(h => {
+    const rows = entries.filter(e=>e.hall===h).sort((a,b)=>String(a.line).localeCompare(String(b.line),'en',{numeric:true}));
+    const hallActual = rows.reduce((a,e)=>a+(isRange ? e.actualSum/e.days : e.actualSum), 0);
+    return `
+      <div class="power-print-card hp-print-card">
+        <table class="print-onepage hp-print-table">
+          <thead>
+            <tr><th colspan="5">${h}</th></tr>
+            <tr><th>الخط</th><th>أساسي</th><th>تصفية</th><th>غياب</th><th>${isRange?'م.فعلي':'فعلي'}</th></tr>
+          </thead>
+          <tbody>
+            ${rows.map(e=>`
+              <tr>
+                <td><b>خط ${e.line}</b></td>
+                <td>${isRange ? Math.round(e.basicSum/e.days) : fmtNum(e.basicSum)}</td>
+                <td>${fmtNum(e.clearanceSum)}</td>
+                <td>${fmtNum(e.absenceSum)}</td>
+                <td><b>${isRange ? Math.round(e.actualSum/e.days) : fmtNum(e.actualSum)}</b></td>
+              </tr>`).join('')}
+            <tr class="total-row"><td colspan="4">إجمالي الصالة</td><td>${Math.round(hallActual)}</td></tr>
+          </tbody>
+        </table>
+      </div>`;
+  });
+
+  const totalBarHtml = `
+    <div class="power-print-total-bar">
+      <span class="ptb-label">إجمالي كل الصالات</span>
+      <span class="ptb-item"><span>أساسي</span><b>${fmtNum(totals.basic)}</b></span>
+      <span class="ptb-item"><span>تصفية</span><b>${fmtNum(totals.clear)}</b></span>
+      <span class="ptb-item"><span>غياب</span><b>${fmtNum(totals.abs)}</b></span>
+      <span class="ptb-item"><span>${isRange?'م.فعلي':'فعلي'}</span><b>${fmtNum(totals.act)}</b></span>
+    </div>`;
+
+  const cardsPerRow = 4;
+  let gridRowsHtml = '';
+  for(let i=0; i<hallCards.length; i+=cardsPerRow){
+    gridRowsHtml += `<div class="power-print-grid">${hallCards.slice(i, i+cardsPerRow).join('')}</div>`;
+  }
+
+  const bodyHtml = `
+    ${statsHtml}
+    ${gridRowsHtml}
+    ${totalBarHtml}`;
+
+
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES — قوة الصالة', `${isRange ? `من ${from} إلى ${to}` : `يوم ${from}`}${hall!=='__ALL__' ? ' — '+hall : ' — كل الصالات'}`, bodyHtml);
   document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode', 'hp-compact-print');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print');
+  }, 800);
 }
 
 /* ==================================================================
@@ -3707,12 +3922,25 @@ function applyNpFilter(){
   if(!hallMap.size){ results.innerHTML = '<div class="empty-state">مفيش بيانات قوة سهر في الفترة دي.</div>'; return; }
   const entries = [...hallMap.values()].map(e => ({...e, avg: e.days? Math.round(e.sum/e.days) : 0}));
   const isRange = from !== to;
+  const total = entries.reduce((a,e)=>a+e.sum, 0);
+  const totalAvg = recs.length ? Math.round(total/recs.length) : 0;
+  const showHallExtremes = hall === '__ALL__' && entries.length > 1;
+  const topHall = showHallExtremes ? [...entries].sort((a,b)=>b.sum-a.sum)[0] : null;
+  const bottomHall = showHallExtremes ? [...entries].sort((a,b)=>a.sum-b.sum)[0] : null;
 
   results.innerHTML = `
+    <div class="summary-grid">
+      <div class="kpi"><div class="lbl">إجمالي كل الصالات</div><div class="val num">${fmtNum(total)}</div><div class="sub">خلال الفترة</div></div>
+      ${isRange ? `<div class="kpi amber"><div class="lbl">متوسط يومي إجمالي</div><div class="val num">${totalAvg}</div><div class="sub">لكل الصالات مع بعض</div></div>` : ''}
+      ${showHallExtremes ? `
+        <div class="kpi good"><div class="lbl">أعلى صالة سهر</div><div class="val">${topHall.hall}</div><div class="sub">${fmtNum(topHall.sum)}</div></div>
+        <div class="kpi bad"><div class="lbl">أقل صالة سهر</div><div class="val">${bottomHall.hall}</div><div class="sub">${fmtNum(bottomHall.sum)}</div></div>
+      ` : ''}
+    </div>
     <div class="jard-hall-summary">
-      <h4><span>🌙 قوة السهر ${isRange?'— متوسط الفترة':'— يوم '+from}</span></h4>
-      <div class="jard-line-row head"><span>الصالة</span><span>${isRange?'متوسط عدد السهرانين':'عدد السهرانين'}</span></div>
-      ${entries.map(e=>`<div class="jard-line-row"><span><b>${e.hall}</b></span><span>${isRange?e.avg:fmtNum(e.sum)}</span></div>`).join('')}
+      <h4><span>🌙 قوة السهر ${isRange?'— من '+from+' إلى '+to:'— يوم '+from}</span></h4>
+      <div class="jard-line-row head"><span>الصالة</span>${isRange?'<span>متوسط عدد السهرانين</span><span>إجمالي عدد السهرانين</span>':'<span>عدد السهرانين</span>'}</div>
+      ${entries.map(e=>`<div class="jard-line-row"><span><b>${e.hall}</b></span>${isRange?`<span>${e.avg}</span><span>${fmtNum(e.sum)}</span>`:`<span>${fmtNum(e.sum)}</span>`}</div>`).join('')}
     </div>
   `;
 }
@@ -3735,20 +3963,60 @@ function printNightPower(){
   entries = entries.map(e => ({...e, avg: e.days? Math.round(e.sum/e.days) : 0}));
   const isRange = from !== to;
   const total = entries.reduce((a,e)=>a+e.sum, 0);
-  const body = `
-    <h2>MILANO SPORT SHOES — قوة السهر</h2>
-    <h3>${isRange ? `الفترة من ${from} إلى ${to}` : `يوم ${from}`}${hall!=='__ALL__' ? ' — '+hall : ' — كل الصالات'}</h3>
-    <table class="print-onepage">
-      <thead><tr><th>الصالة</th><th>${isRange?'متوسط عدد السهرانين':'عدد السهرانين'}</th></tr></thead>
-      <tbody>
-        ${entries.map(e=>`<tr><td><b>${e.hall}</b></td><td>${isRange ? e.avg : fmtNum(e.sum)}</td></tr>`).join('')}
-        <tr class="total-row"><td>الإجمالي</td><td><b>${fmtNum(total)}</b></td></tr>
-      </tbody>
-    </table>
-  `;
+  const totalAvg = recs.length ? Math.round(total/recs.length) : 0;
+  const showHallExtremes = hall === '__ALL__' && entries.length > 1;
+  const topHall = showHallExtremes ? [...entries].sort((a,b)=>b.sum-a.sum)[0] : null;
+  const bottomHall = showHallExtremes ? [...entries].sort((a,b)=>a.sum-b.sum)[0] : null;
+
+  const statCards = [{label:'إجمالي كل الصالات', value: fmtNum(total)}];
+  if(isRange) statCards.push({label:'متوسط يومي إجمالي', value: totalAvg});
+  if(showHallExtremes){
+    statCards.push({label:'أعلى صالة سهر', value: `${topHall.hall} (${fmtNum(topHall.sum)})`});
+    statCards.push({label:'أقل صالة سهر', value: `${bottomHall.hall} (${fmtNum(bottomHall.sum)})`});
+  }
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(${statCards.length},1fr);gap:6px;margin:0 auto 8px;max-width:100%;">
+      ${statCards.map(c => `
+        <div style="background:#fff;border:1px solid #DAD4C6;border-radius:8px;padding:7px;text-align:center;">
+          <div style="font-size:9.5px;color:#6B7280;margin-bottom:3px;">${c.label}</div>
+          <div style="font-size:13px;font-weight:800;">${c.value}</div>
+        </div>`).join('')}
+    </div>`;
+
+  const hallsHtml = entries.map(e => `
+    <div class="power-print-card">
+      <table class="print-onepage power-print-table">
+        <thead>
+          <tr><th colspan="${isRange?2:1}">${e.hall}</th></tr>
+          ${isRange ? `<tr><th>متوسط</th><th>إجمالي</th></tr>` : ''}
+        </thead>
+        <tbody>
+          <tr>${isRange ? `<td><b>${e.avg}</b></td><td><b>${fmtNum(e.sum)}</b></td>` : `<td><b>${fmtNum(e.sum)}</b></td>`}</tr>
+        </tbody>
+      </table>
+    </div>`).join('');
+  const totalCard = `
+    <div class="power-print-card power-print-total">
+      <table class="print-onepage power-print-table">
+        <thead>
+          <tr><th colspan="${isRange?2:1}">الإجمالي</th></tr>
+          ${isRange ? `<tr><th>متوسط</th><th>إجمالي</th></tr>` : ''}
+        </thead>
+        <tbody>
+          <tr>${isRange ? `<td><b>${totalAvg}</b></td><td><b>${fmtNum(total)}</b></td>` : `<td><b>${fmtNum(total)}</b></td>`}</tr>
+        </tbody>
+      </table>
+    </div>`;
+
+  const body = `${statsHtml}<div class="power-print-grid">${hallsHtml}${totalCard}</div>`;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES — قوة السهر', `${isRange ? `من ${from} إلى ${to}` : `يوم ${from}`}${hall!=='__ALL__' ? ' — '+hall : ' — كل الصالات'}`, body);
   document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode', 'hp-compact-print');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print');
+  }, 800);
 }
 
 bootApp();
