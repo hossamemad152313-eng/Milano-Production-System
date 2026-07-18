@@ -2232,6 +2232,14 @@ function getLineTargetProduction(hall, from, to, lineNum){
   const line = (latest.lines||[]).find(l => l.line===lineNum);
   return line ? (line.lineTarget||0) : null;
 }
+function getLineSupervisor(hall, from, to, lineNum){
+  if(!hall || !from || !to) return null;
+  const plans = TARGET_PLANS.filter(p => p.hall===hall && p.from<=to && p.to>=from);
+  if(!plans.length) return null;
+  const latest = plans.reduce((a,b) => (b.from > a.from ? b : a));
+  const line = (latest.lines||[]).find(l => l.line===lineNum);
+  return line && line.supervisor ? line.supervisor : null;
+}
 function applyJardTargetAutofill(hall){
   if(editingJardSessionId!==null) return;
   const from = document.getElementById('jard-from')?.value;
@@ -2240,9 +2248,15 @@ function applyJardTargetAutofill(hall){
     const lineNum = (HALL_LINES[hall]||[])[i];
     if(!lineNum) return;
     const el = document.getElementById('jline-target-'+lid);
-    if(!el || el.value.trim() !== '') return;
-    const t = getLineTargetProduction(hall, from, to, lineNum);
-    if(t!==null) el.value = t;
+    if(el && el.value.trim() === ''){
+      const t = getLineTargetProduction(hall, from, to, lineNum);
+      if(t!==null) el.value = t;
+    }
+    const supEl = document.getElementById('jline-supervisor-'+lid);
+    if(supEl && supEl.value.trim() === ''){
+      const s = getLineSupervisor(hall, from, to, lineNum);
+      if(s) supEl.value = s;
+    }
   });
 }
 
