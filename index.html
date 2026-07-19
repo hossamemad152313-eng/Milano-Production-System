@@ -2891,10 +2891,13 @@ function renderJardDashboardFilters(){
       </div>
       <button class="apply-btn" onclick="applyJardFilter()">اعرض النتيجة</button>
       <div class="grid2 full">
-        <button class="apply-btn" style="margin-top:0;background:#3A4257;" onclick="window.print()">🖨️ طباعة (اللي ظاهر دلوقتي)</button>
+        <button class="apply-btn" style="margin-top:0;background:#3A4257;" onclick="printJardHallDetail()">🖨️ طباعة جرد الصالة المحددة</button>
+        <button class="apply-btn" style="margin-top:0;background:#1D2433;" onclick="printJardAllHallsTotals()">🖨️ طباعة إجمالي كل الصالات</button>
+      </div>
+      <div class="grid2 full">
         ${currentUser.role==='admin' || currentUser.role==='headdept' ? `<button class="apply-btn" style="margin-top:0;background:#2E6B48;" onclick="exportJardExcel()">📥 تصدير Excel</button>` : ''}
       </div>
-      <div class="data-note">لو عايز تطبع كل الصالات، اختار "كل الصالات" فوق. لو عايز صالة لوحدها بس، اختارها من القايمة وبعدين اطبع.</div>
+      <div class="data-note">لو عايز جرد صالة واحدة بالتفصيل (كل خط وإجمالي الصالة)، اختارها من فوق ودوس "طباعة جرد الصالة المحددة". لو عايز إجمالي كل صالة والإجمالي العام لكل الصالات مع بعض، اختار "كل الصالات" ودوس "طباعة إجمالي كل الصالات".</div>
     </div>
     <div id="jard-results"></div>
   `;
@@ -2940,7 +2943,7 @@ function hallTotals(lines){
   const halakPct = t.deliveries ? t.halak/t.deliveries : 0;
   const eslahPct = t.deliveries ? t.eslah/t.deliveries : 0;
   const successPct = 1 - (deficitProductionPct + halakPct + eslahPct);
-  return {...t, deficitProduction, successPct};
+  return {...t, deficitProduction, deficitProductionPct, halakPct, eslahPct, successPct};
 }
 function jardHallBlockHtml(hall, lines, hallManager){
   const t = hallTotals(lines);
@@ -3046,6 +3049,135 @@ function exportJardExcel(){
   const from = document.getElementById('jf-from').value, to = document.getElementById('jf-to').value;
   XLSX.writeFile(wb, `جرد_${from}_الى_${to}.xlsx`);
   showToast('✅ اتصدّر الملف');
+}
+
+/* ---------- طباعة جرد صالة واحدة بالتفصيل (كل خط + إجمالي الصالة) ---------- */
+function printJardHallDetail(){
+  const hall = document.getElementById('jf-hall').value;
+  const from = document.getElementById('jf-from').value;
+  const to = document.getElementById('jf-to').value;
+  if(hall === '__ALL__'){ showToast('⚠️ اختار صالة واحدة بالتحديد فوق الأول (مش "كل الصالات") عشان تطبع تفاصيلها'); return; }
+  if(!window.__jardLines || !window.__jardLines[hall] || !window.__jardLines[hall].length){ showToast('⚠️ مفيش بيانات جرد لصالة ' + hall + ' في الفترة دي'); return; }
+  const lines = window.__jardLines[hall];
+  const t = hallTotals(lines);
+  const rowsHtml = lines.map(l => `
+    <tr>
+      <td><b>خط ${l.line}</b></td>
+      <td>${l.supervisor||'-'}</td>
+      <td>${fmtNum(l.targetProduction)}</td>
+      <td>${fmtNum(l.production)}</td>
+      <td>${fmtNum(l.deficitProduction)}</td>
+      <td>${fmtPct(l.deficitProductionPct)}</td>
+      <td>${fmtMinutes(l.deficitMinutes)}</td>
+      <td>${fmtNum(l.deliveries)}</td>
+      <td>${fmtNum(l.halak)}</td>
+      <td>${fmtPct(l.halakPct)}</td>
+      <td>${fmtNum(l.eslah)}</td>
+      <td>${fmtPct(l.eslahPct)}</td>
+      <td><b>${fmtPct(l.successPct)}</b></td>
+    </tr>`).join('');
+  const bodyHtml = `
+    <table class="target-print-table">
+      <thead>
+        <tr><th colspan="13">${hall}</th></tr>
+        <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th></tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td colspan="2"><b>إجمالي الصالة</b></td>
+          <td><b>${fmtNum(t.targetProduction)}</b></td>
+          <td><b>${fmtNum(t.production)}</b></td>
+          <td><b>${fmtNum(t.deficitProduction)}</b></td>
+          <td><b>${fmtPct(t.deficitProductionPct)}</b></td>
+          <td><b>${fmtMinutes(t.deficitMinutes)}</b></td>
+          <td><b>${fmtNum(t.deliveries)}</b></td>
+          <td><b>${fmtNum(t.halak)}</b></td>
+          <td><b>${fmtPct(t.halakPct)}</b></td>
+          <td><b>${fmtNum(t.eslah)}</b></td>
+          <td><b>${fmtPct(t.eslahPct)}</b></td>
+          <td><b>${fmtPct(t.successPct)}</b></td>
+        </tr>
+      </tbody>
+    </table>`;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(`MILANO SPORT SHOES — جرد ${hall}`, `من ${from} إلى ${to}`, bodyHtml);
+  document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode');
+  window.print();
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode');
+  }, 800);
+}
+
+/* ---------- طباعة إجمالي الجرد لكل الصالات (إجمالي كل صالة + الإجمالي العام) ---------- */
+function printJardAllHallsTotals(){
+  const from = document.getElementById('jf-from').value;
+  const to = document.getElementById('jf-to').value;
+  if(!window.__jardLines || !Object.keys(window.__jardLines).length){ showToast('⚠️ مفيش بيانات جرد تتطبع في الفترة دي'); return; }
+  const hallEntries = Object.entries(window.__jardLines).map(([hall, lines]) => ({hall, totals: hallTotals(lines)}));
+  hallEntries.sort((a,b)=> b.totals.successPct - a.totals.successPct);
+  const grand = hallEntries.reduce((g,h)=>({
+    targetProduction: g.targetProduction + h.totals.targetProduction,
+    production: g.production + h.totals.production,
+    deficitProduction: g.deficitProduction + h.totals.deficitProduction,
+    deliveries: g.deliveries + h.totals.deliveries,
+    halak: g.halak + h.totals.halak,
+    eslah: g.eslah + h.totals.eslah,
+    deficitMinutes: g.deficitMinutes + h.totals.deficitMinutes
+  }), {targetProduction:0, production:0, deficitProduction:0, deliveries:0, halak:0, eslah:0, deficitMinutes:0});
+  const grandDeficitPct = grand.targetProduction ? grand.deficitProduction/grand.targetProduction : 0;
+  const grandHalakPct = grand.deliveries ? grand.halak/grand.deliveries : 0;
+  const grandEslahPct = grand.deliveries ? grand.eslah/grand.deliveries : 0;
+  const grandSuccessPct = 1 - (grandDeficitPct + grandHalakPct + grandEslahPct);
+
+  const rowsHtml = hallEntries.map(h => `
+    <tr>
+      <td><b>${h.hall}</b></td>
+      <td>${fmtNum(h.totals.targetProduction)}</td>
+      <td>${fmtNum(h.totals.production)}</td>
+      <td>${fmtNum(h.totals.deficitProduction)}</td>
+      <td>${fmtPct(h.totals.deficitProductionPct)}</td>
+      <td>${fmtMinutes(h.totals.deficitMinutes)}</td>
+      <td>${fmtNum(h.totals.deliveries)}</td>
+      <td>${fmtNum(h.totals.halak)}</td>
+      <td>${fmtPct(h.totals.halakPct)}</td>
+      <td>${fmtNum(h.totals.eslah)}</td>
+      <td>${fmtPct(h.totals.eslahPct)}</td>
+      <td><b>${fmtPct(h.totals.successPct)}</b></td>
+    </tr>`).join('');
+  const bodyHtml = `
+    <table class="target-print-table">
+      <thead>
+        <tr><th colspan="12">إجمالي كل الصالات</th></tr>
+        <tr><th>الصالة</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th></tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td><b>الإجمالي العام</b></td>
+          <td><b>${fmtNum(grand.targetProduction)}</b></td>
+          <td><b>${fmtNum(grand.production)}</b></td>
+          <td><b>${fmtNum(grand.deficitProduction)}</b></td>
+          <td><b>${fmtPct(grandDeficitPct)}</b></td>
+          <td><b>${fmtMinutes(grand.deficitMinutes)}</b></td>
+          <td><b>${fmtNum(grand.deliveries)}</b></td>
+          <td><b>${fmtNum(grand.halak)}</b></td>
+          <td><b>${fmtPct(grandHalakPct)}</b></td>
+          <td><b>${fmtNum(grand.eslah)}</b></td>
+          <td><b>${fmtPct(grandEslahPct)}</b></td>
+          <td><b>${fmtPct(grandSuccessPct)}</b></td>
+        </tr>
+      </tbody>
+    </table>`;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES — إجمالي الجرد لكل الصالات', `من ${from} إلى ${to}`, bodyHtml);
+  document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode');
+  window.print();
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode');
+  }, 800);
 }
 
 /* ==================================================================
