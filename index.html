@@ -338,6 +338,21 @@
   .ttab input{ width:100%; min-width:60px; padding:5px 4px; border:none; text-align:center; font-size:11px; background:transparent; }
   .ttab input:focus{ background:#FBF2DF; outline:1px solid var(--amber); }
   .ttab tr:nth-child(even){ background:#FAF9F6; }
+  /* ---------- جدول تنفيذ التارجت (خط أوضح وأكبر، مع مسافات معقولة من غير ما نحتاج سحب/swipe) ---------- */
+  .ttab-exec-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; }
+  .ttab-exec{ border-collapse:collapse; width:100%; min-width:0; table-layout:fixed; }
+  .ttab-exec th{ background:var(--amber-dark); color:#fff; font-size:10.5px; font-weight:800; padding:6px 3px; text-align:center; white-space:normal; line-height:1.2; word-break:break-word; }
+  .ttab-exec td{ padding:5px 3px; border-bottom:1px solid var(--line); text-align:center; font-size:11px; font-weight:700; white-space:normal; word-break:break-word; }
+  .ttab-exec td:first-child{ text-align:center; font-size:11px; font-weight:700; color:var(--muted); white-space:normal; word-break:break-word; }
+  .ttab-exec input{ width:100%; min-width:0; padding:4px 2px; border:none; text-align:center; font-size:11px; font-weight:700; background:transparent; }
+  .ttab-exec input:focus{ background:#FBF2DF; outline:1px solid var(--amber); }
+  .ttab-exec .hm-pair{ display:flex; align-items:center; justify-content:center; gap:2px; }
+  .ttab-exec .hm-pair input{ width:26px; flex:0 0 26px; padding:4px 0; }
+  .ttab-exec .hm-pair span{ font-size:10px; color:var(--muted); }
+  .ttab-exec .act-cell{ display:flex; align-items:center; justify-content:center; gap:4px; }
+  .ttab-exec .act-cell input[type="checkbox"]{ width:17px; height:17px; margin:0; }
+  .ttab-exec .act-cell .op-btn{ padding:2px 5px; font-size:11px; }
+  .ttab-exec tr:nth-child(even){ background:#FAF9F6; }
   .pct-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:80px; padding:4px 10px; border-radius:999px; background:#F9F0D8; color:#8A5A12; font-weight:800; font-size:11px; border:1px solid rgba(234,194,121,0.5); }
   .twork-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:8px; }
   .twork-grid input{ padding:6px; font-size:10.5px; border-radius:6px; border:1px solid var(--line); text-align:center; }
@@ -823,6 +838,19 @@ let BASELINES = {}; // { docId: Set(ids) }
 function setBaseline(docId, arr, idKey){
   BASELINES[docId] = new Set(arr.map(e => e[idKey]));
 }
+// طابور حفظ لكل مستند: لو المستخدم علّم على أكتر من أرتيكل (أو عمل أكتر من تعديل) بسرعة ورا
+// بعض، كل نداء لدالة الحفظ كان بيبدأ transaction خاصة بيه فورًا من غير ما ينتظر اللي قبله يخلص،
+// فكانت كل حفظة بتاخد آخر نسخة معروفة عندها وقت ما بدأت هي (مش وقت ما هي فعليًا بتتنفذ)، فالحفظة
+// اللي تخلص بعد كده كانت ممكن تدوس على التعديل اللي حصل بعدها في نفس اللحظة تقريبًا وتضيّعه.
+// هنا بنضمن إن كل حفظة تستنى اللي قبلها يخلص الأول، وبعدين تاخد أحدث نسخة من البيانات وقت
+// ما هي فعليًا بتتنفذ — مش وقت ما اتطلبت.
+let SAVE_QUEUES = {}; // { docId: Promise }
+function queueSave(docId, taskFn){
+  const prev = SAVE_QUEUES[docId] || Promise.resolve();
+  const next = prev.then(taskFn, taskFn);
+  SAVE_QUEUES[docId] = next.catch(()=>{});
+  return next;
+}
 async function transactionalArraySave(docId, localArr, idKey){
   const docRef = db.collection(FS_COLLECTION).doc(docId);
   const baseline = BASELINES[docId] || new Set();
@@ -862,14 +890,24 @@ function startRealtimeSync(){
       if(!snap.exists || !currentUser) return;
       let data;
       try{ data = JSON.parse(snap.data().value); }catch(e){ return; }
-      spec.apply(data);
-      setBaseline(spec.docId, data, spec.idKey);
-      // منعيدش الرسم لو المستخدم دلوقتي بيكتب في حقل إدخال، عشان منقطعش عليه أو نمسح كتابته
+      // منستبدلش البيانات المحلية خالص لو المستخدم دلوقتي بيكتب في حقل إدخال أو لسه واقف
+      // في عنصر جوه الصفحة (زي مربع تعليم اتحطّط منذ لحظات) — عشان لو فيه تعديل لسه
+      // بيتحفظ في الخلفية، نسخة السيرفر القديمة متمسحوش التعديل ده قبل ما يوصل ويتحفظ.
       const activeEl = document.activeElement;
       const mainEl = document.getElementById('main-content');
       const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
       if(isTyping) return;
-      if(spec.tabs.includes(activeTab)) switchTab(activeTab);
+      spec.apply(data);
+      setBaseline(spec.docId, data, spec.idKey);
+      if(spec.tabs.includes(activeTab)){
+        // تنفيذ التارجت بيتحفظ كتير جدًا (كل تعليم أرتيكل)، وتصحيح الأداء ممكن حد يحفظ فيه أي
+        // سجل في أي صالة تانية في أي لحظة — فلو عملنا switchTab عادي هيرجّع فلتر التاريخ/الصالة/
+        // البحث للقيم الافتراضية كل مرة ويوهم المستخدم إنه "اتنقل لفترة تانية" أو "فقد بحثه".
+        // فبنعيد رسم النتائج بس بنفس الفلتر اللي هو واقف عليه من غير ما نلمس خانات الفلتر.
+        if(activeTab === 'targetexec' && document.getElementById('tex-from')) applyTargetExecFilter();
+        else if(activeTab === 'records' && document.getElementById('rec-from')) applyRecordsFilter();
+        else switchTab(activeTab);
+      }
     }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
     realtimeUnsubs.push(unsub);
   });
@@ -880,37 +918,55 @@ function stopRealtimeSync(){
 }
 async function saveEntries(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ ENTRIES = await transactionalArraySave('mlp_entries', ENTRIES, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_entries', async () => {
+    try{ ENTRIES = await transactionalArraySave('mlp_entries', ENTRIES, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 async function saveOperators(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ OPERATORS = await transactionalArraySave('mlp_operators', OPERATORS, 'c'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_operators', async () => {
+    try{ OPERATORS = await transactionalArraySave('mlp_operators', OPERATORS, 'c'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 async function saveUsers(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
-  try{ USERS = await transactionalArraySave('mlp_users', USERS, 'user'); return true; }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); return false; }
+  let ok = true;
+  await queueSave('mlp_users', async () => {
+    try{ USERS = await transactionalArraySave('mlp_users', USERS, 'user'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); ok = false; }
+  });
+  return ok;
 }
 
 
 async function saveJard(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ JARD = await transactionalArraySave('mlp_jard', JARD, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_jard', async () => {
+    try{ JARD = await transactionalArraySave('mlp_jard', JARD, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 async function saveTargetPlans(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ TARGET_PLANS = await transactionalArraySave('mlp_targets', TARGET_PLANS, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_targets', async () => {
+    try{ TARGET_PLANS = await transactionalArraySave('mlp_targets', TARGET_PLANS, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 async function saveTargetExec(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ TARGET_EXEC = await transactionalArraySave('mlp_targetexec', TARGET_EXEC, 'planId'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_targetexec', async () => {
+    try{ TARGET_EXEC = await transactionalArraySave('mlp_targetexec', TARGET_EXEC, 'planId'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 async function saveHallPowerToDb(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ HALL_POWER = await transactionalArraySave('mlp_hallpower', HALL_POWER, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_hallpower', async () => {
+    try{ HALL_POWER = await transactionalArraySave('mlp_hallpower', HALL_POWER, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 async function saveNightPowerToDb(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
-  try{ NIGHT_POWER = await transactionalArraySave('mlp_nightpower', NIGHT_POWER, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  await queueSave('mlp_nightpower', async () => {
+    try{ NIGHT_POWER = await transactionalArraySave('mlp_nightpower', NIGHT_POWER, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
 }
 
 /* ---------------- LOGIN ---------------- */
@@ -2374,6 +2430,10 @@ function fmtMinutes(m){
   const h = Math.floor(abs/60), mm = abs%60;
   return `${sign}${h}:${String(mm).padStart(2,'0')}`;
 }
+function fmtSignedMinutes(m){
+  const r = Math.round(m);
+  return r > 0 ? '+'+fmtMinutes(r) : fmtMinutes(r);
+}
 function jardCanEdit(){ return currentUser.role === 'admin' || currentUser.role === 'jardentry'; }
 
 function renderJardRegTab(){
@@ -3434,7 +3494,7 @@ function printTargetDetails(){
       const floorDetail = (l.floorWork||[]).map(w=>`${w.article||'-'} (${w.qty||0})`).join('، ');
       const lineWorkDetail = (l.lineWork||[]).map(w=>`${w.article||'-'} (${w.qty||0})`).join('، ');
       return `
-        <div class="power-print-card target-card">
+        <div class="power-print-card target-card" style="flex:none;max-width:none;width:100%;">
           <table class="print-onepage target-print-table">
             <thead>
               <tr><th colspan="4">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
@@ -3453,7 +3513,7 @@ function printTargetDetails(){
     return `
       <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
       <h3>الفترة: ${p.from} إلى ${p.to}${p.hallTargetDeliveries? ` — إجمالي تارجت التسليم: ${p.hallTargetDeliveries}` : ''}</h3>
-      <div class="power-print-grid">${linesHtml}</div>
+      <div class="power-print-grid" style="display:grid;grid-template-columns:repeat(${lineCount}, 1fr);align-items:start;">${linesHtml}</div>
     `;
   }).join('<div style="height:2px;background:#E7DCCF;margin:8px 0;"></div>');
 
@@ -3546,10 +3606,9 @@ function applyTargetFilter(){
    ============ العجز = مجموع وقت الأرتيكلات اللي لسه معلّمتش عليها (أصلية أو متبقية).
    ================================================================== */
 function execCanEdit(){
+  // تعليم الأرتيكلات في تنفيذ التارجت مقصور على حسام عماد بس — أي حد تاني يقدر يشوف بس من غير تعديل
   if(!currentUser) return false;
-  if(currentUser.role === 'admin') return true;
-  if(currentUser.role === 'manager') return true; // مدير الصالة يعلّم على صالته بس (متقيّد أصلاً باختيار الصالة)
-  return false;
+  return currentUser.user === 'Hossam.Emad';
 }
 function newExecItemId(){ return 'i'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
@@ -3562,31 +3621,53 @@ function getOrInitPlanExec(plan){
     if(!le){ le = {line:l.line, items:[]}; pe.lines.push(le); changed = true; }
     (l.rows||[]).forEach((r, idx) => {
       if(!(r.article || r.qty || r.h || r.m)) return;
-      const exists = le.items.some(it => it.origIdx === idx);
-      if(!exists){
+      const existing = le.items.find(it => it.origIdx === idx);
+      if(!existing){
         le.items.push({
-          id: newExecItemId(), origIdx: idx, parentId: null,
+          id: newExecItemId(), origIdx: idx,
           article: r.article||'', qty: r.qty||'', h: Number(r.h)||0, m: Number(r.m)||0,
-          done:false, actualH:null, actualM:null, doneAt:null, doneBy:null, splitChildId:null
+          baseTime: '',
+          done:false, actualH:null, actualM:null, doneAt:null, doneBy:null
         });
         changed = true;
+      } else if(!existing.done){
+        // الأرتيكل ده لسه ما اتعلّمش عليه، فمفيش مشكلة نحدّث المستهدف بتاعه لو الخطة الأصلية
+        // اتعدّلت بعد ما هو اتسجّل — عشان تنفيذ التارجت يفضل متابع لآخر تعديل في الخطة.
+        // الأرتيكلات اللي خلصت (done) بنسيبها زي ما هي عشان السجل التاريخي مايتغيرش.
+        const newArticle = r.article||'', newQty = r.qty||'', newH = Number(r.h)||0, newM = Number(r.m)||0;
+        if(existing.article!==newArticle || existing.qty!==newQty || existing.h!==newH || existing.m!==newM){
+          existing.article = newArticle; existing.qty = newQty; existing.h = newH; existing.m = newM;
+          changed = true;
+        }
       }
     });
   });
   if(changed) saveTargetExec();
   return pe;
 }
+function execItemAmounts(it){
+  // بيرجع مقدار الوقت اللي اتحسب "اتعلّم عليه" ومقدار اللي "متبقي/عجز" للأرتيكل ده، ولو
+  // فيه وقت أساسي مسجل (baseTime)، بيستخدم المتبقي الحقيقي المتوقع (الأساسي - المستهدف)
+  // كمرجع، عشان لو الوقت المطلوب في الجديد أقل من المتوقع، يظهر ده كزيادة/شطارة (عجز سالب)
+  // مش كعجز كامل بالمطلوب زي ما هو، وده بينعكس على إجمالي العجز في الخط/الصالة مش بس على شكل الرقم لوحده.
+  const schedMin = (Number(it.h)||0)*60 + (Number(it.m)||0);
+  if(!it.done) return {schedMin, execMin:0, pendMin:schedMin, diffMin:null, usingBase:false};
+  const reqMin = (it.actualH!=null ? Number(it.actualH) : 0)*60 + (it.actualM!=null ? Number(it.actualM) : 0);
+  const baseMin = parseHMToMinutes(it.baseTime);
+  if(baseMin > 0){
+    const expectedRemaining = baseMin - schedMin;
+    const diffMin = reqMin - expectedRemaining;
+    return {schedMin, execMin: schedMin - diffMin, pendMin: diffMin, diffMin, usingBase:true};
+  }
+  const diffMin = schedMin - reqMin;
+  return {schedMin, execMin: diffMin, pendMin: reqMin, diffMin, usingBase:false};
+}
 function execLineTotals(execLine){
+  // execMin = اللي اتعلّم عليه فعلاً، pendMin = العجز/المتبقي (ممكن يبقى سالب لو فيه زيادة/شطارة مسجلة بالأساسي)
   let execMin = 0, pendMin = 0;
   (execLine.items||[]).forEach(it => {
-    const schedMin = (Number(it.h)||0)*60 + (Number(it.m)||0);
-    if(it.done){
-      const aH = it.actualH!=null ? Number(it.actualH) : Number(it.h)||0;
-      const aM = it.actualM!=null ? Number(it.actualM) : Number(it.m)||0;
-      execMin += aH*60+aM;
-    } else {
-      pendMin += schedMin;
-    }
+    const a = execItemAmounts(it);
+    execMin += a.execMin; pendMin += a.pendMin;
   });
   const totalMin = execMin + pendMin;
   return {
@@ -3600,29 +3681,42 @@ function renderExecLineCard(plan, l, execLine){
   const t = execLineTotals(execLine);
   const rowsHtml = (execLine.items||[]).map(it => {
     const schedH = it.h||0, schedM = it.m||0;
-    const defAH = it.actualH!=null ? it.actualH : schedH;
-    const defAM = it.actualM!=null ? it.actualM : schedM;
-    const isSplit = !!it.parentId;
+    const schedMin = schedH*60+schedM;
+    const defAH = it.actualH!=null ? it.actualH : 0;
+    const defAM = it.actualM!=null ? it.actualM : 0;
     const statusBadge = it.done
       ? `<span style="color:var(--green);font-weight:800;">✅ تم</span>`
-      : `<span style="color:${isSplit?'var(--red)':'var(--amber-dark)'};font-weight:800;">⏳ ${isSplit?'متبقي':'لسه'}</span>`;
+      : `<span style="color:var(--amber-dark);font-weight:800;">⏳ لسه</span>`;
+    let diffCell = '-';
+    if(it.done){
+      const a = execItemAmounts(it);
+      const diffColor = a.usingBase
+        ? (a.diffMin < 0 ? 'var(--green)' : (a.diffMin > 0 ? 'var(--red)' : 'var(--muted)'))
+        : (a.diffMin > 0 ? 'var(--green)' : (a.diffMin < 0 ? 'var(--red)' : 'var(--muted)'));
+      const baseMark = a.usingBase ? `<span title="محسوبة بناءً على الوقت الأساسي (${it.baseTime})" style="font-size:9px;">⚡</span>` : '';
+      diffCell = `<b style="color:${diffColor};">${fmtSignedMinutes(a.diffMin)}</b>${baseMark}`;
+    }
     return `
       <tr data-item="${it.id}">
         <td style="text-align:right;">
-          ${canEdit && !it.done ? `<input type="text" value="${it.article||''}" style="width:88px;" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','article',this.value)">` : `<b>${it.article||'-'}</b>${isSplit?' <span style="font-size:8.5px;color:var(--muted);">(متبقي)</span>':''}`}
+          ${canEdit && !it.done ? `<input type="text" value="${it.article||''}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','article',this.value)">` : `<b>${it.article||'-'}</b>`}
         </td>
-        <td>${canEdit && !it.done ? `<input type="text" value="${it.qty||''}" style="width:50px;" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','qty',this.value)">` : (it.qty||'-')}</td>
-        <td>${canEdit && !it.done ? `<input type="number" value="${schedH}" style="width:38px;" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','h',this.value)"> : <input type="number" value="${schedM}" style="width:38px;" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','m',this.value)">` : `${schedH}:${String(schedM).padStart(2,'0')}`}</td>
+        <td>${canEdit && !it.done ? `<input type="text" value="${it.qty||''}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','qty',this.value)">` : (it.qty||'-')}</td>
+        <td>${canEdit && !it.done ? `<input type="text" value="${it.baseTime||''}" placeholder="مثال 6:50" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','baseTime',this.value)">` : (it.baseTime||'-')}</td>
+        <td>${canEdit && !it.done ? `<div class="hm-pair"><input type="number" value="${schedH}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','h',this.value)"><span>:</span><input type="number" value="${schedM}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','m',this.value)"></div>` : `${schedH}:${String(schedM).padStart(2,'0')}`}</td>
         <td>
-          ${!it.done ? `<input type="number" id="texec-ah-${it.id}" value="${defAH}" style="width:38px;" min="0" ${canEdit?'':'disabled'}> : <input type="number" id="texec-am-${it.id}" value="${defAM}" style="width:38px;" min="0" max="59" ${canEdit?'':'disabled'}>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
+          ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
         </td>
+        <td>${diffCell}</td>
         <td>${statusBadge}</td>
         <td>
-          ${canEdit ? `<input type="checkbox" ${it.done?'checked':''} onchange="toggleExecItem('${plan.id}',${l.line},'${it.id}',this)">` : ''}
-          ${canEdit && !it.done ? `<button class="op-btn" title="حذف" onclick="deleteExecItem('${plan.id}',${l.line},'${it.id}')">🗑️</button>` : ''}
+          <div class="act-cell">
+            ${canEdit ? `<input type="checkbox" ${it.done?'checked':''} onchange="toggleExecItem('${plan.id}',${l.line},'${it.id}',this)">` : ''}
+            ${canEdit && !it.done ? `<button class="op-btn" title="حذف" onclick="deleteExecItem('${plan.id}',${l.line},'${it.id}')">🗑️</button>` : ''}
+          </div>
         </td>
       </tr>`;
-  }).join('') || '<tr><td colspan="6">مفيش أرتيكلات مسجلة للخط ده في خطة التارجت</td></tr>';
+  }).join('') || '<tr><td colspan="8">مفيش أرتيكلات مسجلة للخط ده في خطة التارجت</td></tr>';
 
   return `
     <div class="jline-result-card">
@@ -3630,17 +3724,21 @@ function renderExecLineCard(plan, l, execLine){
         <div><div class="jr-line">خط ${l.line}</div><div class="jr-sup">مشرف الخط: ${l.supervisor||'-'}</div></div>
         <div class="jr-success" style="background:${t.deficitPct>0.15?'#FBE1DC':'#DFF3E6'};color:${t.deficitPct>0.15?'var(--red)':'var(--green)'};">${fmtPct(t.completionPct)}</div>
       </div>
-      <div class="ttab-wrap">
-        <table class="ttab">
-          <thead><tr><th>أرتيكل</th><th>العدد</th><th>المستهدف</th><th>الفعلي</th><th>الحالة</th><th>✔️</th></tr></thead>
+      <div class="ttab-exec-wrap">
+        <table class="ttab-exec">
+          <colgroup>
+            <col style="width:15%"><col style="width:8%"><col style="width:13%"><col style="width:14%">
+            <col style="width:14%"><col style="width:12%"><col style="width:13%"><col style="width:11%">
+          </colgroup>
+          <thead><tr><th>أرتيكل</th><th>عدد</th><th>أساسي</th><th>مستهدف</th><th>جديد</th><th>فرق</th><th>الحالة</th><th>✔️</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>
       ${canEdit ? `<button class="op-btn" style="font-size:11px;" onclick="addManualExecItem('${plan.id}',${l.line})">➕ أرتيكل يدوي</button>` : ''}
       <div class="jr-metrics" style="margin-top:8px;">
         <div class="wm"><div class="l">تارجت الخط</div><div class="v">${fmtMinutes(t.totalMin)}</div></div>
-        <div class="wm"><div class="l">المنفّذ</div><div class="v" style="color:var(--green);">${fmtMinutes(t.execMin)}</div></div>
-        <div class="wm"><div class="l">العجز</div><div class="v" style="color:var(--red);">${fmtMinutes(t.pendMin)}</div><div class="p">${fmtPct(t.deficitPct)}</div></div>
+        <div class="wm"><div class="l">إجمالي اللي اتعلّم عليه</div><div class="v" style="color:var(--green);">${fmtMinutes(t.execMin)}</div></div>
+        <div class="wm"><div class="l">العجز (المتبقي)</div><div class="v" style="color:var(--red);">${fmtMinutes(t.pendMin)}</div><div class="p">${fmtPct(t.deficitPct)}</div></div>
       </div>
     </div>`;
 }
@@ -3673,7 +3771,7 @@ function execPlanInnerHtml(plan, pe){
       <h4><span>إجماليات تنفيذ الصالة</span></h4>
       <div class="jr-metrics">
         <div class="wm"><div class="l">التارجت</div><div class="v">${fmtMinutes(hallTotal)}</div></div>
-        <div class="wm"><div class="l">المنفّذ</div><div class="v" style="color:var(--green);">${fmtMinutes(hallExecMin)}</div></div>
+        <div class="wm"><div class="l">إجمالي اللي اتعلّم عليه</div><div class="v" style="color:var(--green);">${fmtMinutes(hallExecMin)}</div></div>
         <div class="wm"><div class="l">العجز</div><div class="v" style="color:var(--red);">${fmtMinutes(hallPendMin)}</div><div class="p">${fmtPct(hallDeficitPct)}</div></div>
       </div>
     </div>
@@ -3703,38 +3801,20 @@ function toggleExecItem(planId, lineNum, itemId, cbEl){
   if(cbEl.checked){
     const ahEl = document.getElementById('texec-ah-'+itemId);
     const amEl = document.getElementById('texec-am-'+itemId);
-    let actualH = ahEl ? (Number(ahEl.value)||0) : (it.h||0);
-    let actualM = amEl ? (Number(amEl.value)||0) : (it.m||0);
+    const reqH = ahEl ? (Number(ahEl.value)||0) : 0;
+    const reqM = amEl ? (Number(amEl.value)||0) : 0;
     const schedMin = (Number(it.h)||0)*60 + (Number(it.m)||0);
-    let actualMin = actualH*60+actualM;
-    if(actualMin > schedMin){ actualMin = schedMin; actualH = it.h||0; actualM = it.m||0; }
-    it.done = true; it.actualH = actualH; it.actualM = actualM;
+    const reqMin = reqH*60+reqM;
+    it.done = true; it.actualH = reqH; it.actualM = reqM;
     it.doneAt = new Date().toISOString(); it.doneBy = currentUser.user;
 
-    const remaining = schedMin - actualMin;
-    if(remaining > 0){
-      const child = {
-        id:newExecItemId(), origIdx:null, parentId:it.id,
-        article: it.article, qty:'', h: Math.floor(remaining/60), m: remaining%60,
-        done:false, actualH:null, actualM:null, doneAt:null, doneBy:null, splitChildId:null
-      };
-      le.items.splice(le.items.indexOf(it)+1, 0, child);
-      it.splitChildId = child.id;
-      showToast(`⚠️ اتسجل ${fmtMinutes(actualMin)} منفّذ من "${it.article}" — والباقي ${fmtMinutes(remaining)} اتحط كأرتيكل جديد لحد ما يتشتغل`);
-    } else {
-      showToast('✅ اتعلّم الأرتيكل تمام');
-    }
+    const diffMin = schedMin - reqMin;
+    if(reqMin === 0) showToast('✅ اتعلّم الأرتيكل بالكامل — مفيش حاجة متبقية مطلوبة');
+    else if(diffMin > 0) showToast(`✅ اتعلّم منه ${fmtMinutes(diffMin)} — لسه متبقي ${fmtMinutes(reqMin)} مطلوب في الجديد`);
+    else if(diffMin === 0) showToast('⏳ اتسجّل — المطلوب في الجديد لسه زي المستهدف بالظبط');
+    else showToast(`⚠️ المطلوب في الجديد زاد عن المستهدف الأصلي بـ ${fmtMinutes(-diffMin)}`);
   } else {
-    if(it.splitChildId){
-      const child = le.items.find(x=>x.id===it.splitChildId);
-      if(child && !child.done && !child.splitChildId){
-        le.items = le.items.filter(x=>x.id!==child.id);
-      } else if(child){
-        showToast('⚠️ مينفعش تلغي التعليم لإن الباقي المتبقي اتشتغل فيه بالفعل — عدّل على الأرتيكل المتبقي نفسه');
-        cbEl.checked = true; return;
-      }
-    }
-    it.done = false; it.actualH = null; it.actualM = null; it.doneAt = null; it.doneBy = null; it.splitChildId = null;
+    it.done = false; it.actualH = null; it.actualM = null; it.doneAt = null; it.doneBy = null;
   }
   saveTargetExec();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
@@ -3756,7 +3836,6 @@ function deleteExecItem(planId, lineNum, itemId){
   const it = le.items.find(x=>x.id===itemId);
   if(it && it.done){ showToast('⚠️ مينفعش تمسح أرتيكل اتعلّم عليه بالفعل'); return; }
   le.items = le.items.filter(x=>x.id!==itemId);
-  le.items.forEach(x=>{ if(x.parentId===itemId) x.parentId=null; });
   saveTargetExec();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
@@ -3764,7 +3843,7 @@ function addManualExecItem(planId, lineNum){
   const pe = TARGET_EXEC.find(x=>x.planId===planId);
   const le = pe && pe.lines.find(x=>x.line===lineNum);
   if(!le) return;
-  le.items.push({id:newExecItemId(), origIdx:null, parentId:null, article:'', qty:'', h:0, m:0, done:false, actualH:null, actualM:null, doneAt:null, doneBy:null, splitChildId:null});
+  le.items.push({id:newExecItemId(), origIdx:null, article:'', qty:'', h:0, m:0, baseTime:'', done:false, actualH:null, actualM:null, doneAt:null, doneBy:null});
   saveTargetExec();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
@@ -3785,7 +3864,7 @@ function renderTargetExecTab(){
       <button class="apply-btn" onclick="applyTargetExecFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3A4257;" onclick="printTargetExecDetails()">🖨️ طباعة تفاصيل التنفيذ والعجز</button>
     </div>
-    <div class="data-note" style="margin-bottom:8px;">✅ علّم على الأرتيكل لما يتشتغل بالكامل. لو اشتغل جزء بس من وقته، غيّر خانة "الفعلي" قبل ما تعلّم، والباقي هيتحط تلقائي كأرتيكل جديد "متبقي" لحد ما يتشتغل.</div>
+    <div class="data-note" style="margin-bottom:8px;">✅ لو الأرتيكل اتشتغل بالكامل، علّم عليه من غير ما تغيّر حاجة. لو لسه فاضل منه شغل لجولة جديدة، قبل ما تعلّم اكتب في خانة "المطلوب في الجديد" الوقت المتبقي المطلوب، وإحنا هنحسب "الفرق" (المستهدف الأصلي ناقص المطلوب في الجديد) تلقائي جنب نفس الأرتيكل من غير ما يتنسخ سطر جديد.</div>
     <div id="texec-results"></div>
   `;
   applyTargetExecFilter();
@@ -3821,22 +3900,26 @@ function printTargetExecDetails(){
   const body = plans.map(p => {
     const pe = getOrInitPlanExec(p);
     let hallExecMin=0, hallPendMin=0;
+    // شبكة الخطوط بقت CSS Grid بعدد أعمدة = عدد خطوط الصالة بالظبط (مش flex بنسبة مئوية).
+    // الطريقة دي بتضمن إن عرض الصفحة يتوزع بالتساوي 100% مهما كان عدد الخطوط (4 أو 5)، من غير
+    // ما نصطدم بقاعدة max-width الثابتة (20%) الموجودة في الـ CSS الأساسي لكارت الخط.
+    const lineCount = (p.lines||[]).length || 1;
     const linesHtml = (p.lines||[]).map(l => {
       const le = pe.lines.find(x=>x.line===l.line) || {line:l.line, items:[]};
       const t = execLineTotals(le);
       hallExecMin += t.execMin; hallPendMin += t.pendMin;
       const rows = le.items || [];
       return `
-        <div class="power-print-card target-card">
+        <div class="power-print-card target-card" style="flex:none;max-width:none;width:100%;">
           <table class="print-onepage target-print-table">
             <thead>
-              <tr><th colspan="4">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
-              <tr><th>أرتيكل</th><th>مستهدف</th><th>فعلي</th><th>الحالة</th></tr>
+              <tr><th colspan="5">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
+              <tr><th>أرتيكل</th><th>مستهدف</th><th>المطلوب في الجديد</th><th>الفرق</th><th>الحالة</th></tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="4">لا يوجد</td></tr>'}
-              <tr class="total-row"><td colspan="2">إجمالي المنفّذ</td><td colspan="2"><b>${fmtMinutes(t.execMin)}</b></td></tr>
-              <tr class="total-row"><td colspan="2">إجمالي العجز</td><td colspan="2"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
+              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtSignedMinutes(((r.h||0)*60+(r.m||0)) - ((r.actualH||0)*60+(r.actualM||0))) : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="5">لا يوجد</td></tr>'}
+              <tr class="total-row"><td colspan="2">إجمالي اللي اتعلّم عليه</td><td colspan="3"><b>${fmtMinutes(t.execMin)}</b></td></tr>
+              <tr class="total-row"><td colspan="2">إجمالي العجز</td><td colspan="3"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
             </tbody>
           </table>
         </div>`;
@@ -3846,7 +3929,7 @@ function printTargetExecDetails(){
     return `
       <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
       <h3>الفترة: ${p.from} إلى ${p.to} — إجمالي عجز الصالة: ${fmtMinutes(hallPendMin)} (${fmtPct(hallDeficitPct)})</h3>
-      <div class="power-print-grid">${linesHtml}</div>
+      <div class="power-print-grid" style="display:grid;grid-template-columns:repeat(${lineCount}, 1fr);align-items:start;">${linesHtml}</div>
     `;
   }).join('<div style="height:2px;background:#E7DCCF;margin:8px 0;"></div>');
 
