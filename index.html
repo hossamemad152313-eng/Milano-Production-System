@@ -2186,6 +2186,9 @@ function renderRecordsTab(){
         <div><label>الصالة</label><select id="rec-hall"><option value="__ALL__">كل الصالات</option>${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select></div>
         <div><label>الكود / الاسم</label><input type="text" id="rec-search" placeholder="دور بالكود أو الاسم"></div>
       </div>
+      <label class="perm-item" style="margin-top:8px;">
+        <input type="checkbox" id="rec-noname-only" onchange="applyRecordsFilter()">🚫 عرض الأكواد اللي بدون اسم فقط
+      </label>
       <button class="apply-btn" onclick="applyRecordsFilter()">بحث</button>
     </div>
     <div id="records-list"></div>
@@ -2197,13 +2200,16 @@ function applyRecordsFilter(){
   const to = document.getElementById('rec-to').value;
   const hall = document.getElementById('rec-hall').value;
   const q = document.getElementById('rec-search').value.trim();
+  const nonameOnly = document.getElementById('rec-noname-only')?.checked;
   let rows = ENTRIES.filter(e => e.d >= from && e.d <= to);
   if(hall !== '__ALL__') rows = rows.filter(e => e.h === hall);
   if(q) rows = rows.filter(e => (e.n||'').includes(q) || String(e.c).includes(q));
+  if(nonameOnly) rows = rows.filter(e => !e.n || !e.n.trim());
   rows.sort((a,b)=> (b.d+String(b.l)).localeCompare(a.d+String(a.l)));
   const list = document.getElementById('records-list');
-  if(!rows.length){ list.innerHTML = '<div class="empty-state">مفيش سجلات مطابقة.</div>'; return; }
-  list.innerHTML = rows.slice(0,300).map(recordRowHtml).join('') +
+  if(!rows.length){ list.innerHTML = `<div class="empty-state">${nonameOnly ? '🎉 مفيش ولا كود بدون اسم دلوقتي.' : 'مفيش سجلات مطابقة.'}</div>`; return; }
+  const countNote = nonameOnly ? `<div class="data-note" style="margin-bottom:8px;">في ${rows.length} كود لسه محتاج تسجيل اسم — اضغط ✏️ جنب أي واحد وسجل اسمه.</div>` : '';
+  list.innerHTML = countNote + rows.slice(0,300).map(recordRowHtml).join('') +
     (rows.length>300 ? `<div class="data-note">في ${rows.length-300} سجل تاني، ضيق البحث أكتر عشان تشوفهم</div>` : '');
 }
 function recordRowHtml(e){
@@ -2224,8 +2230,11 @@ function recordRowHtml(e){
 function startEditRecord(id){
   const e = ENTRIES.find(x=>x.id===id);
   if(!e) return;
+  const hasName = !!(e.n && e.n.trim());
   document.getElementById('rec-edit-'+id).innerHTML = `
+    ${!hasName ? `<div class="data-note" style="margin-bottom:6px;">⚠️ الكود ده لسه بدون اسم — اكتب الاسم تحت وسيبه يتحفظ في جدول العاملين تلقائي.</div>` : ''}
     <div class="record-edit-grid">
+      <div><label>الاسم</label><input type="text" id="edit-n-${id}" value="${e.n||''}" placeholder="اكتب الاسم هنا"></div>
       <div><label>تارجت</label><input type="number" id="edit-t-${id}" value="${e.t}"></div>
       <div><label>إنتاج</label><input type="number" id="edit-p-${id}" value="${e.p}"></div>
       <div><label>هالك</label><input type="number" id="edit-hk-${id}" value="${e.hk}"></div>
@@ -2238,13 +2247,26 @@ function startEditRecord(id){
 async function commitEditRecord(id){
   const e = ENTRIES.find(x=>x.id===id);
   if(!e) return;
+  const newName = (document.getElementById('edit-n-'+id).value || '').trim();
+  e.n = newName;
   e.t = Number(document.getElementById('edit-t-'+id).value)||0;
   e.p = Number(document.getElementById('edit-p-'+id).value)||0;
   e.hk = Number(document.getElementById('edit-hk-'+id).value)||0;
   e.es = Number(document.getElementById('edit-es-'+id).value)||0;
   e.at = e.at || {};
   AATAL_KEYS.forEach(k => e.at[k] = Number(document.getElementById('edit-at-'+id+'-'+k).value)||0);
+  let operatorsChanged = false;
+  if(newName){
+    const op = OPERATORS.find(o => Number(o.c) === Number(e.c));
+    if(op){
+      if(op.n !== newName){ op.n = newName; operatorsChanged = true; }
+    } else {
+      OPERATORS.push({c: Number(e.c), n: newName, a:true, hd: null});
+      operatorsChanged = true;
+    }
+  }
   await saveEntries();
+  if(operatorsChanged) await saveOperators();
   showToast('✅ اتعدّل السجل');
   applyRecordsFilter();
 }
