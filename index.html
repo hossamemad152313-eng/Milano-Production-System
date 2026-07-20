@@ -1147,8 +1147,8 @@ function renderReportTab(){
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="f-from" value="${minDate}" min="${minDate}" max="${maxDate}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="f-to" value="${maxDate}" min="${minDate}" max="${maxDate}"></div>
+        <div><label>من تاريخ</label><input type="date" id="f-from" min="${minDate}" max="${maxDate}"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="f-to" min="${minDate}" max="${maxDate}"></div>
       </div>
       <div class="grid2 full">
         <div><label>الصالة</label><select id="f-hall" ${reportHallLocked?'disabled':''}>${hallOptions}</select></div>
@@ -1169,11 +1169,10 @@ function renderReportTab(){
       </div>
       <div id="worker-search-result"></div>
     </div>
-    <div id="report-results"></div>
+    <div id="report-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف تقييم الأداء.</div></div>
   `;
   document.getElementById('f-hall').addEventListener('change', updateLineOptions);
   updateLineOptions();
-  applyFilters();
 }
 function searchWorkerByCode(){
   const code = document.getElementById('worker-search-code').value;
@@ -1244,8 +1243,14 @@ function groupByWorker(rows){
 function pctClass(p){ if(p >= 0.95) return 'pct-good'; if(p >= 0.8) return 'pct-mid'; return 'pct-bad'; }
 
 function applyFilters(){
-  const rows = currentFilteredRows();
   const box = document.getElementById('report-results');
+  const fromVal = document.getElementById('f-from').value;
+  const toVal = document.getElementById('f-to').value;
+  if(!fromVal || !toVal){
+    box.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف تقييم الأداء.</div>';
+    return;
+  }
+  const rows = currentFilteredRows();
   if(!rows.length){ box.innerHTML = `<div class="empty-state">مفيش بيانات في الفترة أو الفلتر ده.</div>`; return; }
 
   const agg = aggregate(rows);
@@ -1502,6 +1507,7 @@ function printBestPerf(){
   const from = document.getElementById('bf-from').value;
   const to = document.getElementById('bf-to').value;
   const hall = document.getElementById('bf-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const rows = currentBestPerfFilteredData().filter(r => r.hasData);
   if(!rows.length){ showToast('⚠️ مفيش بيانات للطباعة'); return; }
   const rankedDelivery = [...rows].filter(r => r.targetDeliveries > 0).sort((a,b) => b.performancePct - a.performancePct);
@@ -1575,6 +1581,7 @@ function printBestPerfDeficit(){
   const from = document.getElementById('bf-from').value;
   const to = document.getElementById('bf-to').value;
   const hall = document.getElementById('bf-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const deficitRows = computeLineDeficitPerformance(from, to);
   if(!deficitRows.length){ showToast('⚠️ مفيش بيانات لنسبة العجز للطباعة'); return; }
   const deficitRanks = computeTieRankLabels(deficitRows, r => r.successPct);
@@ -1623,18 +1630,13 @@ function printBestPerfDeficit(){
 
 function renderBestPerfTab(){
   const main = document.getElementById('main-content');
-  const jardDates = JARD.flatMap(s => [s.from, s.to]).sort();
-  const targetDates = TARGET_PLANS.flatMap(p => [p.from, p.to]).sort();
-  const dates = [...jardDates, ...targetDates].sort();
-  const defFrom = dates[0] || todayStr();
-  const defTo = dates[dates.length-1] || todayStr();
   // أفضل أداء: كل مستخدم (مدير صالة/جودة/فني/رئيس أقسام/أدمن) يشوف كل الصالات هنا، مش مقتصر على صالته بس
   const hallOptions = `<option value="__ALL__">كل الصالات</option>` + HALLS.map(h=>`<option value="${h}">${h}</option>`).join('');
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="bf-from" value="${defFrom}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="bf-to" value="${defTo}"></div>
+        <div><label>من تاريخ</label><input type="date" id="bf-from"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="bf-to"></div>
       </div>
       <div class="grid2 full">
         <div><label>الصالة</label><select id="bf-hall">${hallOptions}</select></div>
@@ -1648,9 +1650,8 @@ function renderBestPerfTab(){
       </div>
       <div class="data-note">يعتمد على بيانات الجرد والتارجت المسجلة حالياً وتُحدّث تلقائياً عند تعديل البيانات.</div>
     </div>
-    <div id="bestperf-results"></div>
+    <div id="bestperf-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف أفضل أداء.</div></div>
   `;
-  applyBestPerfFilter();
 }
 // نسبة عجز الوقت لكل خط = عجز الوقت المسجل في الجرد ÷ إجمالي الوقت المستهدف للخط في التارجت (من ساعات/دقايق الأرتيكلات)
 function computeLineDeficitPerformance(from, to){
@@ -1735,6 +1736,12 @@ function currentBestPerfFilteredData(){
 }
 function applyBestPerfFilter(){
   const results = document.getElementById('bestperf-results');
+  const fromVal = document.getElementById('bf-from').value;
+  const toVal = document.getElementById('bf-to').value;
+  if(!fromVal || !toVal){
+    results.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف أفضل أداء.</div>';
+    return;
+  }
   const rows = currentBestPerfFilteredData().filter(r => r.hasData);
   if(!rows.length){ results.innerHTML = '<div class="empty-state">مفيش بيانات للتسليمات أو التارجت في الفترة دي.</div>'; return; }
   const rankedDelivery = [...rows].filter(r => r.targetDeliveries > 0).sort((a,b) => b.performancePct - a.performancePct);
@@ -2993,9 +3000,6 @@ async function deleteJardSession(id){
 /* ---------- داشبورد عرض الجرد (لكل الأدوار) ---------- */
 function renderJardDashboardFilters(){
   const box = document.getElementById('jard-dashboard');
-  const dates = JARD.flatMap(s => [s.from, s.to]).sort();
-  const defFrom = dates[0] || todayStr();
-  const defTo = dates[dates.length-1] || todayStr();
   const hallLocked = userSeesAllHalls() ? null : currentUser.hall;
   const hallOptions = hallLocked
     ? `<option value="${hallLocked}">${hallLocked}</option>`
@@ -3004,8 +3008,8 @@ function renderJardDashboardFilters(){
   box.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="jf-from" value="${defFrom}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="jf-to" value="${defTo}"></div>
+        <div><label>من تاريخ</label><input type="date" id="jf-from"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="jf-to"></div>
       </div>
       <div class="grid2 full">
         <div><label>الصالة</label><select id="jf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div>
@@ -3021,9 +3025,8 @@ function renderJardDashboardFilters(){
       </div>
       <div class="data-note">لو عايز جرد صالة واحدة بالتفصيل (كل خط وإجمالي الصالة)، اختارها من فوق ودوس "طباعة جرد الصالة المحددة". لو عايز إجمالي كل صالة والإجمالي العام لكل الصالات مع بعض، اختار "كل الصالات" ودوس "طباعة إجمالي كل الصالات".</div>
     </div>
-    <div id="jard-results"></div>
+    <div id="jard-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف الجرد.</div></div>
   `;
-  applyJardFilter();
 }
 function aggregateJardLines(sessions){
   const map = new Map();
@@ -3110,6 +3113,11 @@ function applyJardFilter(){
   const to = document.getElementById('jf-to').value;
   const hall = document.getElementById('jf-hall').value;
   const results = document.getElementById('jard-results');
+  if(!from || !to){
+    results.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف الجرد.</div>';
+    window.__jardLines = null;
+    return;
+  }
 
   const sessionsAll = JARD.filter(s => s.from <= to && s.to >= from);
   if(!sessionsAll.length){ results.innerHTML = '<div class="empty-state">مفيش جرد متسجل في الفترة دي.</div>'; window.__jardLines=null; return; }
@@ -3178,6 +3186,7 @@ function printJardHallDetail(){
   const hall = document.getElementById('jf-hall').value;
   const from = document.getElementById('jf-from').value;
   const to = document.getElementById('jf-to').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" الأول'); return; }
   if(hall === '__ALL__'){ showToast('⚠️ اختار صالة واحدة بالتحديد فوق الأول (مش "كل الصالات") عشان تطبع تفاصيلها'); return; }
   if(!window.__jardLines || !window.__jardLines[hall] || !window.__jardLines[hall].length){ showToast('⚠️ مفيش بيانات جرد لصالة ' + hall + ' في الفترة دي'); return; }
   const lines = window.__jardLines[hall];
@@ -3236,6 +3245,7 @@ function printJardHallDetail(){
 function printJardAllHallsTotals(){
   const from = document.getElementById('jf-from').value;
   const to = document.getElementById('jf-to').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" الأول'); return; }
   if(!window.__jardLines || !Object.keys(window.__jardLines).length){ showToast('⚠️ مفيش بيانات جرد تتطبع في الفترة دي'); return; }
   const hallEntries = Object.entries(window.__jardLines).map(([hall, lines]) => ({hall, totals: hallTotals(lines)}));
   hallEntries.sort((a,b)=> b.totals.successPct - a.totals.successPct);
@@ -3645,16 +3655,13 @@ async function deleteTargetPlan(id){
 /* ---------- عرض التارجت (لكل الأدوار) ---------- */
 function renderTargetTab(){
   const main = document.getElementById('main-content');
-  const dates = TARGET_PLANS.flatMap(p => [p.from, p.to]).sort();
-  const defFrom = dates[0] || todayStr();
-  const defTo = dates[dates.length-1] || todayStr();
   const targetRestricted = currentUser.hall && !userSeesAllHalls();
   const hallOptions = `<option value="__ALL__">كل الصالات</option>` + HALLS.map(h=>`<option value="${h}" ${targetRestricted && h===currentUser.hall ? 'selected':''}>${h}</option>`).join('');
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="tf-from" value="${defFrom}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="tf-to" value="${defTo}"></div>
+        <div><label>من تاريخ</label><input type="date" id="tf-from"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="tf-to"></div>
       </div>
       <div class="grid2 full"><div><label>الصالة</label><select id="tf-hall">${hallOptions}</select></div><div></div></div>
       <button class="apply-btn" onclick="applyTargetFilter()">اعرض النتيجة</button>
@@ -3662,20 +3669,16 @@ function renderTargetTab(){
       <button class="apply-btn" onclick="renderAndPrintTargetSummary()">🖨️ طباعة الملخص</button>
       <button class="apply-btn" style="background:#3A4257;" onclick="printTargetDetails()">🖨️ طباعة تفاصيل التارجت</button>
     </div>
-    <div id="target-results"></div>
+    <div id="target-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف التارجت.</div></div>
     <div id="target-summary" style="margin-top:14px;"></div>
   `;
-  applyTargetFilter();
 }
 
-function renderTargetSummary(){
-  const from = document.getElementById('tf-from').value;
-  const to = document.getElementById('tf-to').value;
-  const hall = document.getElementById('tf-hall').value;
-  const container = document.getElementById('target-summary');
+/* دالة موحّدة لتجميع بيانات ملخص التارجت — يستخدمها العرض على الشاشة وطباعة الملخص مع بعض */
+function getTargetSummaryData(from, to, hall){
   let plans = TARGET_PLANS.filter(p => p.from <= to && p.to >= from);
   if(hall !== '__ALL__') plans = plans.filter(p=>p.hall===hall);
-  if(!plans.length){ container.innerHTML = '<div class="empty-state">مفيش بيانات لملخص التارجت في الفترة دي.</div>'; return; }
+  if(!plans.length) return null;
 
   const map = new Map();
   plans.forEach(p => {
@@ -3697,21 +3700,18 @@ function renderTargetSummary(){
   const rows = [...map.values()];
   const totals = rows.reduce((a,e)=>({production:a.production+e.production, targetDeliveries:a.targetDeliveries+e.targetDeliveries, articles:a.articles+e.articles, floor:a.floor+e.floor, line:a.line+e.line}), {production:0,targetDeliveries:0,articles:0,floor:0,line:0});
 
-  // build per-hall lines aggregation
-  const hallDetails = {};
-  plans.forEach(p=>{
-    const key = p.hall||'__ALL__';
-    if(!hallDetails[key]) hallDetails[key] = {lines:new Map()};
-    (p.lines||[]).forEach(l=>{
-      const lm = hallDetails[key].lines;
-      if(!lm.has(l.line)) lm.set(l.line, {line:l.line, lineTarget:0, production:0, articles:0, floor:0, lineWork:0});
-      const item = lm.get(l.line);
-      item.lineTarget += Number(l.lineTarget||0);
-      (l.rows||[]).forEach(r=>{ const n=normalizeNumber(r.qty||0); if(n){ item.production += n; } if(r.article) item.articles++; });
-      (l.floorWork||[]).forEach(w=>{ item.floor += normalizeNumber(w.qty||0); });
-      (l.lineWork||[]).forEach(w=>{ item.lineWork += normalizeNumber(w.qty||0); });
-    });
-  });
+  return {rows, totals};
+}
+
+function renderTargetSummary(){
+  const from = document.getElementById('tf-from').value;
+  const to = document.getElementById('tf-to').value;
+  const hall = document.getElementById('tf-hall').value;
+  const container = document.getElementById('target-summary');
+  if(!from || !to){ container.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف ملخص التارجت.</div>'; return; }
+  const data = getTargetSummaryData(from, to, hall);
+  if(!data){ container.innerHTML = '<div class="empty-state">مفيش بيانات لملخص التارجت في الفترة دي.</div>'; return; }
+  const {rows, totals} = data;
 
   // per-hall summary cards (top)
   const hallsHtml = rows.map(r=>`
@@ -3748,6 +3748,7 @@ function printTargetDetails(){
   const from = document.getElementById('tf-from').value;
   const to = document.getElementById('tf-to').value;
   const hall = document.getElementById('tf-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const restrictedToOwnHall = currentUser.hall && !userSeesAllHalls();
   if(restrictedToOwnHall && hall !== currentUser.hall){
     showToast(`🔒 تفاصيل التارجت متاحة لصالتك (${currentUser.hall}) بس`);
@@ -3810,18 +3811,60 @@ function printTargetDetails(){
 function renderAndPrintTargetSummary(){ renderTargetSummary(); printTargetSummary(); }
 
 function printTargetSummary(){
-  const el = document.getElementById('target-summary');
-  if(!el || !el.innerHTML){ showToast('⚠️ مفيش ملخص تتطبعه. اضغط ملخص التارجت الأول'); return; }
-  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES', 'الفترة المختارة', el.innerHTML);
+  const from = document.getElementById('tf-from').value;
+  const to = document.getElementById('tf-to').value;
+  const hall = document.getElementById('tf-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
+  const data = getTargetSummaryData(from, to, hall);
+  if(!data){ showToast('⚠️ مفيش بيانات لملخص التارجت في الفترة دي'); return; }
+  const {rows, totals} = data;
+
+  const rowsHtml = rows.map(r => `
+    <tr>
+      <td><b>${r.hall}</b></td>
+      <td>${fmtNum(r.production)}</td>
+      <td>${fmtNum(r.targetDeliveries)}</td>
+      <td>${fmtNum(r.floor)}</td>
+      <td>${fmtNum(r.line)}</td>
+    </tr>`).join('');
+
+  const bodyHtml = `
+    <table class="target-print-table">
+      <thead>
+        <tr><th colspan="5">ملخص التارجت — كل الصالات</th></tr>
+        <tr><th>الصالة</th><th>إجمالي تارجت الإنتاج</th><th>إجمالي تارجت التسليمات</th><th>شغل الأرض</th><th>شغل الخط</th></tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td><b>الإجمالي العام</b></td>
+          <td><b>${fmtNum(totals.production)}</b></td>
+          <td><b>${fmtNum(totals.targetDeliveries)}</b></td>
+          <td><b>${fmtNum(totals.floor)}</b></td>
+          <td><b>${fmtNum(totals.line)}</b></td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  const periodLabel = hall === '__ALL__' ? `كل الصالات — من ${from} إلى ${to}` : `${hall} — من ${from} إلى ${to}`;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES — ملخص التارجت', periodLabel, bodyHtml);
   document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode');
+  }, 800);
 }
 function applyTargetFilter(){
   const from = document.getElementById('tf-from').value;
   const to = document.getElementById('tf-to').value;
   const hall = document.getElementById('tf-hall').value;
   const results = document.getElementById('target-results');
+  if(!from || !to){
+    results.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف التارجت.</div>';
+    return;
+  }
   const restrictedToOwnHall = currentUser.hall && !userSeesAllHalls();
   if(restrictedToOwnHall && hall !== currentUser.hall){
     results.innerHTML = `<div class="empty-state">🔒 تفاصيل التارجت متاحة لصالتك (${currentUser.hall}) بس. لملخص إجمالي كل الصالات استخدم زرار "📋 ملخص التارجت".</div>`;
@@ -4427,31 +4470,31 @@ async function deleteHallPower(id){
 function renderHallPowerTab(){
   const main = document.getElementById('main-content');
   const hallLocked = userSeesAllHalls() ? null : (currentUser.role === 'qualityhead' ? 'قوة الجودة' : currentUser.hall);
-  const dates = HALL_POWER.map(p=>p.date).sort();
-  const defFrom = dates[0] || todayStr();
-  const defTo = dates[dates.length-1] || todayStr();
   const hallOptions = hallLocked
     ? `<option value="${hallLocked}">${hallLocked}</option>`
     : `<option value="__ALL__">كل الصالات</option>` + HALL_POWER_HALLS.map(h=>`<option value="${h}">${h}</option>`).join('');
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="hpf-from" value="${defFrom}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="hpf-to" value="${defTo}"></div>
+        <div><label>من تاريخ</label><input type="date" id="hpf-from"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="hpf-to"></div>
       </div>
       <div class="grid2 full"><div><label>الصالة</label><select id="hpf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div><div></div></div>
       <button class="apply-btn" onclick="applyHpFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3A4257;" onclick="printHallPower()">🖨️ طباعة</button>
     </div>
-    <div id="hp-results"></div>
+    <div id="hp-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف قوة الصالة.</div></div>
   `;
-  applyHpFilter();
 }
 function applyHpFilter(){
   const from = document.getElementById('hpf-from').value;
   const to = document.getElementById('hpf-to').value;
   const hall = document.getElementById('hpf-hall').value;
   const results = document.getElementById('hp-results');
+  if(!from || !to){
+    results.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف قوة الصالة.</div>';
+    return;
+  }
   let recs = HALL_POWER.filter(p => p.date >= from && p.date <= to);
   if(!recs.length){ results.innerHTML = '<div class="empty-state">مفيش بيانات قوة صالة في الفترة دي.</div>'; return; }
 
@@ -4550,6 +4593,7 @@ function printHallPower(){
   const from = document.getElementById('hpf-from').value;
   const to = document.getElementById('hpf-to').value;
   const hall = document.getElementById('hpf-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   let recs = HALL_POWER.filter(p => p.date >= from && p.date <= to);
   if(!recs.length){ showToast('⚠️ مفيش بيانات في الفترة دي عشان تتطبع'); return; }
   const lineMap = new Map();
@@ -4764,31 +4808,31 @@ async function deleteNightPower(id){
 function renderNightPowerTab(){
   const main = document.getElementById('main-content');
   const hallLocked = userSeesAllHalls() ? null : currentUser.hall;
-  const dates = NIGHT_POWER.map(p=>p.date).sort();
-  const defFrom = dates[0] || todayStr();
-  const defTo = dates[dates.length-1] || todayStr();
   const hallOptions = hallLocked
     ? `<option value="${hallLocked}">${hallLocked}</option>`
     : `<option value="__ALL__">كل الصالات</option>` + NIGHT_HALLS.map(h=>`<option value="${h}">${h}</option>`).join('');
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="npf-from" value="${defFrom}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="npf-to" value="${defTo}"></div>
+        <div><label>من تاريخ</label><input type="date" id="npf-from"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="npf-to"></div>
       </div>
       <div class="grid2 full"><div><label>الصالة</label><select id="npf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div><div></div></div>
       <button class="apply-btn" onclick="applyNpFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3A4257;" onclick="printNightPower()">🖨️ طباعة</button>
     </div>
-    <div id="np-results"></div>
+    <div id="np-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف قوة السهر.</div></div>
   `;
-  applyNpFilter();
 }
 function applyNpFilter(){
   const from = document.getElementById('npf-from').value;
   const to = document.getElementById('npf-to').value;
   const hall = document.getElementById('npf-hall').value;
   const results = document.getElementById('np-results');
+  if(!from || !to){
+    results.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف قوة السهر.</div>';
+    return;
+  }
   let recs = NIGHT_POWER.filter(p => p.date >= from && p.date <= to);
   if(!recs.length){ results.innerHTML = '<div class="empty-state">مفيش بيانات قوة سهر في الفترة دي.</div>'; return; }
 
@@ -4828,6 +4872,7 @@ function printNightPower(){
   const from = document.getElementById('npf-from').value;
   const to = document.getElementById('npf-to').value;
   const hall = document.getElementById('npf-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   let recs = NIGHT_POWER.filter(p => p.date >= from && p.date <= to);
   if(!recs.length){ showToast('⚠️ مفيش بيانات في الفترة دي عشان تتطبع'); return; }
   const hallMap = new Map();
