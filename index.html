@@ -582,6 +582,18 @@
     main{ padding:30px 3vw 60px; }
   #worker-list{ grid-template-columns:1fr 1fr 1fr 1fr; }
   }
+
+  /* تحديد الخانات بالماوس ونسخ/لصق مجموعة خانات */
+  input.cell-selected{
+    background:#EAF2FF !important;
+    outline:2px solid #3B82F6 !important;
+    outline-offset:-1px;
+  }
+  #cell-select-rect{
+    position:fixed; border:1.5px solid #3B82F6; background:rgba(59,130,246,.08);
+    pointer-events:none; z-index:99999; display:none;
+  }
+  body.cells-being-selected, body.cells-being-selected *{ user-select:none !important; }
 </style>
 </head>
 <body>
@@ -5013,6 +5025,258 @@ function printNightPower(){
     document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print');
   }, 800);
 }
+
+/* ==========================================================================
+   التنقل بالأسهم بين الخانات (كود / تارجت / إنتاج / إصلاح / هالك ... إلخ)
+   - فوق/تحت: ينقل لنفس "العمود" في الصف اللي فوق أو تحت (بيحسب المسافة
+     الفعلية على الشاشة مش ترتيب الكود، فبيشتغل صح في أي جدول أو كروت
+     (الجرد / التارجت / تسجيل الأداء) من غير ما نحتاج نظبط كل جدول لوحده.
+   - يمين/شمال: بينقل للخانة اللي جنبها فعليًا على الشاشة، وبس لما يكون
+     المؤشر عند حافة النص (بداية الخانة أو نهايتها) عشان ميبوظش تعديل رقم
+     مكون من أكتر من خانة (زي لما تكون بتتحرك جوه رقم بخانتين أو تلاتة).
+   ========================================================================== */
+(function(){
+  const NAV_SELECTOR = 'input[type="number"], input[type="text"], input[type="tel"]';
+
+  function isNavigable(el){
+    if(!el || typeof el.matches !== 'function') return false;
+    if(!el.matches(NAV_SELECTOR)) return false;
+    if(el.disabled || el.readOnly) return false;
+    if(el.offsetParent === null) return false; // مخفي حاليًا
+    return true;
+  }
+
+  function getCandidates(){
+    return Array.from(document.querySelectorAll(NAV_SELECTOR)).filter(isNavigable);
+  }
+
+  function findTarget(current, key){
+    const cur = current.getBoundingClientRect();
+    const curCX = cur.left + cur.width/2;
+    const curCY = cur.top + cur.height/2;
+    const rowTol = Math.max(cur.height*0.65, 14);
+    let best = null, bestScore = Infinity;
+
+    for(const el of getCandidates()){
+      if(el === current) continue;
+      const r = el.getBoundingClientRect();
+      const dx = (r.left + r.width/2) - curCX;
+      const dy = (r.top + r.height/2) - curCY;
+
+      if(key === 'ArrowDown'){
+        if(dy <= rowTol*0.4) continue;
+        const score = dy + Math.abs(dx)*3;
+        if(score < bestScore){ bestScore = score; best = el; }
+      } else if(key === 'ArrowUp'){
+        if(dy >= -rowTol*0.4) continue;
+        const score = -dy + Math.abs(dx)*3;
+        if(score < bestScore){ bestScore = score; best = el; }
+      } else if(key === 'ArrowRight'){
+        if(Math.abs(dy) > rowTol || dx <= 2) continue;
+        if(dx < bestScore){ bestScore = dx; best = el; }
+      } else if(key === 'ArrowLeft'){
+        if(Math.abs(dy) > rowTol || dx >= -2) continue;
+        if(-dx < bestScore){ bestScore = -dx; best = el; }
+      }
+    }
+    return best;
+  }
+
+  function focusTarget(target){
+    target.focus();
+    try{ target.select(); }catch(err){ /* بعض المتصفحات بترفض select() على number */ }
+  }
+
+  document.addEventListener('keydown', function(e){
+    const key = e.key;
+    if(key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+    if(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return; // سيبي الاختصارات القياسية زي هي
+
+    const el = e.target;
+    if(!isNavigable(el)) return;
+
+    // الأربع اتجاهات كلهم بيتنقلوا فورًا لأقرب خانة في نفس الاتجاه، بالظبط
+    // زي فوق وتحت، من غير ما نستنى المؤشر يوصل لحافة النص.
+    const target = findTarget(el, key);
+    e.preventDefault(); // نمنع تغيير القيمة التلقائي لـ input[type=number] أو تحريك المؤشر جوه النص
+    if(target) focusTarget(target);
+  });
+})();
+
+/* ==========================================================================
+   تحديد كذا خانة بالماوس (زي إكسل) + نسخ/لصق المجموعة
+   - اسحب بالماوس فوق أكتر من خانة عشان تتحدد كلها (بتتلون بالأزرق).
+   - Shift + كليك على خانة تانية: يوسّع التحديد من آخر خانة كانت متحددة لحد الخانة دي.
+   - Ctrl/Cmd + C: بينسخ كل الخانات المحددة (لو أكتر من خانة).
+   - Ctrl/Cmd + V (أو لصق عادي) وانت محدد أكتر من خانة: بيوزع القيم المنسوخة
+     على نفس شكل التحديد، صف تحت صف وعمود جنب عمود.
+   - Esc أو كليك بره الخانات: يمسح التحديد.
+   - ملحوظة: لو خانة واحدة بس متركز عليها (من غير تحديد جماعي)، اللصق
+     بيشتغل زي ما هو من غير أي تغيير (نظام اللصق الحالي لكل جدول لوحده).
+   ========================================================================== */
+(function(){
+  const NAV_SELECTOR = 'input[type="number"], input[type="text"], input[type="tel"]';
+  let isDragging = false;
+  let dragMoved = false;
+  let startX = 0, startY = 0, curX = 0, curY = 0;
+  let selectedCells = [];
+  let lastAnchor = null;
+  let rectEl = null;
+
+  function isNavigable(el){
+    if(!el || typeof el.matches !== 'function') return false;
+    if(!el.matches(NAV_SELECTOR)) return false;
+    if(el.disabled || el.readOnly) return false;
+    if(el.offsetParent === null) return false;
+    return true;
+  }
+
+  function getCandidates(){
+    return Array.from(document.querySelectorAll(NAV_SELECTOR)).filter(isNavigable);
+  }
+
+  function clearSelection(){
+    selectedCells.forEach(el => el.classList.remove('cell-selected'));
+    selectedCells = [];
+  }
+
+  function ensureRect(){
+    if(!rectEl){
+      rectEl = document.createElement('div');
+      rectEl.id = 'cell-select-rect';
+      document.body.appendChild(rectEl);
+    }
+    return rectEl;
+  }
+
+  function showRect(){
+    const r = ensureRect();
+    const left = Math.min(startX, curX), top = Math.min(startY, curY);
+    const w = Math.abs(curX - startX), h = Math.abs(curY - startY);
+    r.style.left = left + 'px'; r.style.top = top + 'px';
+    r.style.width = w + 'px'; r.style.height = h + 'px';
+    r.style.display = 'block';
+  }
+
+  function hideRect(){
+    if(rectEl) rectEl.style.display = 'none';
+  }
+
+  function selectByRect(left, top, right, bottom){
+    const next = [];
+    getCandidates().forEach(el => {
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width/2, cy = r.top + r.height/2;
+      if(cx >= left && cx <= right && cy >= top && cy <= bottom) next.push(el);
+    });
+    selectedCells.forEach(el => { if(!next.includes(el)) el.classList.remove('cell-selected'); });
+    next.forEach(el => el.classList.add('cell-selected'));
+    selectedCells = next;
+  }
+
+  // بيرتب الخانات المحددة في صفوف وأعمدة حسب مكانها الفعلي على الشاشة
+  function groupIntoRows(cells){
+    const items = cells.map(el => {
+      const r = el.getBoundingClientRect();
+      return { el, cx: r.left + r.width/2, cy: r.top + r.height/2, h: r.height };
+    });
+    items.sort((a, b) => a.cy - b.cy);
+    const rows = [];
+    items.forEach(it => {
+      let row = rows.find(row => Math.abs(row.cy - it.cy) < Math.max(it.h * 0.6, 10));
+      if(!row){ row = { cy: it.cy, items: [] }; rows.push(row); }
+      row.items.push(it);
+    });
+    rows.forEach(row => row.items.sort((a, b) => a.cx - b.cx));
+    return rows.map(row => row.items.map(it => it.el));
+  }
+
+  document.addEventListener('mousedown', function(e){
+    const el = e.target;
+    if(!isNavigable(el)){
+      if(!(el.closest && el.closest('#cell-select-rect'))) clearSelection();
+      return;
+    }
+    if(e.shiftKey && lastAnchor && lastAnchor !== el){
+      const ra = lastAnchor.getBoundingClientRect();
+      const rb = el.getBoundingClientRect();
+      const left = Math.min(ra.left + ra.width/2, rb.left + rb.width/2);
+      const right = Math.max(ra.left + ra.width/2, rb.left + rb.width/2);
+      const top = Math.min(ra.top + ra.height/2, rb.top + rb.height/2);
+      const bottom = Math.max(ra.top + ra.height/2, rb.top + rb.height/2);
+      selectByRect(left - 4, top - 4, right + 4, bottom + 4);
+      e.preventDefault();
+      return;
+    }
+    clearSelection();
+    lastAnchor = el;
+    isDragging = true;
+    dragMoved = false;
+    startX = e.clientX; startY = e.clientY;
+    curX = startX; curY = startY;
+  });
+
+  document.addEventListener('mousemove', function(e){
+    if(!isDragging) return;
+    curX = e.clientX; curY = e.clientY;
+    if(!dragMoved && (Math.abs(curX - startX) > 4 || Math.abs(curY - startY) > 4)){
+      dragMoved = true;
+      document.body.classList.add('cells-being-selected');
+      if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    }
+    if(dragMoved){
+      showRect();
+      selectByRect(Math.min(startX, curX), Math.min(startY, curY), Math.max(startX, curX), Math.max(startY, curY));
+    }
+  });
+
+  document.addEventListener('mouseup', function(){
+    if(!isDragging) return;
+    isDragging = false;
+    hideRect();
+    document.body.classList.remove('cells-being-selected');
+    if(!dragMoved){
+      clearSelection();
+    }
+  });
+
+  document.addEventListener('copy', function(e){
+    if(selectedCells.length < 2) return; // سيبي النسخ العادي لنص جوه خانة واحدة زي ما هو
+    const rows = groupIntoRows(selectedCells);
+    const text = rows.map(row => row.map(el => el.value || '').join('\t')).join('\n');
+    e.clipboardData.setData('text/plain', text);
+    e.preventDefault();
+    if(typeof showToast === 'function') showToast(`✅ اتنسخ ${selectedCells.length} خانة`);
+  }, true);
+
+  function fireInput(el){
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  document.addEventListener('paste', function(e){
+    if(selectedCells.length < 2) return; // سيبي نظام اللصق الأصلي لكل جدول يشتغل زي ما هو
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if(!text) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const grid = text.replace(/\r/g, '').split('\n').filter((l, i, arr) => !(i === arr.length - 1 && l === '')).map(l => l.split('\t'));
+    const flat = [];
+    grid.forEach(row => row.forEach(v => flat.push(v)));
+    const rows = groupIntoRows(selectedCells);
+    let vi = 0;
+    rows.forEach(row => row.forEach(el => {
+      if(flat.length === 1) el.value = flat[0];
+      else if(vi < flat.length) el.value = flat[vi++];
+      fireInput(el);
+    }));
+    if(typeof showToast === 'function') showToast('✅ اتلصقت القيم في الخانات المحددة');
+  }, true);
+
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') clearSelection();
+  });
+})();
 
 bootApp();
 </script>
