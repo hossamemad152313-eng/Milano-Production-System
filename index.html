@@ -876,7 +876,7 @@ function startRealtimeSync(){
   if(!firebaseReady) return;
   stopRealtimeSync();
   const specs = [
-    {docId:'mlp_entries',     apply:v=>{ENTRIES=v;},      tabs:['report','records','bestperf'], idKey:'id'},
+    {docId:'mlp_entries',     apply:v=>{ENTRIES=v;},      tabs:['report','entry','bestperf'], idKey:'id'},
     {docId:'mlp_operators',   apply:v=>{OPERATORS=v;},    tabs:['operators'], idKey:'c'},
     {docId:'mlp_users',       apply:v=>{USERS=v;},        tabs:['users'], idKey:'user'},
     {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id'},
@@ -897,15 +897,23 @@ function startRealtimeSync(){
       const mainEl = document.getElementById('main-content');
       const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
       if(isTyping) return;
+      // لو المستخدم عامل تعليم/تعديل في تنفيذ التارجت محليًا ولسه مادوسش "حفظ التنفيذ"،
+      // منستبدلش TARGET_EXEC بنسخة السيرفر عشان مانمسحش تعديلاته اللي لسه في انتظار الحفظ.
+      if(spec.docId === 'mlp_targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved) return;
       spec.apply(data);
       setBaseline(spec.docId, data, spec.idKey);
       if(spec.tabs.includes(activeTab)){
-        // تنفيذ التارجت بيتحفظ كتير جدًا (كل تعليم أرتيكل)، وتصحيح الأداء ممكن حد يحفظ فيه أي
-        // سجل في أي صالة تانية في أي لحظة — فلو عملنا switchTab عادي هيرجّع فلتر التاريخ/الصالة/
-        // البحث للقيم الافتراضية كل مرة ويوهم المستخدم إنه "اتنقل لفترة تانية" أو "فقد بحثه".
-        // فبنعيد رسم النتائج بس بنفس الفلتر اللي هو واقف عليه من غير ما نلمس خانات الفلتر.
+        // تنفيذ التارجت بقى ليه زرار حفظ يدوي (مش بيتحفظ على السيرفر مع كل تعليم أرتيكل)،
+        // وتصحيح الأداء (جوه تسجيل الأداء) ممكن حد يحفظ فيه أي سجل في أي صالة تانية في أي لحظة —
+        // فلو عملنا switchTab عادي هيرجّع فلتر التاريخ/الصالة/البحث للقيم الافتراضية كل مرة
+        // ويوهم المستخدم إنه "اتنقل لفترة تانية" أو "فقد بحثه". فبنعيد رسم النتائج بس بنفس
+        // الفلتر اللي هو واقف عليه من غير ما نلمس خانات الفلتر.
         if(activeTab === 'targetexec' && document.getElementById('tex-from')) applyTargetExecFilter();
-        else if(activeTab === 'records' && document.getElementById('rec-from')) applyRecordsFilter();
+        else if(activeTab === 'entry'){
+          // ماتلمسش فورم تسجيل الأداء عشان مايمسحش صفوف لسه بتتكتب فيها؛ لو لوحة تصحيح
+          // الأداء مفتوحة تحت بس، حدّث نتائجها بنفس الفلتر اللي هو واقف عليه.
+          if(document.getElementById('rec-from')) applyRecordsFilter();
+        }
         else switchTab(activeTab);
       }
     }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
@@ -1078,7 +1086,7 @@ function initApp(){
   }
   else if(currentUser.role === 'admin'){
     tabs = [
-      ['report','📊 تقييم الأداء'],['entry','📝 تسجيل الأداء'],['records','🛠️ تصحيح الأداء'],['bestperf','🏅 أفضل أداء'],
+      ['report','📊 تقييم الأداء'],['entry','📝 تسجيل الأداء'],['bestperf','🏅 أفضل أداء'],
       ['jard','📦 الجرد'],['jardreg','📝 تسجيل الجرد'],
       ['target','🎯 التارجت'],['targetreg','📝 تسجيل التارجت'],['targetexec','📐 تنفيذ التارجت'],
       ['hallpower','💪 قوة الصالة'],['hallpowerreg','📝 تسجيل قوة الصالة'],
@@ -1087,7 +1095,7 @@ function initApp(){
     ];
     if(currentUser.user === 'Hossam.Emad') tabs.push(['users','🔑 المستخدمين']);
   }
-  else if(currentUser.role === 'entry') tabs = [['entry','📝 تسجيل الأداء'],['records','🛠️ تصحيح الأداء']];
+  else if(currentUser.role === 'entry') tabs = [['entry','📝 تسجيل الأداء']];
   else if(currentUser.role === 'jardentry') tabs = [['jardreg','📝 تسجيل الجرد']];
   else if(currentUser.role === 'powerentry') tabs = [['hallpowerreg','📝 تسجيل قوة الصالة'],['nightpowerreg','📝 تسجيل قوة السهر']];
   else if(currentUser.role === 'qualityhead') tabs = [['jard','📦 الجرد'],['target','🎯 التارجت'],['hallpower','💪 قوة الصالة'],['bestperf','🏅 أفضل أداء']];
@@ -1100,6 +1108,10 @@ function initApp(){
   switchTab(tabs[0][0]);
 }
 function switchTab(key){
+  if(activeTab === 'targetexec' && key !== 'targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved){
+    if(!confirm('⚠️ عندك تعديلات في تنفيذ التارجت لسه ما اتحفظتش. عايز تسيب الشاشة من غير ما تحفظ؟')) return;
+    execHasUnsaved = false;
+  }
   activeTab = key;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('tabbtn-'+key);
@@ -1107,7 +1119,6 @@ function switchTab(key){
   if(key === 'report') renderReportTab();
   if(key === 'entry') renderEntryTab();
   if(key === 'operators') renderOperatorsTab();
-  if(key === 'records') renderRecordsTab();
   if(key === 'users') renderUsersTab();
   if(key === 'jard') renderJardTab();
   if(key === 'jardreg') renderJardRegTab();
@@ -1823,6 +1834,7 @@ const ENTRY_COLS = ['code','target','production','eslah','halak','ص','ف','ج',
 function renderEntryTab(){
   pendingRowIds = [];
   for(let i=0;i<lastBulkCount;i++) pendingRowIds.push(rowIdCounter++);
+  recordsPanelOpenState = false;
   const main = document.getElementById('main-content');
   main.innerHTML = `
     <div class="entry-header-box">
@@ -1862,6 +1874,11 @@ function renderEntryTab(){
     </div>
     <button class="add-row-btn" onclick="addRow()">➕ ضيف صف واحد كمان</button>
     <button class="save-btn" onclick="saveAllRows()">💾 حفظ كل البيانات</button>
+
+    <div class="section-title" style="margin-top:22px;">🛠️ تعديل وتصحيح السجلات المسجلة</div>
+    <div class="data-note" style="margin-bottom:8px;">دور بالتاريخ أو الصالة أو الخط على أي سجل قديم وعدله أو احذفه من هنا، أو شوف كل الأكواد اللي لسه بدون اسم مقسّمة بالصالات عشان تراجع الورق بسهولة.</div>
+    <button class="apply-btn" id="records-panel-toggle-btn" style="background:#3A4257;margin-bottom:14px;" onclick="toggleRecordsPanel()">🛠️ عرض / تعديل السجلات المسجلة</button>
+    <div id="records-panel-wrap" style="display:none;"></div>
   `;
   renderRowsContainer();
 }
@@ -1979,7 +1996,7 @@ function onCodeInput(id){
     }
   } else {
     if(nameEl.readOnly) nameEl.value = '';
-    nameEl.readOnly = false; nameEl.className = 'ename missing'; nameEl.placeholder = 'كود جديد — اكتب الاسم هنا';
+    nameEl.readOnly = false; nameEl.className = 'ename missing'; nameEl.placeholder = 'كود جديد — اكتب الاسم لو عارفه (اختياري)';
     hireEl.disabled = false;
   }
 }
@@ -2004,8 +2021,8 @@ async function saveAllRows(){
       aatal: aatalObj
     };
   });
-  const valid = readRows.filter(r => r.code && (r.name || r.newName));
-  if(!valid.length){ showToast('⚠️ لازم تكتب كود واسم على الأقل لصف واحد'); return; }
+  const valid = readRows.filter(r => r.code);
+  if(!valid.length){ showToast('⚠️ لازم تكتب كود على الأقل لصف واحد'); return; }
   if(valid.some(r => !r.target)){ showToast('⚠️ لازم تحدد التارجت لكل عاملة (ممكن يختلف من مكنة للتانية)'); return; }
 
   valid.forEach(r => {
@@ -2021,7 +2038,8 @@ async function saveAllRows(){
   });
   await saveEntries();
   if(valid.some(r=>!r.name && r.newName)) await saveOperators();
-  showToast(`✅ ات��فظ ${valid.length} سجل بنجاح على ${hall} - خط ${line}`);
+  const namelessCount = valid.filter(r => !r.name && !r.newName).length;
+  showToast(`✅ اتحفظ ${valid.length} سجل بنجاح على ${hall} - خط ${line}${namelessCount ? ` (${namelessCount} كود اتسجل من غير اسم — تقدر تدخّل الاسم بعدين من لوحة تصحيح الأداء)` : ''}`);
   renderEntryTab();
 }
 
@@ -2172,45 +2190,139 @@ async function deleteOperator(code){
   showToast('🗑️ اتمسحت العاملة');
   renderOperatorsTab();
 }
-/* ---------------- RECORDS TAB (admin only: تعديل/حذف سجلات مسجلة غلط) ---------------- */
-function renderRecordsTab(){
-  const main = document.getElementById('main-content');
+/* ---------------- RECORDS PANEL (جوه تسجيل الأداء: تعديل/حذف سجلات + عرض الأكواد بدون اسم) ---------------- */
+let recordsPanelOpenState = false;
+let LAST_NONAME_GROUPS = {};
+function toggleRecordsPanel(){
+  const wrap = document.getElementById('records-panel-wrap');
+  const btn = document.getElementById('records-panel-toggle-btn');
+  if(!wrap) return;
+  recordsPanelOpenState = !recordsPanelOpenState;
+  if(recordsPanelOpenState){
+    wrap.style.display = '';
+    wrap.innerHTML = recordsPanelHtml();
+    if(btn) btn.textContent = '🔼 اقفل لوحة تصحيح الأداء';
+    onRecHallChange();
+    applyRecordsFilter();
+  } else {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    if(btn) btn.textContent = '🛠️ عرض / تعديل السجلات المسجلة';
+  }
+}
+function recordsPanelHtml(){
   const today = todayStr();
-  main.innerHTML = `
+  return `
     <div class="card-box filters">
       <div class="grid2">
         <div><label>من تاريخ</label><input type="date" id="rec-from" value="${today}"></div>
         <div><label>إلى تاريخ</label><input type="date" id="rec-to" value="${today}"></div>
       </div>
       <div class="grid2 full">
-        <div><label>الصالة</label><select id="rec-hall"><option value="__ALL__">كل الصالات</option>${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select></div>
-        <div><label>الكود / الاسم</label><input type="text" id="rec-search" placeholder="دور بالكود أو الاسم"></div>
+        <div><label>الصالة</label><select id="rec-hall" onchange="onRecHallChange()"><option value="__ALL__">كل الصالات</option>${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select></div>
+        <div><label>الخط</label><select id="rec-line" onchange="applyRecordsFilter()"><option value="__ALL__">كل الخطوط</option></select></div>
       </div>
+      <div style="margin-top:8px;"><label>الكود / الاسم</label><input type="text" id="rec-search" placeholder="دور بالكود أو الاسم"></div>
       <label class="perm-item" style="margin-top:8px;">
-        <input type="checkbox" id="rec-noname-only" onchange="applyRecordsFilter()">🚫 عرض الأكواد اللي بدون اسم فقط
+        <input type="checkbox" id="rec-noname-only" onchange="applyRecordsFilter()">🚫 عرض الأكواد اللي بدون اسم فقط (مقسّمة بالصالات)
       </label>
       <button class="apply-btn" onclick="applyRecordsFilter()">بحث</button>
     </div>
     <div id="records-list"></div>
   `;
+}
+function onRecHallChange(){
+  const hallSel = document.getElementById('rec-hall');
+  const lineSel = document.getElementById('rec-line');
+  if(!hallSel || !lineSel) return;
+  const hall = hallSel.value;
+  let lines;
+  if(hall === '__ALL__'){
+    const set = new Set();
+    Object.values(HALL_LINES).forEach(arr => (arr||[]).forEach(l=>set.add(l)));
+    lines = [...set].sort((a,b)=>a-b);
+  } else {
+    lines = HALL_LINES[hall] || [];
+  }
+  lineSel.innerHTML = `<option value="__ALL__">كل الخطوط</option>` + lines.map(l=>`<option value="${l}">خط ${l}</option>`).join('');
   applyRecordsFilter();
 }
 function applyRecordsFilter(){
   const from = document.getElementById('rec-from').value;
   const to = document.getElementById('rec-to').value;
   const hall = document.getElementById('rec-hall').value;
+  const line = document.getElementById('rec-line')?.value;
   const q = document.getElementById('rec-search').value.trim();
   const nonameOnly = document.getElementById('rec-noname-only')?.checked;
   let rows = ENTRIES.filter(e => e.d >= from && e.d <= to);
   if(hall !== '__ALL__') rows = rows.filter(e => e.h === hall);
+  if(line && line !== '__ALL__') rows = rows.filter(e => String(e.l) === String(line));
   if(q) rows = rows.filter(e => (e.n||'').includes(q) || String(e.c).includes(q));
   if(nonameOnly) rows = rows.filter(e => !e.n || !e.n.trim());
-  rows.sort((a,b)=> (b.d+String(b.l)).localeCompare(a.d+String(a.l)));
   const list = document.getElementById('records-list');
-  if(!rows.length){ list.innerHTML = `<div class="empty-state">${nonameOnly ? '🎉 مفيش ولا كود بدون اسم دلوقتي.' : 'مفيش سجلات مطابقة.'}</div>`; return; }
-  const countNote = nonameOnly ? `<div class="data-note" style="margin-bottom:8px;">في ${rows.length} كود لسه محتاج تسجيل اسم — اضغط ✏️ جنب أي واحد وسجل اسمه.</div>` : '';
-  list.innerHTML = countNote + rows.slice(0,300).map(recordRowHtml).join('') +
+  if(!list) return;
+  if(!rows.length){ list.innerHTML = `<div class="empty-state">${nonameOnly ? '🎉 مفيش ولا كود بدون اسم دلوقتي في الفلتر ده.' : 'مفيش سجلات مطابقة.'}</div>`; return; }
+  if(nonameOnly){
+    list.innerHTML = renderNoNameGroupedHtml(rows);
+    return;
+  }
+  rows.sort((a,b)=> (b.d+String(b.l)).localeCompare(a.d+String(a.l)));
+  list.innerHTML = rows.slice(0,300).map(recordRowHtml).join('') +
     (rows.length>300 ? `<div class="data-note">في ${rows.length-300} سجل تاني، ضيق البحث أكتر عشان تشوفهم</div>` : '');
+}
+/* تجميع الأكواد اللي بدون اسم حسب الصالة: كام يوم اشتغل، على أنهي خط، إجمالي التارجت والإنتاج */
+function renderNoNameGroupedHtml(rows){
+  LAST_NONAME_GROUPS = {};
+  const byHall = {};
+  rows.forEach(e => {
+    const hall = e.h || '—';
+    if(!byHall[hall]) byHall[hall] = {};
+    const code = e.c;
+    if(!byHall[hall][code]) byHall[hall][code] = { code, days:new Set(), lines:new Set(), target:0, production:0, halak:0, eslah:0, entries:[] };
+    const g = byHall[hall][code];
+    g.days.add(e.d);
+    g.lines.add(e.l);
+    g.target += (e.t||0);
+    g.production += (e.p||0);
+    g.halak += (e.hk||0);
+    g.eslah += (e.es||0);
+    g.entries.push(e);
+    LAST_NONAME_GROUPS[hall+'|'+code] = g.entries;
+  });
+  const hallsSorted = Object.keys(byHall).sort();
+  let totalCodes = 0;
+  const sections = hallsSorted.map(hall => {
+    const codes = Object.values(byHall[hall]).sort((a,b)=>a.code-b.code);
+    totalCodes += codes.length;
+    const rowsHtml = codes.map(g => {
+      const linesStr = [...g.lines].sort((a,b)=>a-b).map(l=>'خط '+l).join('، ');
+      const safeHall = hall.replace(/'/g,"\\'");
+      return `
+        <div class="record-row" id="nn-${hall}-${g.code}">
+          <div class="rtop">
+            <div>
+              <div class="rname">🚫 كود ${g.code} — بدون اسم</div>
+              <div class="rmeta">صالة ${hall} · ${linesStr || '—'} · اشتغل ${g.days.size} يوم</div>
+            </div>
+            <div class="ractions">
+              <button class="op-btn" onclick="toggleNoNameDetail('${safeHall}', ${g.code})">📋 التفاصيل</button>
+            </div>
+          </div>
+          <div class="rmeta">إجمالي تارجت ${fmtNum(g.target)} · إجمالي إنتاج ${fmtNum(g.production)} · هالك ${fmtNum(g.halak)} · إصلاح ${fmtNum(g.eslah)}</div>
+          <div id="nn-detail-${hall}-${g.code}"></div>
+        </div>`;
+    }).join('');
+    return `<div class="section-title" style="margin-top:14px;">🏭 صالة ${hall} <span class="count">(${codes.length} كود بدون اسم)</span></div>${rowsHtml}`;
+  }).join('');
+  const note = `<div class="data-note" style="margin-bottom:8px;">في ${totalCodes} كود بدون اسم إجمالاً في ${hallsSorted.length} صالة — دوس "📋 التفاصيل" عشان تشوف كل يوم اشتغل فيه وتقدر تعدل الاسم أو تحذف. لما تسجل الاسم لأي كود، هينزرع تلقائي على كل السجلات التانية لنفس الكود.</div>`;
+  return note + sections;
+}
+function toggleNoNameDetail(hall, code){
+  const wrap = document.getElementById('nn-detail-'+hall+'-'+code);
+  if(!wrap) return;
+  if(wrap.innerHTML.trim()){ wrap.innerHTML = ''; return; }
+  const entries = (LAST_NONAME_GROUPS[hall+'|'+code] || []).slice().sort((a,b)=> a.d.localeCompare(b.d));
+  wrap.innerHTML = entries.map(recordRowHtml).join('');
 }
 function recordRowHtml(e){
   return `
@@ -2247,6 +2359,7 @@ function startEditRecord(id){
 async function commitEditRecord(id){
   const e = ENTRIES.find(x=>x.id===id);
   if(!e) return;
+  const hadNoName = !e.n || !e.n.trim();
   const newName = (document.getElementById('edit-n-'+id).value || '').trim();
   e.n = newName;
   e.t = Number(document.getElementById('edit-t-'+id).value)||0;
@@ -2256,6 +2369,7 @@ async function commitEditRecord(id){
   e.at = e.at || {};
   AATAL_KEYS.forEach(k => e.at[k] = Number(document.getElementById('edit-at-'+id+'-'+k).value)||0);
   let operatorsChanged = false;
+  let propagatedCount = 0;
   if(newName){
     const op = OPERATORS.find(o => Number(o.c) === Number(e.c));
     if(op){
@@ -2264,10 +2378,19 @@ async function commitEditRecord(id){
       OPERATORS.push({c: Number(e.c), n: newName, a:true, hd: null});
       operatorsChanged = true;
     }
+    // لو الكود كان من غير اسم، انزرع الاسم على كل سجلاته التانية اللي لسه من غير اسم
+    if(hadNoName){
+      ENTRIES.forEach(x => {
+        if(x.id !== id && Number(x.c) === Number(e.c) && (!x.n || !x.n.trim())){
+          x.n = newName;
+          propagatedCount++;
+        }
+      });
+    }
   }
   await saveEntries();
   if(operatorsChanged) await saveOperators();
-  showToast('✅ اتعدّل السجل');
+  showToast(propagatedCount ? `✅ اتعدّل السجل، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود` : '✅ اتعدّل السجل');
   applyRecordsFilter();
 }
 async function deleteRecord(id){
@@ -2281,7 +2404,6 @@ async function deleteRecord(id){
 const TAB_CATALOG = [
   {key:'report', label:'📊 تقييم الأداء'},
   {key:'entry', label:'📝 تسجيل الأداء'},
-  {key:'records', label:'🛠️ تصحيح الأداء'},
   {key:'bestperf', label:'🏅 أفضل أداء'},
   {key:'jard', label:'📦 الجرد'},
   {key:'jardreg', label:'📝 تسجيل الجرد'},
@@ -3970,7 +4092,7 @@ function toggleExecItem(planId, lineNum, itemId, cbEl){
   } else {
     it.done = false; it.actualH = null; it.actualM = null; it.doneAt = null; it.doneBy = null;
   }
-  saveTargetExec();
+  markExecDirty();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 function editExecItemField(planId, lineNum, itemId, field, value){
@@ -3980,7 +4102,7 @@ function editExecItemField(planId, lineNum, itemId, field, value){
   if(!it || it.done) return;
   if(field==='h' || field==='m') it[field] = Number(value)||0;
   else it[field] = value;
-  saveTargetExec();
+  markExecDirty();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 function deleteExecItem(planId, lineNum, itemId){
@@ -3990,7 +4112,7 @@ function deleteExecItem(planId, lineNum, itemId){
   const it = le.items.find(x=>x.id===itemId);
   if(it && it.done){ showToast('⚠️ مينفعش تمسح أرتيكل اتعلّم عليه بالفعل'); return; }
   le.items = le.items.filter(x=>x.id!==itemId);
-  saveTargetExec();
+  markExecDirty();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 function addManualExecItem(planId, lineNum){
@@ -3998,36 +4120,62 @@ function addManualExecItem(planId, lineNum){
   const le = pe && pe.lines.find(x=>x.line===lineNum);
   if(!le) return;
   le.items.push({id:newExecItemId(), origIdx:null, article:'', qty:'', h:0, m:0, baseTime:'', done:false, actualH:null, actualM:null, doneAt:null, doneBy:null});
-  saveTargetExec();
+  markExecDirty();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
+}
+/* ---------- تتبّع التعديلات اللي لسه ما اتحفظتش + زرار الحفظ اليدوي ---------- */
+let execHasUnsaved = false;
+window.addEventListener('beforeunload', function(e){
+  if(execHasUnsaved){ e.preventDefault(); e.returnValue = ''; }
+});
+function markExecDirty(){
+  execHasUnsaved = true;
+  const bar = document.getElementById('texec-save-bar');
+  if(bar) bar.style.display = 'flex';
+}
+async function commitTargetExecSave(){
+  const btn = document.getElementById('texec-save-btn');
+  const originalText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...'; }
+  await saveTargetExec();
+  if(btn){ btn.disabled = false; btn.textContent = originalText; }
+  execHasUnsaved = false;
+  const bar = document.getElementById('texec-save-bar');
+  if(bar) bar.style.display = 'none';
+  showToast('✅ اتحفظ تنفيذ التارجت بنجاح');
 }
 function renderTargetExecTab(){
   const main = document.getElementById('main-content');
-  const dates = TARGET_PLANS.flatMap(p => [p.from, p.to]).sort();
-  const defFrom = dates[0] || todayStr();
-  const defTo = dates[dates.length-1] || todayStr();
   const restricted = currentUser.hall && !userSeesAllHalls();
   const hallOptions = `<option value="__ALL__">كل الصالات</option>` + HALLS.map(h=>`<option value="${h}" ${restricted && h===currentUser.hall ? 'selected':''}>${h}</option>`).join('');
+  execHasUnsaved = false;
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="tex-from" value="${defFrom}"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="tex-to" value="${defTo}"></div>
+        <div><label>من تاريخ</label><input type="date" id="tex-from" onchange="applyTargetExecFilter()"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="tex-to" onchange="applyTargetExecFilter()"></div>
       </div>
-      <div class="grid2 full"><div><label>الصالة</label><select id="tex-hall">${hallOptions}</select></div><div></div></div>
+      <div class="grid2 full"><div><label>الصالة</label><select id="tex-hall" onchange="applyTargetExecFilter()">${hallOptions}</select></div><div></div></div>
       <button class="apply-btn" onclick="applyTargetExecFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3A4257;" onclick="printTargetExecDetails()">🖨️ طباعة تفاصيل التنفيذ والعجز</button>
     </div>
-    <div class="data-note" style="margin-bottom:8px;">✅ لو الأرتيكل اتشتغل بالكامل، علّم عليه من غير ما تغيّر حاجة. لو لسه فاضل منه شغل لجولة جديدة، قبل ما تعلّم اكتب في خانة "المطلوب في الجديد" الوقت المتبقي المطلوب، وإحنا هنحسب "الفرق" (المستهدف الأصلي ناقص المطلوب في الجديد) تلقائي جنب نفس الأرتيكل من غير ما يتنسخ سطر جديد.</div>
-    <div id="texec-results"></div>
+    <div class="data-note" style="margin-bottom:8px;">✅ لو الأرتيكل اتشتغل بالكامل، علّم عليه من غير ما تغيّر حاجة. لو لسه فاضل منه شغل لجولة جديدة، قبل ما تعلّم اكتب في خانة "المطلوب في الجديد" الوقت المتبقي المطلوب، وإحنا هنحسب "الفرق" (المستهدف الأصلي ناقص المطلوب في الجديد) تلقائي جنب نفس الأرتيكل من غير ما يتنسخ سطر جديد. التعليم بتاعك بيفضل محلي بس لحد ما تدوس "💾 حفظ التنفيذ" تحت.</div>
+    <div id="texec-save-bar" style="display:none;align-items:center;gap:10px;background:#FBE9E5;border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <button class="save-btn" id="texec-save-btn" style="margin:0;flex:none;" onclick="commitTargetExecSave()">💾 حفظ التنفيذ</button>
+      <span style="color:var(--red);font-weight:700;font-size:12.5px;">⚠️ في تعليم لسه ما اتحفظش — متنساش تدوس حفظ قبل ما تسيب الشاشة</span>
+    </div>
+    <div id="texec-results"><div class="empty-state">🔎 حدد الفترة (والصالة لو حابب) وادوس "اعرض النتيجة" عشان تشوف تنفيذ التارجت.</div></div>
   `;
-  applyTargetExecFilter();
 }
 function applyTargetExecFilter(){
   const from = document.getElementById('tex-from').value;
   const to = document.getElementById('tex-to').value;
   const hall = document.getElementById('tex-hall').value;
   const results = document.getElementById('texec-results');
+  if(!from || !to){
+    results.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف تنفيذ التارجت.</div>';
+    return;
+  }
   const restrictedToOwnHall = currentUser.hall && !userSeesAllHalls();
   if(restrictedToOwnHall && hall !== currentUser.hall){
     results.innerHTML = `<div class="empty-state">🔒 تنفيذ التارجت متاح لصالتك (${currentUser.hall}) بس.</div>`;
@@ -4042,6 +4190,7 @@ function printTargetExecDetails(){
   const from = document.getElementById('tex-from').value;
   const to = document.getElementById('tex-to').value;
   const hall = document.getElementById('tex-hall').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const restrictedToOwnHall = currentUser.hall && !userSeesAllHalls();
   if(restrictedToOwnHall && hall !== currentUser.hall){
     showToast(`🔒 تنفيذ التارجت متاح لصالتك (${currentUser.hall}) بس`);
