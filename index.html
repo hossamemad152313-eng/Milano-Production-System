@@ -211,10 +211,22 @@
   /* ---------- APP SHELL ---------- */
   #app-view{ display:none; flex:1; flex-direction:column; }
   header.top{ background: var(--navy); color:#fff; padding:16px 18px 0; position:sticky; top:0; z-index:20; }
-  header.top .row1{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;}
-  header.top .hall-name{ font-size:17px; font-weight:800; }
-  header.top .hall-sub{ font-size:10.5px; color:#9CA3B5; font-family:'JetBrains Mono',monospace; margin-top:2px; }
-  .logout-btn{ background:none; border:1px solid #3A4257; color:#B9BFCF; font-family:'Cairo',sans-serif; font-size:11px; padding:7px 12px; border-radius:20px; cursor:pointer; }
+  header.top .row1{ display:flex; justify-content:center; align-items:center; margin-bottom:12px; position:relative; }
+  header.top .hall-badge{
+    display:inline-flex; flex-direction:column; align-items:center; gap:3px;
+    background:linear-gradient(180deg, rgba(231,163,53,.16), rgba(231,163,53,.05));
+    border:1px solid rgba(231,163,53,.4); border-radius:999px; padding:9px 30px 8px;
+    box-shadow:0 4px 14px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
+    text-align:center; max-width:calc(100% - 90px);
+  }
+  header.top .hall-name{ font-size:14.5px; font-weight:800; letter-spacing:.02em; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header.top .hall-sub{ font-size:10px; color:var(--amber); font-family:'JetBrains Mono',monospace; letter-spacing:.05em; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .logout-btn{
+    position:absolute; left:0; top:50%; transform:translateY(-50%);
+    background:none; border:1px solid #3A4257; color:#B9BFCF; font-family:'Cairo',sans-serif; font-size:11px; padding:7px 12px; border-radius:20px; cursor:pointer;
+    transition:border-color .2s ease, color .2s ease;
+  }
+  .logout-btn:hover{ border-color:var(--amber); color:var(--amber); }
   .tabs{
     display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; align-items:center;
     background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); border-radius:999px;
@@ -602,7 +614,7 @@
   <div id="app-view">
     <header class="top">
       <div class="row1">
-        <div>
+        <div class="hall-badge">
           <div class="hall-name" id="hall-name">--</div>
           <div class="hall-sub" id="hall-sub">--</div>
         </div>
