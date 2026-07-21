@@ -2617,9 +2617,10 @@ function startEditRecord(id){
   if(!e) return;
   const hasName = !!(e.n && e.n.trim());
   document.getElementById('rec-edit-'+id).innerHTML = `
-    ${!hasName ? `<div class="data-note" style="margin-bottom:6px;">⚠️ الكود ده لسه بدون اسم — اكتب الاسم تحت وسيبه يتحفظ في جدول العاملين تلقائي.</div>` : ''}
+    ${!hasName ? `<div class="data-note" style="margin-bottom:6px;">⚠️ الكود ده لسه بدون اسم — ممكن يكون الكود اتكتب غلط أصلاً. تقدر تصحح الكود نفسه تحت، أو تكتب الاسم وسيبه يتحفظ في جدول العاملين تلقائي.</div>` : ''}
     <div class="record-edit-grid">
-      <div><label>الاسم</label><input type="text" id="edit-n-${id}" value="${e.n||''}" placeholder="اكتب الاسم هنا"></div>
+      <div><label>الكود</label><input type="number" id="edit-c-${id}" value="${e.c}" placeholder="كود العاملة" oninput="onEditCodeInput('${id}')"></div>
+      <div><label>الاسم</label><input type="text" id="edit-n-${id}" class="ename${OPERATORS.find(o=>Number(o.c)===Number(e.c))?' found':''}" value="${e.n||''}" placeholder="اكتب الاسم هنا"${OPERATORS.find(o=>Number(o.c)===Number(e.c))?' readonly':''}></div>
       <div><label>تارجت</label><input type="number" id="edit-t-${id}" value="${e.t}"></div>
       <div><label>إنتاج</label><input type="number" id="edit-p-${id}" value="${e.p}"></div>
       <div><label>هالك</label><input type="number" id="edit-hk-${id}" value="${e.hk}"></div>
@@ -2629,11 +2630,39 @@ function startEditRecord(id){
     <button class="apply-btn" style="margin-top:8px;" onclick="commitEditRecord('${id}')">💾 حفظ التعديل</button>
   `;
 }
+function onEditCodeInput(id){
+  const codeEl = document.getElementById('edit-c-'+id);
+  const nameEl = document.getElementById('edit-n-'+id);
+  if(!codeEl || !nameEl) return;
+  const code = codeEl.value;
+  if(!code){
+    nameEl.readOnly = false; nameEl.className = 'ename'; nameEl.placeholder = 'اكتب الاسم هنا';
+    return;
+  }
+  const found = OPERATORS.find(o => String(o.c) === String(code));
+  if(found){
+    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found';
+  } else {
+    if(nameEl.readOnly) nameEl.value = '';
+    nameEl.readOnly = false; nameEl.className = 'ename missing'; nameEl.placeholder = 'كود جديد — اكتب الاسم لو عارفه (اختياري)';
+  }
+}
 async function commitEditRecord(id){
   const e = ENTRIES.find(x=>x.id===id);
   if(!e) return;
   const hadNoName = !e.n || !e.n.trim();
-  const newName = (document.getElementById('edit-n-'+id).value || '').trim();
+  const oldCode = e.c;
+  const codeInput = document.getElementById('edit-c-'+id);
+  let newCode = codeInput ? Number(codeInput.value) : oldCode;
+  if(!newCode || isNaN(newCode)){ showToast('⚠️ لازم تكتب كود صحيح'); return; }
+  let newName = (document.getElementById('edit-n-'+id).value || '').trim();
+  const codeChanged = newCode !== Number(oldCode);
+  // لو الكود اتغيّر ومفيش اسم مكتوب، حاول نجيب الاسم من جدول العاملين لو الكود الجديد ده معروف
+  if(codeChanged && !newName){
+    const matchOp = OPERATORS.find(o => Number(o.c) === newCode);
+    if(matchOp) newName = matchOp.n || '';
+  }
+  e.c = newCode;
   e.n = newName;
   e.t = Number(document.getElementById('edit-t-'+id).value)||0;
   e.p = Number(document.getElementById('edit-p-'+id).value)||0;
@@ -2644,17 +2673,17 @@ async function commitEditRecord(id){
   let operatorsChanged = false;
   let propagatedCount = 0;
   if(newName){
-    const op = OPERATORS.find(o => Number(o.c) === Number(e.c));
+    const op = OPERATORS.find(o => Number(o.c) === newCode);
     if(op){
       if(op.n !== newName){ op.n = newName; operatorsChanged = true; }
     } else {
-      OPERATORS.push({c: Number(e.c), n: newName, a:true, hd: null});
+      OPERATORS.push({c: newCode, n: newName, a:true, hd: null});
       operatorsChanged = true;
     }
-    // لو الكود كان من غير اسم، انزرع الاسم على كل سجلاته التانية اللي لسه من غير اسم
+    // لو الكود كان من غير اسم، انزرع الاسم على كل سجلاته التانية اللي لسه من غير اسم (بنفس الكود الجديد)
     if(hadNoName){
       ENTRIES.forEach(x => {
-        if(x.id !== id && Number(x.c) === Number(e.c) && (!x.n || !x.n.trim())){
+        if(x.id !== id && Number(x.c) === newCode && (!x.n || !x.n.trim())){
           x.n = newName;
           propagatedCount++;
         }
@@ -2663,7 +2692,8 @@ async function commitEditRecord(id){
   }
   await saveEntries();
   if(operatorsChanged) await saveOperators();
-  showToast(propagatedCount ? `✅ اتعدّل السجل، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود` : '✅ اتعدّل السجل');
+  const codeMsg = codeChanged ? `✅ اتصحّح الكود من ${oldCode} إلى ${newCode}` : '✅ اتعدّل السجل';
+  showToast(propagatedCount ? `${codeMsg}، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود` : codeMsg);
   applyRecordsFilter();
 }
 async function deleteRecord(id){
