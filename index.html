@@ -985,6 +985,47 @@ async function transactionalArraySave(docId, localArr, idKey){
 // الأجهزة التانية اللي فاتحة التطبيق من غير ما حد يحتاج يعمل ريفريش للصفحة. كل مستند بيتراقب
 // بدالة onSnapshot، ولو المستخدم دلوقتي واقف في تاب بيعرض نفس البيانات دي (وملوش focus على
 // حقل إدخال بيكتب فيه دلوقتي) — بيتم إعادة الرسم تلقائيًا بالبيانات الجديدة.
+// لو تحديث لحظي جه وإحنا شايلينه لأن فيه خانة واخدة focus، بنسيب نسخته هنا بدل ما نرميه،
+// عشان لما نسيب الخانة نلحق نطبّقه على طول من غير ما نستنى تعديل تاني يوصل من السيرفر.
+let PENDING_SNAPSHOTS = {}; // { docId: {spec, data} }
+function applySnapshotNow(spec, data){
+  // لو المستخدم عامل تعليم/تعديل في تنفيذ التارجت محليًا ولسه مادوسش "حفظ التنفيذ"،
+  // منستبدلش TARGET_EXEC بنسخة السيرفر عشان مانمسحش تعديلاته اللي لسه في انتظار الحفظ.
+  if(spec.docId === 'mlp_targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved) return;
+  spec.apply(data);
+  setBaseline(spec.docId, data, spec.idKey);
+  if(spec.tabs.includes(activeTab)){
+    // تنفيذ التارجت بقى ليه زرار حفظ يدوي (مش بيتحفظ على السيرفر مع كل تعليم أرتيكل)،
+    // وتصحيح الأداء (جوه تسجيل الأداء) ممكن حد يحفظ فيه أي سجل في أي صالة تانية في أي لحظة —
+    // فلو عملنا switchTab عادي هيرجّع فلتر التاريخ/الصالة/البحث للقيم الافتراضية كل مرة
+    // ويوهم المستخدم إنه "اتنقل لفترة تانية" أو "فقد بحثه". فبنعيد رسم النتائج بس بنفس
+    // الفلتر اللي هو واقف عليه من غير ما نلمس خانات الفلتر.
+    if(activeTab === 'targetexec' && document.getElementById('tex-from')) applyTargetExecFilter();
+    else if(activeTab === 'entry'){
+      // ماتلمسش فورم تسجيل الأداء عشان مايمسحش صفوف لسه بتتكتب فيها؛ لو لوحة تصحيح
+      // الأداء مفتوحة تحت بس، حدّث نتائجها بنفس الفلتر اللي هو واقف عليه.
+      if(document.getElementById('rec-from')) applyRecordsFilter();
+    }
+    else switchTab(activeTab);
+  }
+}
+// لما المستخدم يسيب أي خانة كتابة، نتأكد إنه مش لسه واقف في خانة تانية (زي التنقل بـ Tab)
+// وبعدين نطبّق أي تحديثات كانت اتأجلت وهو بيكتب.
+document.addEventListener('focusout', function(){
+  setTimeout(function(){
+    const pendingIds = Object.keys(PENDING_SNAPSHOTS);
+    if(!pendingIds.length) return;
+    const activeEl = document.activeElement;
+    const mainEl = document.getElementById('main-content');
+    const stillTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
+    if(stillTyping) return;
+    pendingIds.forEach(docId => {
+      const pending = PENDING_SNAPSHOTS[docId];
+      delete PENDING_SNAPSHOTS[docId];
+      if(pending) applySnapshotNow(pending.spec, pending.data);
+    });
+  }, 0);
+}, true);
 function startRealtimeSync(){
   if(!firebaseReady) return;
   stopRealtimeSync();
@@ -1007,29 +1048,13 @@ function startRealtimeSync(){
       // منستبدلش البيانات المحلية خالص لو المستخدم دلوقتي بيكتب في حقل إدخال أو لسه واقف
       // في عنصر جوه الصفحة (زي مربع تعليم اتحطّط منذ لحظات) — عشان لو فيه تعديل لسه
       // بيتحفظ في الخلفية، نسخة السيرفر القديمة متمسحوش التعديل ده قبل ما يوصل ويتحفظ.
+      // بس بدل ما نرمي التحديث خالص، بنسيبه معلّق (pending) عشان نطبّقه أول ما يسيب الخانة.
       const activeEl = document.activeElement;
       const mainEl = document.getElementById('main-content');
       const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
-      if(isTyping) return;
-      // لو المستخدم عامل تعليم/تعديل في تنفيذ التارجت محليًا ولسه مادوسش "حفظ التنفيذ"،
-      // منستبدلش TARGET_EXEC بنسخة السيرفر عشان مانمسحش تعديلاته اللي لسه في انتظار الحفظ.
-      if(spec.docId === 'mlp_targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved) return;
-      spec.apply(data);
-      setBaseline(spec.docId, data, spec.idKey);
-      if(spec.tabs.includes(activeTab)){
-        // تنفيذ التارجت بقى ليه زرار حفظ يدوي (مش بيتحفظ على السيرفر مع كل تعليم أرتيكل)،
-        // وتصحيح الأداء (جوه تسجيل الأداء) ممكن حد يحفظ فيه أي سجل في أي صالة تانية في أي لحظة —
-        // فلو عملنا switchTab عادي هيرجّع فلتر التاريخ/الصالة/البحث للقيم الافتراضية كل مرة
-        // ويوهم المستخدم إنه "اتنقل لفترة تانية" أو "فقد بحثه". فبنعيد رسم النتائج بس بنفس
-        // الفلتر اللي هو واقف عليه من غير ما نلمس خانات الفلتر.
-        if(activeTab === 'targetexec' && document.getElementById('tex-from')) applyTargetExecFilter();
-        else if(activeTab === 'entry'){
-          // ماتلمسش فورم تسجيل الأداء عشان مايمسحش صفوف لسه بتتكتب فيها؛ لو لوحة تصحيح
-          // الأداء مفتوحة تحت بس، حدّث نتائجها بنفس الفلتر اللي هو واقف عليه.
-          if(document.getElementById('rec-from')) applyRecordsFilter();
-        }
-        else switchTab(activeTab);
-      }
+      if(isTyping){ PENDING_SNAPSHOTS[spec.docId] = {spec, data}; return; }
+      delete PENDING_SNAPSHOTS[spec.docId];
+      applySnapshotNow(spec, data);
     }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
     realtimeUnsubs.push(unsub);
   });
@@ -1037,6 +1062,7 @@ function startRealtimeSync(){
 function stopRealtimeSync(){
   realtimeUnsubs.forEach(u => { try{ u(); }catch(e){} });
   realtimeUnsubs = [];
+  PENDING_SNAPSHOTS = {};
 }
 async function saveEntries(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
