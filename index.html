@@ -24,7 +24,7 @@
     #print-rank-output table thead{ display:table-header-group; }
   }
   #print-rank-output{ display:none; padding:24px; font-family:'Cairo',sans-serif; direction:rtl; text-align:center; color:#000; }
-  #print-rank-output .print-sheet{ min-height:100%; }
+  #print-rank-output .print-sheet{ min-height:auto; }
   #print-rank-output .print-header{ margin-bottom:18px; padding-bottom:12px; border-bottom:1px solid #E7DCCF; }
   #print-rank-output .print-header-top{ font-size:12px; color:#777; margin-bottom:6px; }
   #print-rank-output .print-title-row{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }
@@ -227,6 +227,25 @@
     transition:border-color .2s ease, color .2s ease;
   }
   .logout-btn:hover{ border-color:var(--amber); color:var(--amber); }
+  .notify-btn{
+    position:absolute; right:0; top:50%; transform:translateY(-50%);
+    background:none; border:1px solid #25D366; color:#25D366; font-family:'Cairo',sans-serif; font-size:11px; padding:7px 12px; border-radius:20px; cursor:pointer;
+    transition:background .2s ease;
+  }
+  .notify-btn:hover{ background:rgba(37,211,102,.12); }
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:9999;
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  .modal-box{
+    background:#1B2030; border:1px solid #3A4257; border-radius:18px 18px 0 0;
+    width:100%; max-width:420px; padding:18px; max-height:88vh; overflow-y:auto;
+  }
+  .modal-box h3{ margin:0 0 12px; font-size:15px; color:#fff; }
+  .modal-box .field{ margin-bottom:10px; }
+  .modal-box .field label{ display:block; font-size:11.5px; color:#B9BFCF; margin-bottom:4px; }
+  .modal-box .close-btn{ position:absolute; left:16px; top:14px; background:none; border:none; color:#B9BFCF; font-size:20px; cursor:pointer; }
+  .modal-box-wrap{ position:relative; }
   .tabs{
     display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; align-items:center;
     background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); border-radius:999px;
@@ -631,6 +650,7 @@
           <div class="hall-sub" id="hall-sub">--</div>
         </div>
         <button class="logout-btn" onclick="doLogout()">خروج</button>
+        <button class="notify-btn" id="notify-btn" style="display:none;" onclick="openNotifyModal()">📤 واتساب</button>
       </div>
       <div class="tabs" id="tabs-row"></div>
     </header>
@@ -645,6 +665,7 @@
 
 <div class="toast" id="toast"></div>
 <div id="print-rank-output"></div>
+<div id="modal-root"></div>
 
 <script>
 const SEED_USERS = [
@@ -686,6 +707,7 @@ function userSeesAllHalls(){ return !!(currentUser && currentUser.allHalls); }
 let ENTRIES = [];
 let OPERATORS = [];
 let USERS = [];
+let HALL_MANAGERS = []; // [{hall:'A صالة', phone:'20xxxxxxxxx'}]
 let activeTab = null;
 let rankMode = false;
 
@@ -895,6 +917,14 @@ async function loadData(){
     NIGHT_POWER = [];
     try{ await db.collection(FS_COLLECTION).doc('mlp_nightpower').set({value: JSON.stringify(NIGHT_POWER)}); }catch(e2){}
   }
+  try{
+    const snap8 = await db.collection(FS_COLLECTION).doc('mlp_hallmanagers').get();
+    if(!snap8.exists) throw new Error('not-found');
+    HALL_MANAGERS = JSON.parse(snap8.data().value);
+  }catch(e){
+    HALL_MANAGERS = [];
+    try{ await db.collection(FS_COLLECTION).doc('mlp_hallmanagers').set({value: JSON.stringify(HALL_MANAGERS)}); }catch(e2){}
+  }
   // نسجّل "الأساس المرجعي" لكل قسم فور ما نحمّله من السيرفر، عشان محرك الحفظ يقدر يميّز
   // بعد كده بين سجل اتمسح فعلاً من الجهاز ده (كان موجود في الأساس ومختفي دلوقتي) وسجل
   // جهاز تاني ضافه (مكانش موجود في الأساس أصلًا) — تفاصيل الفكرة فوق transactionalArraySave.
@@ -906,6 +936,7 @@ async function loadData(){
   setBaseline('mlp_targetexec', TARGET_EXEC, 'planId');
   setBaseline('mlp_hallpower', HALL_POWER, 'id');
   setBaseline('mlp_nightpower', NIGHT_POWER, 'id');
+  setBaseline('mlp_hallmanagers', HALL_MANAGERS, 'hall');
 }
 // محرك الحفظ الآمن الموحّد: بيستخدم Firestore Transaction حقيقية، يعني القراءة والكتابة
 // بيحصلوا كعملية واحدة ذرية على السيرفر — مفيش نافذة زمنية ممكن يحصل فيها تصادم بين
@@ -966,6 +997,7 @@ function startRealtimeSync(){
     {docId:'mlp_targetexec',  apply:v=>{TARGET_EXEC=v;},  tabs:['targetexec'], idKey:'planId'},
     {docId:'mlp_hallpower',   apply:v=>{HALL_POWER=v;},   tabs:['hallpower'], idKey:'id'},
     {docId:'mlp_nightpower',  apply:v=>{NIGHT_POWER=v;},  tabs:['nightpower'], idKey:'id'},
+    {docId:'mlp_hallmanagers',apply:v=>{HALL_MANAGERS=v;},tabs:[], idKey:'hall'},
   ];
   specs.forEach(spec => {
     const unsub = db.collection(FS_COLLECTION).doc(spec.docId).onSnapshot(snap => {
@@ -1057,6 +1089,131 @@ async function saveNightPowerToDb(){
   await queueSave('mlp_nightpower', async () => {
     try{ NIGHT_POWER = await transactionalArraySave('mlp_nightpower', NIGHT_POWER, 'id'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
   });
+}
+async function saveHallManagersToDb(){
+  if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
+  await queueSave('mlp_hallmanagers', async () => {
+    try{ HALL_MANAGERS = await transactionalArraySave('mlp_hallmanagers', HALL_MANAGERS, 'hall'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); }
+  });
+}
+
+/* ---------------- إشعار واتساب لمدير الصالة (زرار يدوي بعد ما حسام يخلص ويتأكد من الشغل) ----------------
+   بيفتح واتساب (رابط wa.me الرسمي) على رقم مدير الصالة المسجل، بالرسالة جاهزة كتابةً — وحسام بنفسه
+   هو اللي بيدوس إرسال جوه واتساب. من غير أي API أو كود خارجي أو تسجيل مسبق من مدير الصالة. */
+const NOTIFY_TYPE_LABELS = { perf:'تقييم الأداء', bestperf:'أفضل أداء', jard:'الجرد', target:'التارجت', targetexec:'تنفيذ التارجت', hallpower:'قوة الصالة', nightpower:'قوة السهر' };
+const NOTIFY_RECIPIENTS = [...HALLS, 'القسم الفني', 'قسم الجودة', 'رئيس الأقسام', 'المالك (Owner)'];
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+function openHallManagersSettings(){
+  if(currentUser.role !== 'admin') return;
+  const rowsHtml = NOTIFY_RECIPIENTS.map(h => {
+    const m = HALL_MANAGERS.find(x=>x.hall===h) || {};
+    const safeH = h.replace(/'/g,"\\'");
+    return `
+      <div class="field" style="margin-bottom:16px;">
+        <label>${h} — رقم واتساب مدير الصالة (بالصيغة الدولية زي 201001234567)</label>
+        <input type="text" id="hm-phone-${safeH}" value="${m.phone||''}" placeholder="201001234567">
+      </div>`;
+  }).join('');
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>⚙️ أرقام مديري الصالات والأقسام (واتساب)</h3>
+        <div class="data-note" style="margin-bottom:12px;">اكتب رقم واتساب كل مدير صالة بالصيغة الدولية من غير علامة + وبدون أصفار في الأول (مثال: مصر 20 ثم الرقم بدون الصفر الأول).</div>
+        ${rowsHtml}
+        <button class="apply-btn" onclick="commitHallManagersSettings()">💾 حفظ الأرقام</button>
+      </div>
+    </div>`;
+}
+function commitHallManagersSettings(){
+  const updated = NOTIFY_RECIPIENTS.map(h => {
+    const phone = document.getElementById('hm-phone-'+h).value.trim();
+    return {hall:h, phone};
+  }).filter(m => m.phone);
+  HALL_MANAGERS = updated;
+  saveHallManagersToDb();
+  showToast('✅ اتحفظت أرقام مديري الصالات');
+  closeModal();
+}
+function openNotifyModal(){
+  if(currentUser.role !== 'admin') return;
+  const today = todayStr();
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>📤 إشعار مدير الصالة</h3>
+        <div class="field">
+          <label>الجهة (صالة / قسم)</label>
+          <select id="ntf-hall" onchange="fillNotifyMessage()">${NOTIFY_RECIPIENTS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>نوع العملية</label>
+          <select id="ntf-type" onchange="fillNotifyMessage()">
+            <option value="perf">📊 تقييم الأداء</option>
+            <option value="bestperf">🏅 أفضل أداء</option>
+            <option value="jard">📦 الجرد</option>
+            <option value="target">🎯 التارجت</option>
+            <option value="targetexec">📐 تنفيذ التارجت</option>
+            <option value="hallpower">💪 قوة الصالة</option>
+            <option value="nightpower">🌙 قوة السهر</option>
+          </select>
+        </div>
+        <div class="field" id="ntf-jardhall-wrap" style="display:none;">
+          <label>ده خاص بأنهي صالة؟</label>
+          <select id="ntf-jardhall" onchange="fillNotifyMessage()">
+            <option value="كل الصالات">🏭 كل الصالات</option>
+            ${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}
+          </select>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>من تاريخ</label><input type="date" id="ntf-from" value="${today}" onchange="fillNotifyMessage()"></div>
+          <div class="field"><label>إلى تاريخ</label><input type="date" id="ntf-to" value="${today}" onchange="fillNotifyMessage()"></div>
+        </div>
+        <div class="field">
+          <label>نص الرسالة (تقدر تعدله)</label>
+          <textarea id="ntf-msg" rows="4" style="width:100%;resize:vertical;"></textarea>
+        </div>
+        <button class="apply-btn" onclick="commitSendNotify()">📤 ابعت على الواتساب</button>
+        <button class="op-btn" style="margin-top:8px;width:100%;" onclick="openHallManagersSettings()">⚙️ أرقام مديري الصالات</button>
+      </div>
+    </div>`;
+  fillNotifyMessage();
+}
+function fillNotifyMessage(){
+  const hall = document.getElementById('ntf-hall').value;
+  const typeSel = document.getElementById('ntf-type');
+  const from = document.getElementById('ntf-from').value;
+  const to = document.getElementById('ntf-to').value;
+  const msgBox = document.getElementById('ntf-msg');
+  const jardHallWrap = document.getElementById('ntf-jardhall-wrap');
+  const type = typeSel.value;
+  const isHallRecipient = HALLS.includes(hall);
+  let forText;
+  if(isHallRecipient){
+    // الجهة نفسها صالة بعينها، فمفيش داعي لخانة نطاق إضافية
+    jardHallWrap.style.display = 'none';
+    forText = `لصالة ${hall}`;
+  } else {
+    // قسم فني / جودة / رئيس أقسام / مالك: محتاجين يعرفوا الكلام ده خاص بأنهي صالة، أو كل الصالات
+    jardHallWrap.style.display = '';
+    const scope = document.getElementById('ntf-jardhall').value;
+    forText = (scope === 'كل الصالات') ? 'لكل الصالات' : `لصالة ${scope}`;
+  }
+  msgBox.value = `تم الانتهاء من تسجيل ${NOTIFY_TYPE_LABELS[type]} ${forText} من ${from} إلى ${to} ✅`;
+}
+async function commitSendNotify(){
+  const hall = document.getElementById('ntf-hall').value;
+  const message = document.getElementById('ntf-msg').value.trim();
+  if(!message){ showToast('⚠️ اكتب نص الرسالة الأول'); return; }
+  const mgr = HALL_MANAGERS.find(m=>m.hall===hall);
+  if(!mgr || !mgr.phone){
+    showToast('⚠️ لسه مسجلتش رقم '+hall+' — دوس على "⚙️ أرقام مديري الصالات"');
+    return;
+  }
+  const url = `https://wa.me/${encodeURIComponent(mgr.phone)}?text=${encodeURIComponent(message)}`;
+  window.open(url, '_blank');
+  closeModal();
 }
 
 /* ---------------- LOGIN ---------------- */
@@ -1160,6 +1317,8 @@ function initApp(){
      currentUser.hall ? `كل الصالات — ${ROLE_LABELS[currentUser.role]||currentUser.role}` : 'إدخال بيانات');
   document.getElementById('hall-name').textContent = hallLabel;
   document.getElementById('hall-sub').textContent = currentUser.label;
+  const notifyBtn = document.getElementById('notify-btn');
+  if(notifyBtn) notifyBtn.style.display = (currentUser.role === 'admin') ? '' : 'none';
 
   let tabs = [];
   if(currentUser.customTabs && currentUser.customTabs.length){
@@ -4106,10 +4265,10 @@ function renderExecLineCard(plan, l, execLine){
   const canEdit = execCanEdit();
   const t = execLineTotals(execLine);
   const rowsHtml = (execLine.items||[]).map(it => {
-    const schedH = it.h||0, schedM = it.m||0;
+    const schedH = Number(it.h)||0, schedM = Number(it.m)||0;
     const schedMin = schedH*60+schedM;
-    const defAH = it.actualH!=null ? it.actualH : 0;
-    const defAM = it.actualM!=null ? it.actualM : 0;
+    const defAH = it.actualH!=null ? (Number(it.actualH)||0) : 0;
+    const defAM = it.actualM!=null ? (Number(it.actualM)||0) : 0;
     const statusBadge = it.done
       ? `<span style="color:var(--green);font-weight:800;">✅ تم</span>`
       : `<span style="color:var(--amber-dark);font-weight:800;">⏳ لسه</span>`;
@@ -4129,7 +4288,7 @@ function renderExecLineCard(plan, l, execLine){
         </td>
         <td>${canEdit && !it.done ? `<input type="text" value="${it.qty||''}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','qty',this.value)">` : (it.qty||'-')}</td>
         <td>${canEdit && !it.done ? `<input type="text" value="${it.baseTime||''}" placeholder="مثال 6:50" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','baseTime',this.value)">` : (it.baseTime||'-')}</td>
-        <td>${canEdit && !it.done ? `<div class="hm-pair"><input type="number" value="${schedH}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','h',this.value)"><span>:</span><input type="number" value="${schedM}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','m',this.value)"></div>` : `${schedH}:${String(schedM).padStart(2,'0')}`}</td>
+        <td>${canEdit && !it.done && it.origIdx===null ? `<div class="hm-pair"><input type="number" value="${schedH}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','h',this.value)"><span>:</span><input type="number" value="${schedM}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','m',this.value)"></div>` : `${schedH}:${String(schedM).padStart(2,'0')}`}</td>
         <td>
           ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
         </td>
@@ -4214,7 +4373,11 @@ function refreshExecPlanCard(plan){
   if(!plan) return;
   const el = document.getElementById('texec-plan-'+plan.id);
   if(!el) return;
-  const pe = TARGET_EXEC.find(x=>x.planId===plan.id) || getOrInitPlanExec(plan);
+  // لازم نستخدم getOrInitPlanExec هنا مش TARGET_EXEC.find مباشرة، عشان دي هي اللي بتعمل
+  // sync لخانة "مستهدف" (h/m) مع آخر تعديل في التارجت. لو استخدمنا find بس، أي تعديل تاني
+  // (تعليم أرتيكل، حذف، تعديل يدوي) هيعيد رسم الكارت من غير ما يحدّث مستهدف من التارجت الحالي،
+  // وده اللي كان بيخلي الخانة تفضل واقفة على قيمة قديمة (أو صفر) لحد ما تفتح التبويب من الأول.
+  const pe = getOrInitPlanExec(plan);
   el.innerHTML = execPlanInnerHtml(plan, pe);
 }
 function toggleExecItem(planId, lineNum, itemId, cbEl){
