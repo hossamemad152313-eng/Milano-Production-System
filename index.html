@@ -2316,9 +2316,42 @@ function recordsPanelHtml(){
         <input type="checkbox" id="rec-noname-only" onchange="applyRecordsFilter()">🚫 عرض الأكواد اللي بدون اسم فقط (مقسّمة بالصالات)
       </label>
       <button class="apply-btn" onclick="applyRecordsFilter()">بحث</button>
+      ${currentUser.role==='admin' ? `<button class="apply-btn" style="background:var(--red);margin-top:8px;" onclick="deleteFilteredRecords()">🗑️ امسح كل السجلات المطابقة للفلتر ده</button>` : ''}
     </div>
     <div id="records-list"></div>
   `;
+}
+/* بيرجع السجلات المطابقة لفلتر التاريخ/الصالة/الخط/البحث الحالي (من غير فلتر "بدون اسم") — مستخدمة في العرض وفي الحذف الجماعي */
+function getFilteredEntries(){
+  const from = document.getElementById('rec-from').value;
+  const to = document.getElementById('rec-to').value;
+  const hall = document.getElementById('rec-hall').value;
+  const line = document.getElementById('rec-line')?.value;
+  const q = document.getElementById('rec-search').value.trim();
+  let rows = ENTRIES.filter(e => e.d >= from && e.d <= to);
+  if(hall !== '__ALL__') rows = rows.filter(e => e.h === hall);
+  if(line && line !== '__ALL__') rows = rows.filter(e => String(e.l) === String(line));
+  if(q) rows = rows.filter(e => (e.n||'').includes(q) || String(e.c).includes(q));
+  return rows;
+}
+/* حذف جماعي لكل السجلات المطابقة للفلتر الحالي (تاريخ من/لـ + صالة + خط)، بعد تأكيد صريح من المستخدم */
+async function deleteFilteredRecords(){
+  if(currentUser.role !== 'admin'){ showToast('🚫 الحذف الجماعي متاح لحسام (admin) بس'); return; }
+  const rows = getFilteredEntries();
+  if(!rows.length){ showToast('⚠️ مفيش سجلات مطابقة للفلتر ده عشان تتمسح'); return; }
+  const from = document.getElementById('rec-from').value;
+  const to = document.getElementById('rec-to').value;
+  const hall = document.getElementById('rec-hall').value;
+  const line = document.getElementById('rec-line')?.value;
+  const hallTxt = hall==='__ALL__' ? 'كل الصالات' : hall;
+  const lineTxt = (!line || line==='__ALL__') ? 'كل الخطوط' : ('خط '+line);
+  const ok = confirm(`هتمسح ${rows.length} سجل — من ${from} لـ${to} — ${hallTxt} — ${lineTxt}.\n\nالخطوة دي مالهاش رجوع بعد الحفظ. متأكد؟`);
+  if(!ok) return;
+  const idsToDelete = new Set(rows.map(r=>r.id));
+  ENTRIES = ENTRIES.filter(e => !idsToDelete.has(e.id));
+  await saveEntries();
+  showToast(`🗑️ اتمسح ${rows.length} سجل بنجاح`);
+  applyRecordsFilter();
 }
 function onRecHallChange(){
   const hallSel = document.getElementById('rec-hall');
@@ -2337,16 +2370,8 @@ function onRecHallChange(){
   applyRecordsFilter();
 }
 function applyRecordsFilter(){
-  const from = document.getElementById('rec-from').value;
-  const to = document.getElementById('rec-to').value;
-  const hall = document.getElementById('rec-hall').value;
-  const line = document.getElementById('rec-line')?.value;
-  const q = document.getElementById('rec-search').value.trim();
   const nonameOnly = document.getElementById('rec-noname-only')?.checked;
-  let rows = ENTRIES.filter(e => e.d >= from && e.d <= to);
-  if(hall !== '__ALL__') rows = rows.filter(e => e.h === hall);
-  if(line && line !== '__ALL__') rows = rows.filter(e => String(e.l) === String(line));
-  if(q) rows = rows.filter(e => (e.n||'').includes(q) || String(e.c).includes(q));
+  let rows = getFilteredEntries();
   if(nonameOnly) rows = rows.filter(e => !e.n || !e.n.trim());
   const list = document.getElementById('records-list');
   if(!list) return;
