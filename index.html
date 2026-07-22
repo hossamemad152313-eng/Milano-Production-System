@@ -819,16 +819,6 @@ async function loadData(){
     ENTRIES = SEED_ENTRIES;
     try{ await db.collection(FS_COLLECTION).doc('mlp_entries').set({value: JSON.stringify(ENTRIES)}); }catch(e2){}
   }
-  // مسح بيانات التقييم من 27/6 لحد 6/7 (مرة واحدة بس — بناءً على طلب حسام عشان يسجل من الأول وجديد)
-  try{
-    const wipeFlag = await db.collection(FS_COLLECTION).doc('mlp_entries_wipe_27jun_6jul').get();
-    if(!wipeFlag.exists){
-      const before = ENTRIES.length;
-      ENTRIES = ENTRIES.filter(e => !(e.d >= '2026-06-27' && e.d <= '2026-07-06'));
-      await db.collection(FS_COLLECTION).doc('mlp_entries').set({value: JSON.stringify(ENTRIES)});
-      await db.collection(FS_COLLECTION).doc('mlp_entries_wipe_27jun_6jul').set({done:true, removed: before - ENTRIES.length, ts: new Date().toISOString()});
-    }
-  }catch(e){}
   try{
     const snap2 = await db.collection(FS_COLLECTION).doc('mlp_operators').get();
     if(!snap2.exists) throw new Error('not-found');
