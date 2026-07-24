@@ -744,13 +744,24 @@ function normalizeNumber(value){ const n = parseFloat(String(value).replace(/,/g
 function rankLabel(idx){ const labels = ['الأول','الثاني','الثالث','الرابع','الخامس','السادس','السابع','الثامن','التاسع','العاشر']; return labels[idx] || `${idx+1}`; }
 function computeTieRankLabels(sortedRows, accessor){
   const labels = [];
-  let lastValue = null;
-  let lastRank = 0;
-  sortedRows.forEach((row, idx) => {
+  if(!sortedRows.length) return labels;
+  // بنجمع الصفوف المتعادلة (نفس النسبة) في مجموعات، بنفس ترتيبها الأصلي
+  const groups = [];
+  sortedRows.forEach(row => {
     const value = accessor(row);
     const formatted = fmtPct(value);
-    if(idx === 0 || formatted !== lastValue){ lastValue = formatted; lastRank = idx; }
-    labels.push(rankLabel(lastRank));
+    const lastGroup = groups[groups.length - 1];
+    if(lastGroup && lastGroup.formatted === formatted){ lastGroup.rows.push(row); }
+    else { groups.push({ formatted, value, rows: [row] }); }
+  });
+  // لو المتصدر عدّى نسبته الـ100% بيبقى "سوبر سبيشيال" برا الترتيب العادي،
+  // وبعدها الترقيم بيبدأ من "الأول" تاني (مش من "الثاني")
+  const topIsSuper = groups[0].value > 1;
+  groups.forEach((group, gIdx) => {
+    let label;
+    if(gIdx === 0 && topIsSuper){ label = '⭐ سوبر سبيشيال'; }
+    else { label = rankLabel(topIsSuper ? gIdx - 1 : gIdx); }
+    group.rows.forEach(() => labels.push(label));
   });
   return labels;
 }
@@ -1036,7 +1047,7 @@ function startRealtimeSync(){
     {docId:'mlp_operators',   apply:v=>{OPERATORS=v;},    tabs:['operators'], idKey:'c'},
     {docId:'mlp_users',       apply:v=>{USERS=v;},        tabs:['users'], idKey:'user'},
     {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id'},
-    {docId:'mlp_targets',     apply:v=>{TARGET_PLANS=v;}, tabs:['target'], idKey:'id'},
+    {docId:'mlp_targets',     apply:v=>{TARGET_PLANS=v;}, tabs:['target','targetexec'], idKey:'id'},
     {docId:'mlp_targetexec',  apply:v=>{TARGET_EXEC=v;},  tabs:['targetexec'], idKey:'planId'},
     {docId:'mlp_hallpower',   apply:v=>{HALL_POWER=v;},   tabs:['hallpower'], idKey:'id'},
     {docId:'mlp_nightpower',  apply:v=>{NIGHT_POWER=v;},  tabs:['nightpower'], idKey:'id'},
@@ -4288,14 +4299,17 @@ function getOrInitPlanExec(plan){
   if(changed) saveTargetExec();
   return pe;
 }
-function execItemAmounts(it){
+function execItemAmounts(it, previewReqMin){
   // بيرجع مقدار الوقت اللي اتحسب "اتعلّم عليه" ومقدار اللي "متبقي/عجز" للأرتيكل ده، ولو
   // فيه وقت أساسي مسجل (baseTime)، بيستخدم المتبقي الحقيقي المتوقع (الأساسي - المستهدف)
   // كمرجع، عشان لو الوقت المطلوب في الجديد أقل من المتوقع، يظهر ده كزيادة/شطارة (عجز سالب)
   // مش كعجز كامل بالمطلوب زي ما هو، وده بينعكس على إجمالي العجز في الخط/الصالة مش بس على شكل الرقم لوحده.
+  // لو اتبعت previewReqMin (رقم مش null/undefined)، الدالة بتحسب "معاينة" الفرق زي لو الأرتيكل
+  // اتعلّم عليه بالوقت ده بالظبط، حتى لو لسه فعليًا ماتعلّمش عليه (مفيدة عشان تعرض الفرق وهو لسه بيكتب).
   const schedMin = (Number(it.h)||0)*60 + (Number(it.m)||0);
-  if(!it.done) return {schedMin, execMin:0, pendMin:schedMin, diffMin:null, usingBase:false};
-  const reqMin = (it.actualH!=null ? Number(it.actualH) : 0)*60 + (it.actualM!=null ? Number(it.actualM) : 0);
+  const hasPreview = previewReqMin !== undefined && previewReqMin !== null;
+  if(!it.done && !hasPreview) return {schedMin, execMin:0, pendMin:schedMin, diffMin:null, usingBase:false};
+  const reqMin = hasPreview ? previewReqMin : ((it.actualH!=null ? Number(it.actualH) : 0)*60 + (it.actualM!=null ? Number(it.actualM) : 0));
   const baseMin = parseHMToMinutes(it.baseTime);
   if(baseMin > 0){
     const expectedRemaining = baseMin - schedMin;
@@ -4348,9 +4362,9 @@ function renderExecLineCard(plan, l, execLine){
         <td>${canEdit && !it.done ? `<input type="text" value="${it.baseTime||''}" placeholder="مثال 6:50" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','baseTime',this.value)">` : (it.baseTime||'-')}</td>
         <td>${canEdit && !it.done && it.origIdx===null ? `<div class="hm-pair"><input type="number" value="${schedH}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','h',this.value)"><span>:</span><input type="number" value="${schedM}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','m',this.value)"></div>` : `${schedH}:${String(schedM).padStart(2,'0')}`}</td>
         <td>
-          ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
+          ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?`oninput="updateExecDiffPreview('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?`oninput="updateExecDiffPreview('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
         </td>
-        <td>${diffCell}</td>
+        <td id="texec-diff-${it.id}">${diffCell}</td>
         <td>${statusBadge}</td>
         <td>
           <div class="act-cell">
@@ -4437,6 +4451,25 @@ function refreshExecPlanCard(plan){
   // وده اللي كان بيخلي الخانة تفضل واقفة على قيمة قديمة (أو صفر) لحد ما تفتح التبويب من الأول.
   const pe = getOrInitPlanExec(plan);
   el.innerHTML = execPlanInnerHtml(plan, pe);
+}
+function updateExecDiffPreview(planId, lineNum, itemId){
+  // بيدي معاينة حية لـ"الفرق" وهو لسه بيكتب في خانة "الجديد"، من غير ما يعلّم الأرتيكل كـ"تم"،
+  // عشان يعرف كتب صح ولا غلط قبل ما يدوس ✔️.
+  const pe = TARGET_EXEC.find(x=>x.planId===planId);
+  const le = pe && pe.lines.find(x=>x.line===lineNum);
+  const it = le && le.items.find(x=>x.id===itemId);
+  const cell = document.getElementById('texec-diff-'+itemId);
+  if(!it || it.done || !cell) return;
+  const ahEl = document.getElementById('texec-ah-'+itemId);
+  const amEl = document.getElementById('texec-am-'+itemId);
+  const reqH = ahEl ? (Number(ahEl.value)||0) : 0;
+  const reqM = amEl ? (Number(amEl.value)||0) : 0;
+  const a = execItemAmounts(it, reqH*60 + reqM);
+  const diffColor = a.usingBase
+    ? (a.diffMin < 0 ? 'var(--green)' : (a.diffMin > 0 ? 'var(--red)' : 'var(--muted)'))
+    : (a.diffMin > 0 ? 'var(--green)' : (a.diffMin < 0 ? 'var(--red)' : 'var(--muted)'));
+  const baseMark = a.usingBase ? `<span title="محسوبة بناءً على الوقت الأساسي (${it.baseTime})" style="font-size:9px;">⚡</span>` : '';
+  cell.innerHTML = `<b style="color:${diffColor};">${fmtSignedMinutes(a.diffMin)}</b>${baseMark} <span style="font-size:9px;color:var(--muted);">(معاينة)</span>`;
 }
 function toggleExecItem(planId, lineNum, itemId, cbEl){
   if(!execCanEdit()){ cbEl.checked = !cbEl.checked; showToast('🔒 مفيش صلاحية تعديل'); return; }
