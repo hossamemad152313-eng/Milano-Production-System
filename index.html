@@ -991,17 +991,23 @@ function setBaseline(docId, arr, idKey){
 // هنا بنضمن إن كل حفظة تستنى اللي قبلها يخلص الأول، وبعدين تاخد أحدث نسخة من البيانات وقت
 // ما هي فعليًا بتتنفذ — مش وقت ما اتطلبت.
 let SAVE_QUEUES = {}; // { docId: Promise }
+// آخر سبب حقيقي رجع من Firebase لأي محاولة حفظ فشلت — بنستخدمه في أي رسالة "فشل الحفظ" تانية
+// بدل ما نعرض رسالة عمومية ونضيّع السبب الحقيقي (كان بيحصل قبل كده لأن كل رسالة بتمسح اللي قبلها من على الشاشة).
+let LAST_SAVE_ERROR = '';
 // بتاخد أي خطأ راجع من Firebase وترجع نص قصير مفهوم بيوصف السبب الحقيقي (بدل ما نقول "فشل الحفظ" عمومي من غير تفاصيل).
 // وبتسجل الخطأ كامل في الـ console (F12 > Console) عشان أي فحص تقني أعمق لو احتجنا.
 function saveErrorDetail(e){
   console.error('خطأ حفظ Firebase:', e);
   const code = e && e.code ? e.code : '';
   const msg = e && e.message ? e.message : String(e || 'خطأ غير معروف');
-  if(code === 'permission-denied') return 'مفيش صلاحية وصول للسيرفر (permission-denied) — راجع إعدادات Firebase';
-  if(code === 'resource-exhausted') return 'تجاوزنا الحد المسموح من Firebase اليومي (resource-exhausted)';
-  if(code === 'unavailable') return 'السيرفر مش متاح دلوقتي (unavailable) — جرب تاني بعد شوية';
-  if(msg && msg.toLowerCase().includes('longer than')) return 'حجم بيانات السجلات كبر عن الحد المسموح في مستند واحد — محتاجين نغيّر طريقة التخزين';
-  return `${code || 'خطأ'}: ${msg}`.slice(0, 160);
+  let detail;
+  if(code === 'permission-denied') detail = 'مفيش صلاحية وصول للسيرفر (permission-denied) — راجع Firebase Rules، ممكن تكون صلاحية الاختبار انتهت';
+  else if(code === 'resource-exhausted') detail = 'تجاوزنا الحد المسموح من Firebase اليومي (resource-exhausted)';
+  else if(code === 'unavailable') detail = 'السيرفر مش متاح دلوقتي (unavailable) — جرب تاني بعد شوية';
+  else if(msg && msg.toLowerCase().includes('longer than')) detail = 'حجم بيانات السجلات كبر عن الحد المسموح في مستند واحد — محتاجين نغيّر طريقة التخزين';
+  else detail = `${code || 'خطأ'}: ${msg}`.slice(0, 160);
+  LAST_SAVE_ERROR = detail;
+  return detail;
 }
 function queueSave(docId, taskFn){
   const prev = SAVE_QUEUES[docId] || Promise.resolve();
@@ -2390,7 +2396,7 @@ async function saveAllRows(){
     // عشان لو المستخدم دوس "حفظ" تاني بعد شوية، ميحصلش تكرار للسجلات دي
     ENTRIES = entriesBackup;
     OPERATORS = operatorsBackup;
-    showToast('❌ السجلات ما اتحفظتش على السيرفر — تأكد من الإنترنت وجرب تدوس "حفظ" تاني (البيانات لسه في الفورم قدامك ومحدش هيضيع)', true);
+    showToast('❌ السجلات ما اتحفظتش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (البيانات لسه في الفورم قدامك ومحدش هيضيع)', true);
     return;
   }
   let operatorsWarning = '';
@@ -2624,7 +2630,7 @@ async function deleteFilteredRecords(){
   const saved = await saveEntries();
   if(!saved){
     ENTRIES = entriesBackup; // الحذف ما اتأكدش على السيرفر، فالسجلات ترجع زي ما كانت محليًا
-    showToast('❌ الحذف ما اتأكدش على السيرفر — السجلات لسه موجودة زي ما هي، جرب تاني', true);
+    showToast('❌ الحذف ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجلات لسه موجودة زي ما هي)', true);
     return;
   }
   showToast(`🗑️ اتمسح ${rows.length} سجل بنجاح`);
@@ -2814,7 +2820,7 @@ async function commitEditRecord(id){
   if(!entriesOk){
     ENTRIES = entriesBackup;
     OPERATORS = operatorsBackup;
-    showToast('❌ التعديل ما اتحفظش على السيرفر — رجّعنا السجل (وأي سجلات تانية اتأثرت) زي ما كانت، جرب تاني', true);
+    showToast('❌ التعديل ما اتحفظش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (رجّعنا السجل زي ما كان)', true);
     applyRecordsFilter();
     return;
   }
@@ -2833,7 +2839,7 @@ async function deleteRecord(id){
   const saved = await saveEntries();
   if(!saved){
     ENTRIES = entriesBackup;
-    showToast('❌ الحذف ما اتأكدش على السيرفر — السجل لسه موجود، جرب تاني', true);
+    showToast('❌ الحذف ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجل لسه موجود)', true);
     applyRecordsFilter();
     return;
   }
@@ -3807,26 +3813,22 @@ function updateLineTotals(lineId){
 function updateHallProductionTotal(){
   const el = document.getElementById('target-hall-production-total');
   if(!el) return;
-  let totalQty = 0, totalArticles = 0, totalLineTargets = 0;
+  let totalArticles = 0, totalLineTargets = 0;
   pendingTargetLineIds.forEach(id => {
     const lineTargetInput = document.getElementById('target-line-total-input-'+id);
     const lineTarget = Number(lineTargetInput ? lineTargetInput.value : '') || 0;
     totalLineTargets += lineTarget;
     for(let i=0;i<TARGET_ROWS;i++){
       const artEl = document.getElementById('trow-'+id+'-article-'+i);
-      const qtyEl = document.getElementById('trow-'+id+'-qty-'+i);
       if(!artEl) continue;
       if(artEl.value.trim()) totalArticles++;
-      const n = parseFloat(qtyEl ? qtyEl.value : '');
-      if(!isNaN(n)) totalQty += n;
     }
   });
-  if(totalLineTargets > 0){
-    el.textContent = `📐 إجمالي تارجت الإنتاج للصالة كلها: ${fmtNum(totalLineTargets)} — مجموع أعداد التارجت المكتوبة في الخطوط: ${fmtNum(totalQty)} — إجمالي عدد الأرتيكلات: ${totalArticles}`;
-  } else {
-    el.textContent = `📐 إجمالي تارجت الإنتاج للصالة كلها (مجموع الأعداد الرقمية اللي كتبتها): ${fmtNum(totalQty)} — إجمالي عدد الأرتيكلات: ${totalArticles}`;
-  }
+  // الرقم ده دايمًا = مجموع خانة "إجمالي عدد التارجت المطلوب للخط" في كل خط، ومفيش رجوع لمجموع
+  // الأعداد الرقمية في جدول الأرتيكلات (كان بيلخبط الرقم لو حد سابها فاضية).
+  el.textContent = `📐 إجمالي تارجت الإنتاج للصالة كلها: ${fmtNum(totalLineTargets)} — إجمالي عدد الأرتيكلات: ${totalArticles}`;
 }
+
 
 function renderTargetRegTab(){
   const main = document.getElementById('main-content');
@@ -4119,12 +4121,10 @@ function getTargetSummaryData(from, to, hall){
     const key = p.hall || '__ALL__';
     if(!map.has(key)) map.set(key, {hall:key, production:0, targetDeliveries:0, articles:0, floor:0, line:0});
     const agg = map.get(key);
-    // sum per-plan values
+    // sum per-plan values — إجمالي تارجت الإنتاج للصالة = مجموع خانة "إجمالي عدد التارجت المطلوب للخط" في كل خط (زي ما بيظهر وقت التسجيل والطباعة)، مش مجموع أعداد الأرتيكلات المفردة
     (p.lines||[]).forEach(l => {
-      (l.rows||[]).forEach(r => {
-        if(r.article) agg.articles++;
-        const n = normalizeNumber(r.qty||0); if(n) agg.production += n;
-      });
+      agg.production += normalizeNumber(l.lineTarget||0);
+      (l.rows||[]).forEach(r => { if(r.article) agg.articles++; });
       (l.floorWork||[]).forEach(w => { agg.floor += normalizeNumber(w.qty||0); });
       (l.lineWork||[]).forEach(w => { agg.line += normalizeNumber(w.qty||0); });
     });
@@ -4311,9 +4311,9 @@ function applyTargetFilter(){
   results.innerHTML = plans.map(p => {
     let hallProduction = 0, hallArticles = 0, hallFloorTotal = 0, hallLineTotal = 0;
     p.lines.forEach(l => {
+      hallProduction += parseFloat(l.lineTarget)||0;
       (l.rows||[]).forEach(r => {
         if(r.article) hallArticles++;
-        const n = parseFloat(r.qty); if(!isNaN(n)) hallProduction += n;
       });
       (l.floorWork||[]).forEach(w => { const n = parseFloat(w.qty); if(!isNaN(n)) hallFloorTotal += n; });
       (l.lineWork||[]).forEach(w => { const n = parseFloat(w.qty); if(!isNaN(n)) hallLineTotal += n; });
