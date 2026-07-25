@@ -4523,7 +4523,7 @@ function renderExecLineCard(plan, l, execLine){
         <td>${canEdit && !it.done ? `<input type="text" value="${it.baseTime||''}" placeholder="مثال 6:50" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','baseTime',this.value)">` : (it.baseTime||'-')}</td>
         <td>${canEdit && !it.done && it.origIdx===null ? `<div class="hm-pair"><input type="number" value="${schedH}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','h',this.value)"><span>:</span><input type="number" value="${schedM}" onchange="editExecItemField('${plan.id}',${l.line},'${it.id}','m',this.value)"></div>` : `${schedH}:${String(schedM).padStart(2,'0')}`}</td>
         <td>
-          ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?`oninput="updateExecDiffPreview('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?`oninput="updateExecDiffPreview('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
+          ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?`oninput="updateExecActualValue('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?`oninput="updateExecActualValue('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
         </td>
         <td id="texec-diff-${it.id}">${diffCell}</td>
         <td>${statusBadge}</td>
@@ -4631,6 +4631,20 @@ function updateExecDiffPreview(planId, lineNum, itemId){
     : (a.diffMin > 0 ? 'var(--green)' : (a.diffMin < 0 ? 'var(--red)' : 'var(--muted)'));
   const baseMark = a.usingBase ? `<span title="محسوبة بناءً على الوقت الأساسي (${it.baseTime})" style="font-size:9px;">⚡</span>` : '';
   cell.innerHTML = `<b style="color:${diffColor};">${fmtSignedMinutes(a.diffMin)}</b>${baseMark} <span style="font-size:9px;color:var(--muted);">(معاينة)</span>`;
+}
+function updateExecActualValue(planId, lineNum, itemId){
+  // بيحفظ قيمة خانة "جديد" (actualH/actualM) جوه الـ item نفسه أول ما المستخدم يكتب فيها،
+  // مش بس في الشاشة. لو سبناها في الشاشة بس، أي إعادة رسم للكارت (زي لو المستخدم عدّل خانة
+  // "أساسي" في نفس الصف وطلع منها) كانت بتمسح القيمة دي وترجعها صفر قبل ما يدوس ✔️ أصلاً.
+  const pe = TARGET_EXEC.find(x=>x.planId===planId);
+  const le = pe && pe.lines.find(x=>x.line===lineNum);
+  const it = le && le.items.find(x=>x.id===itemId);
+  if(!it || it.done) return;
+  const ahEl = document.getElementById('texec-ah-'+itemId);
+  const amEl = document.getElementById('texec-am-'+itemId);
+  it.actualH = ahEl ? (Number(ahEl.value)||0) : 0;
+  it.actualM = amEl ? (Number(amEl.value)||0) : 0;
+  updateExecDiffPreview(planId, lineNum, itemId);
 }
 function toggleExecItem(planId, lineNum, itemId, cbEl){
   if(!execCanEdit()){ cbEl.checked = !cbEl.checked; showToast('🔒 مفيش صلاحية تعديل'); return; }
