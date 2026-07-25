@@ -833,8 +833,51 @@ try{
   console.warn('فشل الاتصال بـ Firebase:', e);
 }
 const FS_COLLECTION = 'milano_production'; // كل بيانات النظام متخزنة هنا في مستندات منفصلة
+// سجلات تقييم الأداء (ENTRIES) بس ليها تخزين مختلف: كل سجل مستند مستقل في الكولكشن ده بدل ما تتكدس
+// كلها كنص JSON واحد جوه مستند واحد. العدد بيكبر يوميًا من كل الصالات، وأي مستند في Firestore
+// محدود بحجم ~1 ميجابايت — فلو فضلنا نلزّق كل السجلات في مستند واحد كان لازم يوصل يوم ويفشل الحفظ
+// نهائيًا للجميع (وده اللي كان بيحصل فعلاً). كل سجل مستقل هنا معناه مفيش حد لعدد السجلات خالص.
+// ملحوظة مهمة: لازم يفضل السجلات دي جوه مسار milano_production نفسه (مش كولكشن مستقل بره)،
+// عشان قواعد الأمان (Firestore Rules) عندك أغلب الظن متظبطة على المسار ده تحديدًا
+// (زي milano_production/{document=**})، ولو عملنا كولكشن شقيق جنبه هيترفض تلقائيًا بـ
+// permission-denied لأنه خارج نطاق القاعدة. فبدل كولكشن مستقل، بنستخدم subcollection جوه
+// مستند داخل milano_production نفسه — بيفضل مغطّى بنفس القاعدة القديمة.
+function entriesCol(){ return db.collection(FS_COLLECTION).doc('mlp_entries_index').collection('items'); }
 let realtimeUnsubs = []; // دوال إلغاء الاشتراك في مراقبة السيرفر اللحظية (onSnapshot)
 
+/* تحميل سجلات تقييم الأداء من الكولكشن الجديد (مستند لكل سجل). لو الكولكشن الجديد لسه فاضي بس
+   فيه بيانات قديمة في المستند القديم (mlp_entries بشكله القديم قبل التعديل)، بننقلها مرة واحدة بس
+   — كل سجل بيتكتب كمستند صغير مستقل، فمفيش مشكلة حجم في النقل نفسه. */
+async function loadEntriesFromDb(){
+  const col = entriesCol();
+  const snap = await col.get();
+  if(!snap.empty){
+    ENTRIES = snap.docs.map(d => d.data());
+    return;
+  }
+  try{
+    const legacy = await db.collection(FS_COLLECTION).doc('mlp_entries').get();
+    if(legacy.exists){
+      const oldArr = JSON.parse(legacy.data().value || '[]');
+      if(Array.isArray(oldArr) && oldArr.length){
+        const batchSize = 400; // حد أقصى ~500 عملية لكل batch في Firestore
+        for(let i=0;i<oldArr.length;i+=batchSize){
+          const batch = db.batch();
+          oldArr.slice(i,i+batchSize).forEach(entry => { batch.set(col.doc(String(entry.id)), entry); });
+          await batch.commit();
+        }
+        ENTRIES = oldArr;
+        return;
+      }
+    }
+  }catch(e){ console.warn('فشل ترحيل السجلات القديمة لتقييم الأداء:', e); }
+  ENTRIES = SEED_ENTRIES;
+  try{
+    const batch = db.batch();
+    ENTRIES.forEach(entry => batch.set(col.doc(String(entry.id)), entry));
+    await batch.commit();
+  }catch(e2){}
+}
 /* ---------------- STORAGE (Firebase Firestore بدل نظام Claude) ---------------- */
 async function loadData(){
   if(!firebaseReady){
@@ -842,14 +885,7 @@ async function loadData(){
     ENTRIES = SEED_ENTRIES; OPERATORS = SEED_OPERATORS; USERS = SEED_USERS; JARD = SEED_JARD; TARGET_PLANS = [];
     return;
   }
-  try{
-    const snap = await db.collection(FS_COLLECTION).doc('mlp_entries').get();
-    if(!snap.exists) throw new Error('not-found');
-    ENTRIES = JSON.parse(snap.data().value);
-  }catch(e){
-    ENTRIES = SEED_ENTRIES;
-    try{ await db.collection(FS_COLLECTION).doc('mlp_entries').set({value: JSON.stringify(ENTRIES)}); }catch(e2){}
-  }
+  try{ await loadEntriesFromDb(); }catch(e){ console.warn('فشل تحميل سجلات تقييم الأداء:', e); ENTRIES = ENTRIES || SEED_ENTRIES; }
   try{
     const snap2 = await db.collection(FS_COLLECTION).doc('mlp_operators').get();
     if(!snap2.exists) throw new Error('not-found');
@@ -1077,11 +1113,27 @@ document.addEventListener('focusout', function(){
     });
   }, 0);
 }, true);
+// منطق مشترك: بيقرر لو نطبّق التحديث الوارد من السيرفر دلوقتي أو نسيبه معلّق لحد ما المستخدم يسيب خانة الكتابة
+function handleIncomingSync(spec, data){
+  if(!currentUser) return;
+  const activeEl = document.activeElement;
+  const mainEl = document.getElementById('main-content');
+  const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
+  if(isTyping){ PENDING_SNAPSHOTS[spec.docId] = {spec, data}; return; }
+  delete PENDING_SNAPSHOTS[spec.docId];
+  applySnapshotNow(spec, data);
+}
 function startRealtimeSync(){
   if(!firebaseReady) return;
   stopRealtimeSync();
+  // سجلات تقييم الأداء بقت في كولكشن (مستند مستقل لكل سجل) بدل مستند واحد، فبنراقب الكولكشن كله
+  const entriesSpec = {docId:'mlp_entries', apply:v=>{ENTRIES=v;}, tabs:['report','entry','bestperf'], idKey:'id'};
+  const unsubEntries = entriesCol().onSnapshot(snap => {
+    const data = snap.docs.map(d => d.data());
+    handleIncomingSync(entriesSpec, data);
+  }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
+  realtimeUnsubs.push(unsubEntries);
   const specs = [
-    {docId:'mlp_entries',     apply:v=>{ENTRIES=v;},      tabs:['report','entry','bestperf'], idKey:'id'},
     {docId:'mlp_operators',   apply:v=>{OPERATORS=v;},    tabs:['operators'], idKey:'c'},
     {docId:'mlp_users',       apply:v=>{USERS=v;},        tabs:['users'], idKey:'user'},
     {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id'},
@@ -1100,12 +1152,7 @@ function startRealtimeSync(){
       // في عنصر جوه الصفحة (زي مربع تعليم اتحطّط منذ لحظات) — عشان لو فيه تعديل لسه
       // بيتحفظ في الخلفية، نسخة السيرفر القديمة متمسحوش التعديل ده قبل ما يوصل ويتحفظ.
       // بس بدل ما نرمي التحديث خالص، بنسيبه معلّق (pending) عشان نطبّقه أول ما يسيب الخانة.
-      const activeEl = document.activeElement;
-      const mainEl = document.getElementById('main-content');
-      const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
-      if(isTyping){ PENDING_SNAPSHOTS[spec.docId] = {spec, data}; return; }
-      delete PENDING_SNAPSHOTS[spec.docId];
-      applySnapshotNow(spec, data);
+      handleIncomingSync(spec, data);
     }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
     realtimeUnsubs.push(unsub);
   });
@@ -1115,11 +1162,24 @@ function stopRealtimeSync(){
   realtimeUnsubs = [];
   PENDING_SNAPSHOTS = {};
 }
-async function saveEntries(){
+// بتحفظ سجلات تقييم الأداء: كل سجل مستند مستقل، فبنكتب/نمسح بس السجلات اللي اتغيّرت فعلاً —
+// مش السجلات كلها كل مرة. ده اللي بيمنع مشكلة "حجم المستند كبر عن الحد المسموح" نهائيًا،
+// لأن كل مستند هنا صغير جدًا (سجل واحد) مهما كبر عدد السجلات الكلي.
+// opts.upsert: مصفوفة سجلات (objects) يتكتبوا/يتحدّثوا. opts.deleteIds: مصفوفة IDs يتمسحوا.
+async function saveEntries(opts){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
+  const upsert = (opts && opts.upsert) || [];
+  const deleteIds = (opts && opts.deleteIds) || [];
   let ok = true;
   await queueSave('mlp_entries', async () => {
-    try{ ENTRIES = await transactionalArraySave('mlp_entries', ENTRIES, 'id'); }
+    try{
+      if(!upsert.length && !deleteIds.length) return;
+      const col = entriesCol();
+      const batch = db.batch();
+      upsert.forEach(entry => batch.set(col.doc(String(entry.id)), entry));
+      deleteIds.forEach(id => batch.delete(col.doc(String(id))));
+      await batch.commit();
+    }
     catch(e){ ok = false; showToast('❌ فشل حفظ السجلات — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -2390,7 +2450,7 @@ async function saveAllRows(){
     newEntries.push(entry);
   });
   ENTRIES = [...ENTRIES, ...newEntries];
-  const entriesOk = await saveEntries();
+  const entriesOk = await saveEntries({upsert: newEntries});
   if(!entriesOk){
     // الحفظ فشل فعليًا على السيرفر — نرجّع كل حاجة زي ما كانت (السجلات والعاملين الجداد)
     // عشان لو المستخدم دوس "حفظ" تاني بعد شوية، ميحصلش تكرار للسجلات دي
@@ -2627,7 +2687,7 @@ async function deleteFilteredRecords(){
   const idsToDelete = new Set(rows.map(r=>r.id));
   const entriesBackup = ENTRIES;
   ENTRIES = ENTRIES.filter(e => !idsToDelete.has(e.id));
-  const saved = await saveEntries();
+  const saved = await saveEntries({deleteIds: [...idsToDelete]});
   if(!saved){
     ENTRIES = entriesBackup; // الحذف ما اتأكدش على السيرفر، فالسجلات ترجع زي ما كانت محليًا
     showToast('❌ الحذف ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجلات لسه موجودة زي ما هي)', true);
@@ -2798,6 +2858,7 @@ async function commitEditRecord(id){
   AATAL_KEYS.forEach(k => e.at[k] = Number(document.getElementById('edit-at-'+id+'-'+k).value)||0);
   let operatorsChanged = false;
   let propagatedCount = 0;
+  const changedEntries = [e];
   if(newName){
     const op = OPERATORS.find(o => Number(o.c) === newCode);
     if(op){
@@ -2812,11 +2873,12 @@ async function commitEditRecord(id){
         if(x.id !== id && Number(x.c) === newCode && (!x.n || !x.n.trim())){
           x.n = newName;
           propagatedCount++;
+          changedEntries.push(x);
         }
       });
     }
   }
-  const entriesOk = await saveEntries();
+  const entriesOk = await saveEntries({upsert: changedEntries});
   if(!entriesOk){
     ENTRIES = entriesBackup;
     OPERATORS = operatorsBackup;
@@ -2836,7 +2898,7 @@ async function commitEditRecord(id){
 async function deleteRecord(id){
   const entriesBackup = ENTRIES;
   ENTRIES = ENTRIES.filter(e => e.id !== id);
-  const saved = await saveEntries();
+  const saved = await saveEntries({deleteIds: [id]});
   if(!saved){
     ENTRIES = entriesBackup;
     showToast('❌ الحذف ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجل لسه موجود)', true);
