@@ -1416,7 +1416,6 @@ function sortLoginUsers(users){
 function populateLoginUsers(){
   const sel = document.getElementById('login-user');
   const help = document.getElementById('login-help');
-  USERS = SEED_USERS.map(u => ({...u}));
   const sortedUsers = sortLoginUsers(USERS);
   if(sortedUsers.length === 0){
     sel.innerHTML = '<option disabled selected>لا يوجد مستخدمين</option>';
@@ -1461,8 +1460,6 @@ async function bootApp(){
   sel.innerHTML = `<option>بيحمّل...</option>`;
   sel.disabled = true;
   await loadData();
-  // Use the embedded login users from this file only, not any external source.
-  USERS = SEED_USERS.map(u => ({...u}));
   populateLoginUsers();
   sel.disabled = false;
   const restoreRow = document.getElementById('login-restore-row');
@@ -2298,6 +2295,11 @@ function renderEntryTab(){
     <div class="data-note" style="margin-bottom:8px;">دور بالتاريخ أو الصالة أو الخط على أي سجل قديم وعدله أو احذفه من هنا، أو شوف كل الأكواد اللي لسه بدون اسم مقسّمة بالصالات عشان تراجع الورق بسهولة.</div>
     <button class="apply-btn" id="records-panel-toggle-btn" style="background:#3A4257;margin-bottom:14px;" onclick="toggleRecordsPanel()">🛠️ عرض / تعديل السجلات المسجلة</button>
     <div id="records-panel-wrap" style="display:none;"></div>
+
+    <div class="section-title" style="margin-top:22px;">📊 تقرير الاكتمال (الأيام والخطوط الناقصة)</div>
+    <div class="data-note" style="margin-bottom:8px;">حدد فترة (وصالة لو حابب)، والتقرير هيوريك أنهي يوم مفيهوش أي تسجيل خالص لكل صالة، وأنهي خط في أي يوم لسه ناقص أو عدد الأسماء المسجلة فيه قليل.</div>
+    <button class="apply-btn" id="coverage-panel-toggle-btn" style="background:#3A4257;margin-bottom:14px;" onclick="toggleCoveragePanel()">📊 عرض تقرير الاكتمال</button>
+    <div id="coverage-panel-wrap" style="display:none;"></div>
   `;
   renderRowsContainer();
 }
@@ -2446,8 +2448,23 @@ async function saveAllRows(){
 
   const entriesBackup = ENTRIES;
   const operatorsBackup = OPERATORS;
+  // مانع التكرار: مانسجّلش نفس الكود تاني في نفس اليوم/الصالة/الخط لو أصلاً متسجل قبل كده —
+  // ده بيحصل عادي لما حد يدوس "حفظ" أكتر من مرة بالغلط على نفس الصف.
+  const existingKeys = new Set(ENTRIES.map(e => `${e.d}|${e.h}|${e.l}|${e.c}`));
+  const seenInThisBatch = new Set();
+  const skippedCodes = [];
+  const dedupedValid = valid.filter(r => {
+    const key = `${date}|${hall}|${line}|${Number(r.code)}`;
+    if(existingKeys.has(key) || seenInThisBatch.has(key)){ skippedCodes.push(r.code); return false; }
+    seenInThisBatch.add(key);
+    return true;
+  });
+  if(!dedupedValid.length){
+    showToast(`⚠️ كل الأكواد اللي كتبتها (${skippedCodes.join('، ')}) متسجلة أصلاً في ${hall} - خط ${line} - يوم ${date}. مفيش حاجة جديدة اتحفظت عشان مانكررش السجلات.`, true);
+    return;
+  }
   const newEntries = [];
-  valid.forEach(r => {
+  dedupedValid.forEach(r => {
     if(!r.name && r.newName){
       OPERATORS = [...OPERATORS, {c: Number(r.code), n: r.newName, a:true, hd: r.newHire || null}];
     }
@@ -2470,12 +2487,13 @@ async function saveAllRows(){
     return;
   }
   let operatorsWarning = '';
-  if(valid.some(r=>!r.name && r.newName)){
+  if(dedupedValid.some(r=>!r.name && r.newName)){
     const operatorsOk = await saveOperators();
     if(!operatorsOk) operatorsWarning = ' — تنبيه: السجلات اتحفظت تمام، بس اسم العامل/العاملة الجديدة ما اتسجلش في قائمة العاملين، جرب تضيفه بعدين من تبويب العاملين';
   }
-  const namelessCount = valid.filter(r => !r.name && !r.newName).length;
-  showToast(`✅ اتحفظ ${valid.length} سجل بنجاح على ${hall} - خط ${line}${namelessCount ? ` (${namelessCount} كود اتسجل من غير اسم — تقدر تدخّل الاسم بعدين من لوحة تصحيح الأداء)` : ''}${operatorsWarning}`, !!operatorsWarning);
+  const namelessCount = dedupedValid.filter(r => !r.name && !r.newName).length;
+  const skippedNote = skippedCodes.length ? ` — ⚠️ اتجاهل ${skippedCodes.length} كود (${skippedCodes.join('، ')}) لأنه كان متسجل أصلاً في نفس اليوم/الصالة/الخط` : '';
+  showToast(`✅ اتحفظ ${dedupedValid.length} سجل بنجاح على ${hall} - خط ${line}${namelessCount ? ` (${namelessCount} كود اتسجل من غير اسم — تقدر تدخّل الاسم بعدين من لوحة تصحيح الأداء)` : ''}${operatorsWarning}${skippedNote}`, !!operatorsWarning || !!skippedCodes.length);
   renderEntryTab();
 }
 
@@ -2663,11 +2681,116 @@ function recordsPanelHtml(){
         <input type="checkbox" id="rec-noname-only" onchange="applyRecordsFilter()">🚫 عرض الأكواد اللي بدون اسم فقط (مقسّمة بالصالات)
       </label>
       <button class="apply-btn" onclick="applyRecordsFilter()">بحث</button>
-      ${currentUser.role==='admin' ? `<button class="apply-btn" style="background:var(--red);margin-top:8px;" onclick="deleteFilteredRecords()">🗑️ امسح كل السجلات المطابقة للفلتر ده</button>` : ''}
+      ${currentUser.role==='admin' ? `<div style="text-align:left;margin-top:8px;"><button style="background:none;border:none;color:var(--red);font-size:10.5px;text-decoration:underline;cursor:pointer;padding:4px;" onclick="deleteFilteredRecords()">🗑️ امسح كل السجلات المطابقة للفلتر ده</button></div>` : ''}
     </div>
     <div id="records-list"></div>
   `;
 }
+// ============ تقرير الاكتمال (الأيام والخطوط الناقصة) ============
+let coveragePanelOpenState = false;
+function toggleCoveragePanel(){
+  const wrap = document.getElementById('coverage-panel-wrap');
+  const btn = document.getElementById('coverage-panel-toggle-btn');
+  if(!wrap) return;
+  coveragePanelOpenState = !coveragePanelOpenState;
+  if(coveragePanelOpenState){
+    wrap.style.display = '';
+    wrap.innerHTML = coveragePanelHtml();
+    if(btn) btn.textContent = '🔼 اقفل تقرير الاكتمال';
+    applyCoverageReport();
+  } else {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    if(btn) btn.textContent = '📊 عرض تقرير الاكتمال';
+  }
+}
+function coveragePanelHtml(){
+  const today = todayStr();
+  return `
+    <div class="card-box filters">
+      <div class="grid2">
+        <div><label>من تاريخ</label><input type="date" id="cov-from" value="${today}"></div>
+        <div><label>إلى تاريخ</label><input type="date" id="cov-to" value="${today}"></div>
+      </div>
+      <div style="margin-top:8px;"><label>الصالة</label><select id="cov-hall"><option value="__ALL__">كل الصالات</option>${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select></div>
+      <button class="apply-btn" onclick="applyCoverageReport()">بحث</button>
+    </div>
+    <div id="coverage-report-results"></div>
+  `;
+}
+// بيرجع مصفوفة تواريخ (yyyy-mm-dd) من from لحد to شاملة الاتنين
+function dateRangeList(from, to){
+  const out = [];
+  if(!from || !to) return out;
+  let d = new Date(from+'T00:00:00');
+  const end = new Date(to+'T00:00:00');
+  if(isNaN(d) || isNaN(end) || d > end) return out;
+  while(d <= end){
+    out.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate()+1);
+  }
+  return out;
+}
+function applyCoverageReport(){
+  const from = document.getElementById('cov-from').value;
+  const to = document.getElementById('cov-to').value;
+  const hallSel = document.getElementById('cov-hall').value;
+  const resultsEl = document.getElementById('coverage-report-results');
+  if(!resultsEl) return;
+  const days = dateRangeList(from, to);
+  if(!days.length){ resultsEl.innerHTML = `<div class="empty-state">حدد فترة صحيحة (من تاريخ أصغر من أو يساوي إلى تاريخ)</div>`; return; }
+  const halls = hallSel === '__ALL__' ? HALLS : [hallSel];
+  const rangeEntries = ENTRIES.filter(e => days.includes(e.d) && halls.includes(e.h));
+
+  // 1) أيام ناقصة بالكامل: صالة مالهاش ولا سجل واحد في يوم معين جوه الفترة
+  const missingByHall = {};
+  halls.forEach(hall => {
+    const missing = days.filter(day => !rangeEntries.some(e => e.h === hall && e.d === day));
+    if(missing.length) missingByHall[hall] = missing;
+  });
+  const missingSection = Object.keys(missingByHall).length ? `
+    <div class="section-title" style="margin-top:6px;color:var(--red);">🚫 أيام ناقصة (مفيها ولا سجل واحد)</div>
+    ${Object.entries(missingByHall).map(([hall, mdays]) => `
+      <div class="record-row">
+        <div class="rname">🏭 صالة ${hall}</div>
+        <div class="rmeta" style="color:var(--red);">${mdays.join('، ')}</div>
+      </div>
+    `).join('')}
+  ` : `<div class="empty-state" style="color:var(--green);">✅ كل الصالات المختارة عندها تسجيل في كل أيام الفترة دي</div>`;
+
+  // 2) جدول تفصيلي: لكل صالة، صف لكل يوم وعمود لكل خط، وفيه عدد الأسماء (الأكواد المميزة) المسجلة
+  const hallTables = halls.map(hall => {
+    const hallEntries = rangeEntries.filter(e => e.h === hall);
+    if(!hallEntries.length && !(HALL_LINES[hall]||[]).length) return ''; // صالة معندها خطوط ولا سجلات خالص، متعرضهاش
+    // خطوط الصالة: المعروفة من إعدادات الصالة + أي خط ظهر في السجلات الفعلية مش موجود في الإعدادات
+    const knownLines = new Set(HALL_LINES[hall] || []);
+    hallEntries.forEach(e => knownLines.add(Number(e.l)));
+    const lines = [...knownLines].sort((a,b)=>a-b);
+    if(!lines.length) return '';
+    const rowsHtml = days.map(day => {
+      const dayEntries = hallEntries.filter(e => e.d === day);
+      const dayEmpty = dayEntries.length === 0;
+      const cells = lines.map(lineNum => {
+        const count = new Set(dayEntries.filter(e => Number(e.l) === lineNum).map(e => e.c)).size;
+        const cellColor = count === 0 ? 'var(--red)' : 'inherit';
+        return `<td style="color:${cellColor};font-weight:${count===0?'800':'700'};">${count === 0 ? '0' : count}</td>`;
+      }).join('');
+      return `<tr${dayEmpty?' style="background:#FDEDEB;"':''}><td style="font-weight:800;${dayEmpty?'color:var(--red);':''}">${day}${dayEmpty?' 🚫':''}</td>${cells}</tr>`;
+    }).join('');
+    return `
+      <div class="section-title" style="margin-top:14px;">🏭 صالة ${hall}</div>
+      <div class="jflat-wrap">
+        <table class="jflat-table ttab">
+          <thead><tr><th>اليوم</th>${lines.map(l=>`<th>خط ${l}<br><span style="font-size:9px;color:var(--muted);">(عدد الأسماء)</span></th>`).join('')}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+  }).join('');
+
+  resultsEl.innerHTML = missingSection + hallTables;
+}
+// ============ نهاية تقرير الاكتمال ============
 /* بيرجع السجلات المطابقة لفلتر التاريخ/الصالة/الخط/البحث الحالي (من غير فلتر "بدون اسم") — مستخدمة في العرض وفي الحذف الجماعي */
 function getFilteredEntries(){
   const from = document.getElementById('rec-from').value;
@@ -2704,6 +2827,41 @@ async function deleteFilteredRecords(){
     return;
   }
   showToast(`🗑️ اتمسح ${rows.length} سجل بنجاح`);
+  applyRecordsFilter();
+}
+/* بتدور على أي سجلات مكررة (نفس اليوم + الصالة + الخط + الكود) في كل قاعدة البيانات مش بس
+   الفلتر الحالي، وبتسيب أقدم سجل بس وتمسح الباقي — مفيدة لو حد دوس "حفظ" أكتر من مرة بالغلط
+   على نفس الصف قبل ما نضيف مانع التكرار في saveAllRows. */
+async function cleanDuplicateEntries(){
+  if(currentUser.role !== 'admin'){ showToast('🚫 تنظيف التكرار متاح لحسام (admin) بس'); return; }
+  const groups = {};
+  ENTRIES.forEach(e => {
+    const key = `${e.d}|${e.h}|${e.l}|${e.c}`;
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(e);
+  });
+  const idsToDelete = [];
+  let dupGroupsCount = 0;
+  Object.values(groups).forEach(list => {
+    if(list.length < 2) return;
+    dupGroupsCount++;
+    // بنسيب أقدم سجل (أقل ts أو أول واحد لو مفيش ts) وبنمسح الباقي
+    const sorted = [...list].sort((a,b) => (a.ts||a.id||'').localeCompare(b.ts||b.id||''));
+    sorted.slice(1).forEach(e => idsToDelete.push(e.id));
+  });
+  if(!idsToDelete.length){ showToast('🎉 مفيش أي سجلات مكررة دلوقتي في قاعدة البيانات'); return; }
+  const ok = confirm(`لقيت ${dupGroupsCount} حالة تكرار (نفس اليوم/الصالة/الخط/الكود متسجل أكتر من مرة)، إجمالي ${idsToDelete.length} سجل زيادة هيتمسح ويفضل سجل واحد بس لكل حالة.\n\nالخطوة دي مالهاش رجوع بعد الحفظ. متأكد؟`);
+  if(!ok) return;
+  const entriesBackup = ENTRIES;
+  const idsSet = new Set(idsToDelete);
+  ENTRIES = ENTRIES.filter(e => !idsSet.has(e.id));
+  const saved = await saveEntries({deleteIds: idsToDelete});
+  if(!saved){
+    ENTRIES = entriesBackup;
+    showToast('❌ حذف التكرار ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجلات لسه موجودة زي ما هي)', true);
+    return;
+  }
+  showToast(`🧹 اتمسح ${idsToDelete.length} سجل مكرر بنجاح، وفضل سجل واحد بس لكل حالة`);
   applyRecordsFilter();
 }
 function onRecHallChange(){
