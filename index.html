@@ -414,6 +414,16 @@
   .ttab-exec .hm-pair{ display:flex; align-items:center; justify-content:center; gap:3px; }
   .ttab-exec .hm-pair input{ width:32px; flex:0 0 32px; padding:6px 0; }
   .ttab-exec .hm-pair span{ font-size:11px; color:var(--muted); }
+  /* بنشيل سهمين الزيادة/التقليل (spin buttons) بتاعة input type=number هنا، لأن الخانة
+     ضيقة جدًا (32px) وكانت السهمين بتاخد المساحة وتخبي الرقم اللي المستخدم بيكتبه —
+     كان يوهمه إن الرقم "مبيظهرش" أو "بيتمسح"، مع إنه كان متسجل فعليًا جوه بس مش ظاهر بصريًا. */
+  .ttab-exec .hm-pair input[type="number"]::-webkit-outer-spin-button,
+  .ttab-exec .hm-pair input[type="number"]::-webkit-inner-spin-button{
+    -webkit-appearance:none; margin:0;
+  }
+  .ttab-exec .hm-pair input[type="number"]{
+    -moz-appearance:textfield;
+  }
   .ttab-exec .act-cell{ display:flex; align-items:center; justify-content:center; gap:6px; }
   .ttab-exec .act-cell input[type="checkbox"]{
     appearance:none; -webkit-appearance:none; -moz-appearance:none;
