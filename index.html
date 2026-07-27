@@ -69,6 +69,8 @@
     display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; text-align:right;
   }
   #print-rank-output .target-print-card{ break-inside:avoid; page-break-inside:avoid; }
+  #print-rank-output .rank-print-page{ break-inside:avoid; page-break-inside:avoid; }
+  #print-rank-output .rank-print-page.rank-print-front{ page-break-after:always; break-after:page; }
   #print-rank-output .target-print-card-full{ grid-column:1 / -1; display:flex; justify-content:center; }
   #print-rank-output .target-print-card-full table.target-print-table{ width:50%; min-width:280px; }
   #print-rank-output table.target-print-table{ width:100%; min-width:0; margin:0; }
@@ -1756,38 +1758,42 @@ function printRankOnly(){
   const from = document.getElementById('f-from').value;
   const to = document.getElementById('f-to').value;
   const hall = document.getElementById('f-hall').value;
-  const rowHtml = (w) => {
-    const days = [...new Set(w.rows.map(r=>r.d))].sort();
-    return `<tr>
-      <td>${w.code}</td><td>${w.name||'-'}</td><td>${experienceText((OPERATORS.find(o=>o.c===w.code)||{}).hd, toDate)}</td>
-      <td>${fmtNum(w.agg.target)}</td><td>${fmtNum(w.agg.production)}</td><td>${fmtNum(w.agg.halak)}</td><td>${fmtNum(w.agg.eslah)}</td>
-      <td>${fmtPct(w.agg.pAada)}</td><td style="font-size:9px;">${days.join('، ')}</td>
-    </tr>`;
+
+  // جدول واحد مدمج لكل قايمة (زي شكل جداول الجرد) — بدل الرسم البياني + الجدول المنفصلين
+  const rankTableHtml = (list, titleText) => {
+    const rowsHtml = list.map((w, idx) => `
+      <tr>
+        <td><b>${idx+1}</b></td>
+        <td><b>${w.code}</b></td>
+        <td>${w.name||'-'}</td>
+        <td>${experienceText((OPERATORS.find(o=>o.c===w.code)||{}).hd, toDate)}</td>
+        <td>${fmtNum(w.agg.target)}</td>
+        <td>${fmtNum(w.agg.production)}</td>
+        <td>${fmtNum(w.agg.halak)}</td>
+        <td>${fmtNum(w.agg.eslah)}</td>
+        <td><b>${fmtPct(w.agg.pAada)}</b></td>
+      </tr>`).join('');
+    return `
+      <table class="target-print-table">
+        <thead>
+          <tr><th colspan="9">${titleText}</th></tr>
+          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || '<tr><td colspan="9">لا يوجد</td></tr>'}
+        </tbody>
+      </table>`;
   };
-  const barHtml = (w, color) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:11px;">
-      <div style="width:130px;flex:0 0 130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name||w.code}</div>
-      <div style="flex:1;height:14px;background:#F1EEE6;border-radius:7px;overflow:hidden;">
-        <div style="height:100%;border-radius:7px;background:${color};width:${Math.max(2,Math.min(100,w.agg.pAada*100))}%;"></div>
-      </div>
-      <div style="width:42px;flex:0 0 42px;font-weight:800;">${fmtPct(w.agg.pAada)}</div>
-    </div>`;
-  const tableHead = `<thead><tr><th>الكود</th><th>الاسم</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th><th>الأيام</th></tr></thead>`;
+
   const body = `
-    <h2>ترتيب الأداء — MILANO SPORT SHOES</h2>
-    <h3>الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}</h3>
-
-    <h3 style="color:#3E8F63;">✅ أعلى ${top10.length} — الرسم البياني</h3>
-    <div style="margin-bottom:18px;">${top10.map(w=>barHtml(w,'#3E8F63')).join('') || '<div>لا يوجد</div>'}</div>
-    <h3 style="color:#3E8F63;">✅ أفضل ${top10.length} — التفاصيل الكاملة</h3>
-    <table>${tableHead}<tbody>${top10.map(rowHtml).join('') || '<tr><td colspan="9">لا يوجد</td></tr>'}</tbody></table>
-
-    <h3 style="color:#C24B37;">⚠️ أقل ${bottom10.length} — الرسم البياني</h3>
-    <div style="margin-bottom:18px;">${bottom10.map(w=>barHtml(w,'#C24B37')).join('') || '<div>لا يوجد</div>'}</div>
-    <h3 style="color:#C24B37;">⚠️ أقل ${bottom10.length} — التفاصيل الكاملة</h3>
-    <table>${tableHead}<tbody>${bottom10.map(rowHtml).join('') || '<tr><td colspan="9">لا يوجد</td></tr>'}</tbody></table>
+    <div class="rank-print-page rank-print-front">
+      ${rankTableHtml(top10, `✅ أعلى ${top10.length} — نسبة الأداء`)}
+    </div>
+    <div class="rank-print-page rank-print-back">
+      ${rankTableHtml(bottom10, `⚠️ أقل ${bottom10.length} — نسبة الأداء`)}
+    </div>
   `;
-  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('MILANO SPORT SHOES', `من ${from} إلى ${to}`, body);
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout('ترتيب الأداء — MILANO SPORT SHOES', `الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}`, body);
   document.body.classList.add('print-rank-only');
   window.print();
   setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
