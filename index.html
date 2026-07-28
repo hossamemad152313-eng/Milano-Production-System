@@ -479,6 +479,7 @@
   .entry-table{ min-width:1050px; }
   .entry-table th{ font-size:12.5px; padding:9px 5px; line-height:1.25; }
   .entry-table input[type="number"]{ min-width:58px; font-size:16px; font-weight:800; padding:8px 4px; }
+  .entry-table input.code-dup{ background:#CDEEDA !important; border:2px solid var(--green) !important; color:var(--green) !important; font-weight:800; }
   .entry-table .ename{ min-width:180px; text-align:right; font-size:13px; font-weight:700; padding:8px 8px !important; }
   .entry-table .ename.found{ color:var(--green); font-weight:700; background:#E4F3EA !important; border-radius:6px; }
   .entry-table .ename.missing{ color:var(--red); background:#FBE9E5 !important; border-radius:6px; }
@@ -2332,6 +2333,7 @@ function removeRow(id){
   if(el) el.remove();
   if(pendingRowIds.length === 0){ addRow(); return; }
   renumberRows();
+  checkCodeDuplicates();
 }
 function renumberRows(){
   pendingRowIds.forEach((id, idx) => {
@@ -2382,6 +2384,7 @@ function handleEntryPaste(e, startIdx, startCol){
     });
     onCodeInput(id);
   });
+  checkCodeDuplicates();
   showToast(`✅ اتلصق ${rowsTxt.length} صف بالترتيب: كود، تارجت، إنتاج، إصلاح، هالك، ص ف ج س ظ ع ن`);
 }
 function onHallChange(){
@@ -2411,6 +2414,7 @@ function onCodeInput(id){
   if(!code){
     nameEl.value = ''; nameEl.readOnly = true; nameEl.className = 'ename'; nameEl.placeholder = 'هيظهر لما تكتب الكود';
     hireEl.disabled = true; hireEl.value = '';
+    checkCodeDuplicates();
     return;
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
@@ -2426,6 +2430,28 @@ function onCodeInput(id){
     nameEl.readOnly = false; nameEl.className = 'ename missing'; nameEl.placeholder = 'كود جديد — اكتب الاسم لو عارفه (اختياري)';
     hireEl.disabled = false;
   }
+  checkCodeDuplicates();
+}
+/* بتدور على أي كود اتكرر بين الصفوف المفتوحة قدام المستخدم دلوقتي (لسه ما اتحفظش)
+   ولو لقت نفس الكود في صفين أو أكتر، بتلوّن خانة الكود بتاعتهم كلها بالأخضر
+   عشان المستخدم يشوفهم بعينه ويصلّح غلطه بنفسه قبل ما يدوس "حفظ". */
+function checkCodeDuplicates(){
+  const codeMap = {};
+  pendingRowIds.forEach(id => {
+    const el = document.getElementById('code-'+id);
+    if(!el) return;
+    const val = el.value.trim();
+    if(!val) return;
+    if(!codeMap[val]) codeMap[val] = [];
+    codeMap[val].push(id);
+  });
+  pendingRowIds.forEach(id => {
+    const el = document.getElementById('code-'+id);
+    if(!el) return;
+    const val = el.value.trim();
+    const isDup = !!val && codeMap[val] && codeMap[val].length > 1;
+    el.classList.toggle('code-dup', isDup);
+  });
 }
 async function saveAllRows(){
   const date = document.getElementById('entry-date').value;
