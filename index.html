@@ -517,6 +517,14 @@
     border-radius:30px; font-size:13px; font-weight:700; z-index:99; box-shadow:0 8px 24px rgba(0,0,0,.25); display:none;
   }
   .toast.toast-error{ background:#B3261E; max-width:90vw; text-align:center; line-height:1.5; }
+  .saving-indicator{
+    position:fixed; top:10px; left:50%; transform:translateX(-50%); background:#1F2A44; color:#fff;
+    padding:8px 18px; border-radius:30px; font-size:12.5px; font-weight:800; z-index:200;
+    box-shadow:0 6px 16px rgba(0,0,0,.28); display:none; align-items:center; gap:6px;
+    animation:savingPulse 1.4s ease-in-out infinite; max-width:88vw; text-align:center;
+  }
+  .saving-indicator.saving-slow{ background:#B3261E; animation:none; }
+  @keyframes savingPulse{ 0%,100%{opacity:1;} 50%{opacity:.55;} }
 
   /* ---------- OPERATORS TAB ---------- */
   .op-add{ display:flex; gap:8px; margin-bottom:14px; }
@@ -696,6 +704,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="saving-indicator" id="saving-indicator">🔄 بيتحفظ... متقفلش الصفحة دلوقتي</div>
 <div id="print-rank-output"></div>
 <div id="modal-root"></div>
 
@@ -1058,10 +1067,57 @@ function saveErrorDetail(e){
   LAST_SAVE_ERROR = detail;
   return detail;
 }
+// بيتتبّع عدد عمليات الحفظ الشغالة/في الانتظار دلوقتي لكل مستند — عشان نعرف
+// "فيه حفظ لسه ماوصلش تأكيد من السيرفر" ولا لأ (تفاصيل الاستخدام في handleIncomingSync تحت).
+let SAVE_IN_FLIGHT = {}; // { docId: عدد }
+// بعد ما آخر حفظة لمستند معيّن تخلص (تنجح أو تفشل)، لو كان فيه تحديث لحظي (onSnapshot)
+// اتأجل بسبب الحفظ ده، بنطبّقه دلوقتي — لكن بس لو مفيش حفظ جديد بدأ في نفس اللحظة.
+function drainPendingSnapshot(docId){
+  if((SAVE_IN_FLIGHT[docId]||0) > 0) return;
+  const pending = PENDING_SNAPSHOTS[docId];
+  if(!pending) return;
+  delete PENDING_SNAPSHOTS[docId];
+  applySnapshotNow(pending.spec, pending.data);
+}
+// عداد عام لعدد كل عمليات الحفظ الشغالة دلوقتي (على أي مستند)، بيتحكم في ظهور
+// مؤشر "بيتحفظ..." الثابت فوق الشاشة، عشان تبقى متأكد إن الحفظ لسه شغال ومتقفلش
+// الصفحة أو التطبيق قبل ما تشوف رسالة النجاح أو الفشل النهائية.
+let GLOBAL_SAVE_COUNT = 0;
+function updateSavingIndicator(){
+  const el = document.getElementById('saving-indicator');
+  if(!el) return;
+  if(GLOBAL_SAVE_COUNT > 0){
+    el.style.display = 'flex';
+  } else {
+    el.style.display = 'none';
+    el.classList.remove('saving-slow');
+    el.textContent = '🔄 بيتحفظ... متقفلش الصفحة دلوقتي';
+  }
+}
 function queueSave(docId, taskFn){
+  SAVE_IN_FLIGHT[docId] = (SAVE_IN_FLIGHT[docId]||0) + 1;
+  GLOBAL_SAVE_COUNT++;
+  updateSavingIndicator();
+  // لو الحفظ طوّل أكتر من المعتاد (7 ثواني) — غالبًا مشكلة نت — بنبدّل رسالة المؤشر
+  // لتحذير واضح بدل ما يفضل المستخدم مستني من غير ما يعرف إيه اللي بيحصل.
+  const slowTimer = setTimeout(()=>{
+    const el = document.getElementById('saving-indicator');
+    if(el && GLOBAL_SAVE_COUNT > 0){
+      el.classList.add('saving-slow');
+      el.textContent = '⏳ الحفظ بياخد وقت أطول من المعتاد — تأكد من النت ومتقفلش الصفحة';
+    }
+  }, 7000);
   const prev = SAVE_QUEUES[docId] || Promise.resolve();
   const next = prev.then(taskFn, taskFn);
   SAVE_QUEUES[docId] = next.catch(()=>{});
+  const settle = () => {
+    clearTimeout(slowTimer);
+    SAVE_IN_FLIGHT[docId] = Math.max(0, (SAVE_IN_FLIGHT[docId]||1) - 1);
+    GLOBAL_SAVE_COUNT = Math.max(0, GLOBAL_SAVE_COUNT - 1);
+    updateSavingIndicator();
+    drainPendingSnapshot(docId);
+  };
+  next.then(settle, settle);
   return next;
 }
 async function transactionalArraySave(docId, localArr, idKey){
@@ -1120,6 +1176,7 @@ document.addEventListener('focusout', function(){
     const stillTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
     if(stillTyping) return;
     pendingIds.forEach(docId => {
+      if((SAVE_IN_FLIGHT[docId]||0) > 0) return; // لسه فيه حفظ شغال لنفس المستند — هيتطبّق التحديث اللحظي أول ما الحفظ يخلص (drainPendingSnapshot)
       const pending = PENDING_SNAPSHOTS[docId];
       delete PENDING_SNAPSHOTS[docId];
       if(pending) applySnapshotNow(pending.spec, pending.data);
@@ -1132,7 +1189,12 @@ function handleIncomingSync(spec, data){
   const activeEl = document.activeElement;
   const mainEl = document.getElementById('main-content');
   const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
-  if(isTyping){ PENDING_SNAPSHOTS[spec.docId] = {spec, data}; return; }
+  // لو فيه حفظ شغال دلوقتي لنفس المستند ده (اتبعت للسيرفر بس لسه ماوصلش تأكيد الحفظ)،
+  // منستبدلش البيانات المحلية بنسخة قديمة وصلت من تحديث لحظي في نفس اللحظة — ده كان
+  // السبب الأساسي إن تعديل تارجت يتعمله save، تظهر رسالة "اتحفظ"، بس اللي يتحفظ فعليًا
+  // نسخة أقدم من غير التعديل (لأن البيانات المحلية اتمسحت قبل ما الحفظة الفعلية تاخد نسختها).
+  const hasPendingSave = (SAVE_IN_FLIGHT[spec.docId]||0) > 0;
+  if(isTyping || hasPendingSave){ PENDING_SNAPSHOTS[spec.docId] = {spec, data}; return; }
   delete PENDING_SNAPSHOTS[spec.docId];
   applySnapshotNow(spec, data);
 }
@@ -1271,6 +1333,60 @@ async function saveHallManagersToDb(){
   return ok;
 }
 
+/* ---------------- تحقق من آخر حفظ مباشرة من السيرفر (شامل لكل أنواع البيانات في التطبيق) ----------------
+   كل زرار "🔍 تحقق من آخر حفظ على السيرفر" في أي تاب بينده على verifyFromServer بنفس الفكرة:
+   بيجيب البيانات مباشرة من سيرفر Firestore (get({source:'server'})) من غير ما يعتمد خالص على أي
+   نسخة مخزّنة (كاش) جوه المتصفح أو في الذاكرة المحلية — عشان تتأكد بعينك 100% إن اللي حفظته
+   فعلاً وصل واتخزن على السيرفر، مش بس ظاهر في شاشتك دلوقتي. الهدف: محدش يتفاجأ إن حاجة "متتحفظتش". */
+const VERIFY_DOC_SPECS = {
+  mlp_entries:      { type:'collection', label:'سجلات متابعة الإنتاج' },
+  mlp_operators:    { type:'arraydoc',   label:'بيانات العاملين' },
+  mlp_users:        { type:'arraydoc',   label:'المستخدمين' },
+  mlp_jard:         { type:'arraydoc',   label:'الجرد' },
+  mlp_targets:      { type:'arraydoc',   label:'خطط التارجت' },
+  mlp_targetexec:   { type:'arraydoc',   label:'تنفيذ التارجت' },
+  mlp_hallpower:    { type:'arraydoc',   label:'قوة الصالة' },
+  mlp_nightpower:   { type:'arraydoc',   label:'قوة السهر' },
+  mlp_hallmanagers: { type:'arraydoc',   label:'مديري الصالات' },
+};
+async function fetchDocFromServer(docId){
+  const spec = VERIFY_DOC_SPECS[docId];
+  if(spec.type === 'collection'){
+    const snap = await entriesCol().get({source:'server'});
+    return snap.docs.map(d => d.data());
+  }
+  const snap = await db.collection(FS_COLLECTION).doc(docId).get({source:'server'});
+  return snap.exists ? JSON.parse(snap.data().value) : [];
+}
+// containerId: عنصر هيتحط جواه نتيجة التحقق. opts.filter/opts.sort: اختياريين لتضييق النتيجة
+// على السياق الحالي (مثلاً الصالة والفترة المختارة فوق). opts.render(row)=>htmlString: عرض كل سجل
+// (لو ماتحطش render، بيظهر بس عدد السجلات المطابقة كملخص سريع).
+async function verifyFromServer(docId, containerId, opts){
+  opts = opts || {};
+  const box = document.getElementById(containerId);
+  if(!box) return;
+  if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
+  const spec = VERIFY_DOC_SPECS[docId];
+  box.innerHTML = '<div class="data-note">🔄 بيجيب آخر نسخة من السيرفر دلوقتي (مش من ذاكرة الجهاز)...</div>';
+  try{
+    let rows = await fetchDocFromServer(docId);
+    if(opts.filter) rows = rows.filter(opts.filter);
+    if(opts.sort) rows = rows.sort(opts.sort);
+    const count = rows.length;
+    if(!count){
+      box.innerHTML = `<div class="data-note" style="color:#B3261E;font-weight:800;margin-top:8px;">⚠️ السيرفر مفيش عنده حاليًا أي سجل مطابق (${spec.label}) — لو إنت متأكد إنك حفظت، جرب تحفظ تاني وتأكد من النت.</div>`;
+      return;
+    }
+    const preview = opts.render ? rows.slice(0, opts.limit||8).map(opts.render).join('') : '';
+    box.innerHTML = `
+      <div class="data-note" style="font-weight:800;color:#2E7D32;margin-top:8px;">✅ تم التحقق مباشرة من السيرفر (${spec.label}) — عدد السجلات المطابقة: ${count}</div>
+      ${preview}
+    `;
+  }catch(e){
+    box.innerHTML = `<div class="data-note" style="color:#B3261E;font-weight:800;margin-top:8px;">❌ فشل الاتصال بالسيرفر للتحقق — ${saveErrorDetail(e)}</div>`;
+  }
+}
+
 /* ---------------- إشعار واتساب لمدير الصالة (زرار يدوي بعد ما حسام يخلص ويتأكد من الشغل) ----------------
    بيفتح واتساب (رابط wa.me الرسمي) على رقم مدير الصالة المسجل، بالرسالة جاهزة كتابةً — وحسام بنفسه
    هو اللي بيدوس إرسال جوه واتساب. من غير أي API أو كود خارجي أو تسجيل مسبق من مدير الصالة. */
@@ -1296,6 +1412,8 @@ function openHallManagersSettings(){
         <div class="data-note" style="margin-bottom:12px;">اكتب رقم واتساب كل مدير صالة بالصيغة الدولية من غير علامة + وبدون أصفار في الأول (مثال: مصر 20 ثم الرقم بدون الصفر الأول).</div>
         ${rowsHtml}
         <button class="apply-btn" onclick="commitHallManagersSettings()">💾 حفظ الأرقام</button>
+        <button class="apply-btn" style="background:#2E7D32;" onclick="verifyHallManagersFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
+        <div id="hm-verify-result"></div>
       </div>
     </div>`;
 }
@@ -2297,6 +2415,8 @@ function renderEntryTab(){
     </div>
     <button class="add-row-btn" onclick="addRow()">➕ ضيف صف واحد كمان</button>
     <button class="save-btn" onclick="saveAllRows()">💾 حفظ كل البيانات</button>
+    <button class="apply-btn" style="background:#2E7D32;margin-bottom:10px;" onclick="verifyEntriesFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
+    <div id="entries-verify-result"></div>
 
     <div class="section-title" style="margin-top:22px;">🛠️ تعديل وتصحيح السجلات المسجلة</div>
     <div class="data-note" style="margin-bottom:8px;">دور بالتاريخ أو الصالة أو الخط على أي سجل قديم وعدله أو احذفه من هنا، أو شوف كل الأكواد اللي لسه بدون اسم مقسّمة بالصالات عشان تراجع الورق بسهولة.</div>
@@ -2536,6 +2656,8 @@ function renderOperatorsTab(){
   main.innerHTML = `
     <div class="card-box">
       <div class="data-note" style="margin-bottom:10px;">إجمالي العاملين: ${OPERATORS.length} — تاريخ التعيين متسجل لكل واحدة ومستخدم في حساب الخبرة، بس مش ظاهر هنا عشان القايمة تفضل مرتبة (تقدر تشوفه/تعدله من ✏️)</div>
+      <button class="apply-btn" style="background:#2E7D32;margin-top:0;margin-bottom:12px;" onclick="verifyOperatorsFromServer()">🔍 تحقق من عدد العاملين على السيرفر</button>
+      <div id="op-verify-result"></div>
       <div class="op-add">
         <input type="number" id="new-op-code" placeholder="الكود">
         <input type="text" id="new-op-name" placeholder="الاسم">
@@ -3160,6 +3282,8 @@ function renderUsersTab(){
   main.innerHTML = `
     <div class="card-box">
       <div class="data-note" style="margin-bottom:10px;">حساب الأدمن بتاعك (Hossam.Emad) مش بيتعدّل من هنا لحماية حسابك — لو عايز تغيّره كلّم المطوّر مباشرة.</div>
+      <button class="apply-btn" style="background:#2E7D32;margin-top:0;margin-bottom:12px;" onclick="verifyUsersFromServer()">🔍 تحقق من عدد المستخدمين على السيرفر</button>
+      <div id="users-verify-result"></div>
       <div id="users-list"></div>
       <div class="section-title" style="margin-top:14px;">➕ إضافة مستخدم جديد</div>
       <div class="user-row">
@@ -3325,6 +3449,8 @@ function renderJardRegTab(){
     </div>
     <button class="save-btn" style="margin-bottom:10px;margin-top:14px;" onclick="saveJardSession()">💾 حفظ الجرد</button>
     <button class="apply-btn" style="background:#8891A4;margin-bottom:18px;" onclick="cancelJardEdit()">✖️ إلغاء / جرد جديد فاضي</button>
+    <button class="apply-btn" style="background:#2E7D32;margin-bottom:18px;" onclick="verifyJardFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
+    <div id="jard-verify-result"></div>
 
     <div class="section-title">📋 جلسات الجرد المسجلة</div>
     <div id="jard-sessions-list"></div>
@@ -4118,6 +4244,8 @@ function renderTargetRegTab(){
 
     <div class="section-title">📋 خطط التارجت المسجلة</div>
     <div id="target-plans-list"></div>
+    <button class="apply-btn" style="background:#2E7D32;margin-top:12px;" onclick="verifyTargetPlansFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
+    <div id="target-verify-result"></div>
   `;
   if(editingTargetPlanId===null){
     pendingTargetLineIds = [];
@@ -4348,6 +4476,102 @@ async function deleteTargetPlan(id){
   await saveTargetPlans();
   showToast('🗑️ اتمسحت خطة التارجت');
   renderTargetPlansList();
+}
+// بتجيب مستند "mlp_targets" مباشرة من سيرفر Firestore وتفلتره على الصالة/الفترة المحددة فوق.
+async function verifyTargetPlansFromServer(){
+  const hall = document.getElementById('target-hall')?.value;
+  const from = document.getElementById('target-from')?.value;
+  const to = document.getElementById('target-to')?.value;
+  verifyFromServer('mlp_targets', 'target-verify-result', {
+    filter: p => (!hall || p.hall===hall) && (!from || !to || (p.from<=to && p.to>=from)),
+    sort: (a,b) => (b.from||'').localeCompare(a.from||''),
+    render: p => `
+      <div class="record-row"><div class="rtop">
+        <div><div class="rname">${p.hall} — ${p.from} إلى ${p.to}</div>
+        <div class="rmeta">تارجت التسليم: ${p.hallTargetDeliveries || '—'} · عدد الخطوط: ${p.lines?.length||0} · مدير الصالة: ${p.hallManager||'-'} · بواسطة ${p.enteredBy||'-'}</div></div>
+      </div></div>`
+  });
+}
+// بتجيب مستند "mlp_jard" مباشرة من السيرفر وتفلتره على الصالة/الفترة المحددة فوق.
+async function verifyJardFromServer(){
+  const hall = document.getElementById('jard-hall')?.value;
+  const from = document.getElementById('jard-from')?.value;
+  const to = document.getElementById('jard-to')?.value;
+  verifyFromServer('mlp_jard', 'jard-verify-result', {
+    filter: s => (!hall || s.hall===hall) && (!from || !to || (s.from<=to && s.to>=from)),
+    sort: (a,b) => (b.from||'').localeCompare(a.from||''),
+    render: s => `
+      <div class="record-row"><div class="rtop">
+        <div><div class="rname">${s.hall} — ${s.from} إلى ${s.to}</div>
+        <div class="rmeta">عدد الخطوط: ${s.lines?.length||0} · مدير الصالة: ${s.hallManager||'-'}</div></div>
+      </div></div>`
+  });
+}
+// بتجيب مجموعة سجلات متابعة الإنتاج (mlp_entries) مباشرة من السيرفر وتفلترها على
+// التاريخ/الصالة/الخط المحدد فوق دلوقتي.
+async function verifyEntriesFromServer(){
+  const date = document.getElementById('entry-date')?.value;
+  const hall = document.getElementById('entry-hall')?.value;
+  const line = document.getElementById('entry-line')?.value;
+  verifyFromServer('mlp_entries', 'entries-verify-result', {
+    filter: e => (!date || e.d===date) && (!hall || e.h===hall) && (!line || Number(e.l)===Number(line)),
+    sort: (a,b) => Number(a.c) - Number(b.c),
+    render: e => `
+      <div class="record-row"><div class="rtop">
+        <div><div class="rname">كود ${e.c} — ${e.n || 'بدون اسم'}</div>
+        <div class="rmeta">تارجت: ${e.t} · إنتاج: ${e.p} · إصلاح: ${e.es} · هالك: ${e.hk} · بواسطة ${e.by||'-'}</div></div>
+      </div></div>`
+  });
+}
+// بتجيب مستند "mlp_targetexec" مباشرة من السيرفر — بتحصر النتيجة على خطط التارجت اللي
+// واقعة في الفترة/الصالة المحددة فوق حاليًا في تاب تنفيذ التارجت.
+async function verifyTargetExecFromServer(){
+  const from = document.getElementById('tex-from')?.value;
+  const to = document.getElementById('tex-to')?.value;
+  const hall = document.getElementById('tex-hall')?.value;
+  let planIds = null;
+  if(from && to){
+    let plans = TARGET_PLANS.filter(p => p.from <= to && p.to >= from);
+    if(hall && hall !== '__ALL__') plans = plans.filter(p=>p.hall===hall);
+    planIds = new Set(plans.map(p=>p.id));
+  }
+  verifyFromServer('mlp_targetexec', 'texec-verify-result', {
+    filter: e => !planIds || planIds.has(e.planId),
+    render: e => {
+      const itemCount = (e.lines||[]).reduce((s,l)=>s+(l.items?.length||0),0);
+      return `<div class="record-row"><div class="rtop"><div><div class="rname">تنفيذ خطة: ${e.planId}</div><div class="rmeta">عدد الأرتيكلات المسجّلة: ${itemCount}</div></div></div></div>`;
+    }
+  });
+}
+// بتجيب مستند "mlp_hallpower" مباشرة من السيرفر وتفلتره على تاريخ التسجيل المحدد فوق.
+async function verifyHallPowerFromServer(){
+  const date = document.getElementById('hp-date')?.value;
+  verifyFromServer('mlp_hallpower', 'hp-verify-result', {
+    filter: p => !date || p.date===date,
+    sort: (a,b) => (b.date||'').localeCompare(a.date||''),
+    render: p => `<div class="record-row"><div class="rtop"><div><div class="rname">كل الصالات — ${p.date}</div><div class="rmeta">${p.halls?.length||0} صالة · بواسطة ${p.enteredBy||'-'}</div></div></div></div>`
+  });
+}
+// بتجيب مستند "mlp_nightpower" مباشرة من السيرفر وتفلتره على تاريخ التسجيل المحدد فوق.
+async function verifyNightPowerFromServer(){
+  const date = document.getElementById('np-date')?.value;
+  verifyFromServer('mlp_nightpower', 'np-verify-result', {
+    filter: p => !date || p.date===date,
+    sort: (a,b) => (b.date||'').localeCompare(a.date||''),
+    render: p => `<div class="record-row"><div class="rtop"><div><div class="rname">كل الصالات — ${p.date}</div><div class="rmeta">بواسطة ${p.enteredBy||'-'}</div></div></div></div>`
+  });
+}
+// ملخص سريع (عدد بس) لعدد العاملين المسجلين فعليًا على السيرفر دلوقتي.
+async function verifyOperatorsFromServer(){
+  verifyFromServer('mlp_operators', 'op-verify-result', {});
+}
+// ملخص سريع (عدد بس) لعدد المستخدمين المسجلين فعليًا على السيرفر دلوقتي.
+async function verifyUsersFromServer(){
+  verifyFromServer('mlp_users', 'users-verify-result', {});
+}
+// ملخص سريع (عدد بس) لعدد أرقام مديري الصالات المسجلة فعليًا على السيرفر دلوقتي.
+async function verifyHallManagersFromServer(){
+  verifyFromServer('mlp_hallmanagers', 'hm-verify-result', {});
 }
 
 /* ---------- عرض التارجت (لكل الأدوار) ---------- */
@@ -4937,7 +5161,9 @@ function renderTargetExecTab(){
       <div class="grid2 full"><div><label>الصالة</label><select id="tex-hall" onchange="applyTargetExecFilter()">${hallOptions}</select></div><div></div></div>
       <button class="apply-btn" onclick="applyTargetExecFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3A4257;" onclick="printTargetExecDetails()">🖨️ طباعة تفاصيل التنفيذ والعجز</button>
+      <button class="apply-btn" style="background:#2E7D32;" onclick="verifyTargetExecFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
     </div>
+    <div id="texec-verify-result"></div>
     <div class="data-note" style="margin-bottom:8px;">✅ لو الأرتيكل اتشتغل بالكامل، علّم عليه من غير ما تغيّر حاجة. لو لسه فاضل منه شغل لجولة جديدة، قبل ما تعلّم اكتب في خانة "المطلوب في الجديد" الوقت المتبقي المطلوب، وإحنا هنحسب "الفرق" (المستهدف الأصلي ناقص المطلوب في الجديد) تلقائي جنب نفس الأرتيكل من غير ما يتنسخ سطر جديد. التعليم بتاعك بيفضل محلي بس لحد ما تدوس "💾 حفظ التنفيذ" تحت.</div>
     <div id="texec-save-bar" style="display:none;align-items:center;gap:10px;background:#FBE9E5;border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
       <button class="save-btn" id="texec-save-btn" style="margin:0;flex:none;" onclick="commitTargetExecSave()">💾 حفظ التنفيذ</button>
@@ -5046,6 +5272,8 @@ function renderHallPowerRegTab(){
     <div id="hp-lines-container"></div>
     <button class="save-btn" style="margin-bottom:10px;" onclick="saveHallPower()">💾 حفظ قوة كل الصالات</button>
     <button class="apply-btn" style="background:#8891A4;margin-bottom:18px;" onclick="cancelHpEdit()">✖️ إلغاء / تسجيل جديد فاضي</button>
+    <button class="apply-btn" style="background:#2E7D32;margin-bottom:18px;" onclick="verifyHallPowerFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
+    <div id="hp-verify-result"></div>
     <div class="section-title">📋 السجلات المتسجلة</div>
     <div id="hp-list"></div>
   `;
@@ -5477,6 +5705,8 @@ function renderNightPowerRegTab(){
     </div>
     <button class="save-btn" style="margin-bottom:10px;" onclick="saveNightPower()">💾 حفظ قوة السهر لكل الصالات</button>
     <button class="apply-btn" style="background:#8891A4;margin-bottom:18px;" onclick="cancelNpEdit()">✖️ إلغاء / تسجيل جديد فاضي</button>
+    <button class="apply-btn" style="background:#2E7D32;margin-bottom:18px;" onclick="verifyNightPowerFromServer()">🔍 تحقق من آخر حفظ على السيرفر</button>
+    <div id="np-verify-result"></div>
     <div class="section-title">📋 السجلات المتسجلة</div>
     <div id="np-list"></div>
   `;
