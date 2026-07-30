@@ -226,19 +226,21 @@
     background:linear-gradient(180deg, rgba(231,163,53,.16), rgba(231,163,53,.05));
     border:1px solid rgba(231,163,53,.4); border-radius:999px; padding:9px 30px 8px;
     box-shadow:0 4px 14px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
-    text-align:center; max-width:calc(100% - 90px);
+    text-align:center; max-width:calc(100% - 100px);
   }
   header.top .hall-name{ font-size:14.5px; font-weight:800; letter-spacing:.02em; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   header.top .hall-sub{ font-size:10px; color:var(--amber); font-family:'JetBrains Mono',monospace; letter-spacing:.05em; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .logout-btn{
+  .row1-left{
     position:absolute; left:0; top:50%; transform:translateY(-50%);
+    display:flex; align-items:center; gap:5px;
+  }
+  .logout-btn{
     background:none; border:1px solid #3A4257; color:#B9BFCF; font-family:'Cairo',sans-serif; font-size:11px; padding:7px 12px; border-radius:20px; cursor:pointer;
     transition:border-color .2s ease, color .2s ease;
   }
   .logout-btn:hover{ border-color:var(--amber); color:var(--amber); }
   .notify-btn{
-    position:absolute; right:0; top:50%; transform:translateY(-50%);
-    background:none; border:1px solid #25D366; color:#25D366; font-family:'Cairo',sans-serif; font-size:11px; padding:7px 12px; border-radius:20px; cursor:pointer;
+    background:none; border:1px solid #25D366; color:#25D366; font-family:'Cairo',sans-serif; font-size:11px; padding:7px 10px; border-radius:20px; cursor:pointer;
     transition:background .2s ease;
   }
   .notify-btn:hover{ background:rgba(37,211,102,.12); }
@@ -256,7 +258,7 @@
   .modal-box .close-btn{ position:absolute; left:16px; top:14px; background:none; border:none; color:#B9BFCF; font-size:20px; cursor:pointer; }
   .modal-box-wrap{ position:relative; }
   .tabs{
-    display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; align-items:center;
+    display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; align-items:center; justify-content:center;
     background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); border-radius:999px;
     padding:5px; margin-bottom:14px;
   }
@@ -271,6 +273,17 @@
     box-shadow:0 5px 16px rgba(231,163,53,.35); transform:translateY(-1px);
   }
   .tab-btn.active:hover{ color:var(--navy); }
+
+  .subtabs{
+    position:absolute; right:0; top:50%; transform:translateY(-50%);
+    display:flex; flex-wrap:nowrap; align-items:center; gap:4px; justify-content:flex-end;
+  }
+  .subtab-btn{
+    flex:0 0 auto; text-align:center; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); color:#B7BECC; font-family:'Cairo',sans-serif; font-size:9px;
+    font-weight:700; padding:5px 7px; cursor:pointer; border-radius:999px; white-space:nowrap; transition:background .2s ease, color .2s ease;
+  }
+  .subtab-btn:hover{ color:#fff; background:rgba(255,255,255,.1); }
+  .subtab-btn.active{ color:#fff; background:var(--amber-dark); border-color:transparent; }
 
   main{ padding:16px 14px 40px; flex:1; }
 
@@ -689,8 +702,11 @@
           <div class="hall-name" id="hall-name">--</div>
           <div class="hall-sub" id="hall-sub">--</div>
         </div>
-        <button class="logout-btn" onclick="doLogout()">خروج</button>
-        <button class="notify-btn" id="notify-btn" style="display:none;" onclick="openNotifyModal()">📤 واتساب</button>
+        <div class="row1-left">
+          <button class="notify-btn" id="notify-btn" style="display:none;" onclick="openNotifyModal()">📤 واتساب</button>
+          <button class="logout-btn" onclick="doLogout()">خروج</button>
+        </div>
+        <div class="subtabs" id="subtabs-row" style="display:none;"></div>
       </div>
       <div class="tabs" id="tabs-row"></div>
     </header>
@@ -750,6 +766,18 @@ let OPERATORS = [];
 let USERS = [];
 let HALL_MANAGERS = []; // [{hall:'A صالة', phone:'20xxxxxxxxx'}]
 let activeTab = null;
+let ACTIVE_GROUPS = [];
+let CURRENT_LABEL_BY_KEY = {};
+/* تجميع التابات المرتبطة ببعض تحت زرار واحد (زي "تارجت" اللي جواه عرض/تسجيل/تنفيذ) */
+const TAB_GROUPS = [
+  {key:'grp-perf', label:'📊 أداء', children:['report','entry'], subLabels:{report:'📊 تقييم', entry:'📝 تسجيل'}},
+  {key:'grp-jard', label:'📦 جرد', children:['jard','jardreg'], subLabels:{jard:'📦 عرض', jardreg:'📝 تسجيل'}},
+  {key:'grp-bestperf', label:'🏅 أفضل أداء', children:['bestperf'], subLabels:{}},
+  {key:'grp-target', label:'🎯 تارجت', children:['target','targetreg','targetexec'], subLabels:{target:'🎯 عرض', targetreg:'📝 تسجيل', targetexec:'📐 تنفيذ'}},
+  {key:'grp-hallpower', label:'💪 قوة الصالة', children:['hallpower','hallpowerreg'], subLabels:{hallpower:'💪 عرض', hallpowerreg:'📝 تسجيل'}},
+  {key:'grp-nightpower', label:'🌙 قوة السهر', children:['nightpower','nightpowerreg'], subLabels:{nightpower:'🌙 عرض', nightpowerreg:'📝 تسجيل'}},
+  {key:'grp-affairs', label:'👤 شئون', children:['operators','users'], subLabels:{operators:'👥 عاملين', users:'🔑 مستخدمين'}}
+];
 let rankMode = false;
 
 function fmtNum(n){ return Math.round(n).toLocaleString('en-US'); }
@@ -1748,30 +1776,48 @@ function initApp(){
   let tabs = [];
   if(currentUser.customTabs && currentUser.customTabs.length){
     tabs = TAB_CATALOG.filter(t => currentUser.customTabs.includes(t.key)).map(t=>[t.key, t.label]);
-    if(currentUser.user === 'Hossam.Emad') tabs.push(['users','🔑 المستخدمين']);
+    if(currentUser.user === 'Hossam.Emad') tabs.push(['users','🔑 مستخدمين']);
   }
   else if(currentUser.role === 'admin'){
     tabs = [
-      ['report','📊 تقييم الأداء'],['entry','📝 تسجيل الأداء'],['bestperf','🏅 أفضل أداء'],
-      ['jard','📦 الجرد'],['jardreg','📝 تسجيل الجرد'],
-      ['target','🎯 التارجت'],['targetreg','📝 تسجيل التارجت'],['targetexec','📐 تنفيذ التارجت'],
-      ['hallpower','💪 قوة الصالة'],['hallpowerreg','📝 تسجيل قوة الصالة'],
-      ['nightpower','🌙 قوة السهر'],['nightpowerreg','📝 تسجيل قوة السهر'],
-      ['operators','👥 العاملين']
+      ['report','📊 تقييم أداء'],['entry','📝 تسجيل أداء'],['bestperf','🏅 أفضل أداء'],
+      ['jard','📦 جرد'],['jardreg','📝 تسجيل جرد'],
+      ['target','🎯 تارجت'],['targetreg','📝 تسجيل تارجت'],['targetexec','📐 تنفيذ تارجت'],
+      ['hallpower','💪 قوة صالة'],['hallpowerreg','📝 تسجيل قوة صالة'],
+      ['nightpower','🌙 قوة سهر'],['nightpowerreg','📝 تسجيل قوة سهر'],
+      ['operators','👥 عاملين']
     ];
-    if(currentUser.user === 'Hossam.Emad') tabs.push(['users','🔑 المستخدمين']);
+    if(currentUser.user === 'Hossam.Emad') tabs.push(['users','🔑 مستخدمين']);
   }
-  else if(currentUser.role === 'entry') tabs = [['entry','📝 تسجيل الأداء']];
-  else if(currentUser.role === 'jardentry') tabs = [['jardreg','📝 تسجيل الجرد']];
-  else if(currentUser.role === 'powerentry') tabs = [['hallpowerreg','📝 تسجيل قوة الصالة'],['nightpowerreg','📝 تسجيل قوة السهر']];
-  else if(currentUser.role === 'qualityhead') tabs = [['jard','📦 الجرد'],['target','🎯 التارجت'],['hallpower','💪 قوة الصالة'],['bestperf','🏅 أفضل أداء']];
-  else if(currentUser.role === 'techhead') tabs = [['report','📊 تقييم الأداء'],['bestperf','🏅 أفضل أداء'],['hallpower','💪 قوة الصالة'],['nightpower','🌙 قوة السهر']];
-  else tabs = [['report','📊 تقييم الأداء'],['bestperf','🏅 أفضل أداء'],['jard','📦 الجرد'],['target','🎯 التارجت'],['targetexec','📐 تنفيذ التارجت'],['hallpower','💪 قوة الصالة'],['nightpower','🌙 قوة السهر']]; // manager + headdept
+  else if(currentUser.role === 'entry') tabs = [['entry','📝 تسجيل أداء']];
+  else if(currentUser.role === 'jardentry') tabs = [['jardreg','📝 تسجيل جرد']];
+  else if(currentUser.role === 'powerentry') tabs = [['hallpowerreg','📝 تسجيل قوة صالة'],['nightpowerreg','📝 تسجيل قوة سهر']];
+  else if(currentUser.role === 'qualityhead') tabs = [['jard','📦 جرد'],['target','🎯 تارجت'],['hallpower','💪 قوة صالة'],['bestperf','🏅 أفضل أداء']];
+  else if(currentUser.role === 'techhead') tabs = [['report','📊 تقييم أداء'],['bestperf','🏅 أفضل أداء'],['hallpower','💪 قوة صالة'],['nightpower','🌙 قوة سهر']];
+  else tabs = [['report','📊 تقييم أداء'],['bestperf','🏅 أفضل أداء'],['jard','📦 جرد'],['target','🎯 تارجت'],['targetexec','📐 تنفيذ تارجت'],['hallpower','💪 قوة صالة'],['nightpower','🌙 قوة سهر']]; // manager + headdept
 
-  document.getElementById('tabs-row').innerHTML = tabs.map(([key,label]) =>
-    `<button class="tab-btn" id="tabbtn-${key}" onclick="switchTab('${key}')">${label}</button>`).join('');
+  CURRENT_LABEL_BY_KEY = {}; tabs.forEach(([k,l]) => CURRENT_LABEL_BY_KEY[k] = l);
+  const availableKeys = new Set(tabs.map(([k]) => k));
+  ACTIVE_GROUPS = TAB_GROUPS.map(g => ({...g, children: g.children.filter(c => availableKeys.has(c))}))
+    .filter(g => g.children.length > 0);
 
-  switchTab(tabs[0][0]);
+  document.getElementById('tabs-row').innerHTML = ACTIVE_GROUPS.map(g => {
+    if(g.children.length === 1){
+      const k = g.children[0];
+      return `<button class="tab-btn" id="tabbtn-${k}" onclick="switchTab('${k}')">${CURRENT_LABEL_BY_KEY[k]}</button>`;
+    }
+    return `<button class="tab-btn" id="tabbtn-${g.key}" onclick="switchGroup('${g.key}')">${g.label}</button>`;
+  }).join('');
+
+  const firstGroup = ACTIVE_GROUPS[0];
+  if(firstGroup.children.length === 1) switchTab(firstGroup.children[0]);
+  else switchGroup(firstGroup.key);
+}
+/* بيفتح مجموعة تابات (زي "تارجت") وبيورّي جواها الأيقونات الفرعية (عرض/تسجيل/تنفيذ) */
+function switchGroup(groupKey){
+  const group = ACTIVE_GROUPS.find(g => g.key === groupKey);
+  if(!group) return;
+  switchTab(group.children[0]);
 }
 function switchTab(key){
   if(activeTab === 'targetexec' && key !== 'targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved){
@@ -1784,8 +1830,21 @@ function switchTab(key){
     targetFormDirty = false;
   }
   activeTab = key;
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById('tabbtn-'+key);
+  const parentGroup = ACTIVE_GROUPS.find(g => g.children.includes(key));
+  const subRow = document.getElementById('subtabs-row');
+  if(subRow){
+    if(parentGroup && parentGroup.children.length > 1){
+      subRow.innerHTML = parentGroup.children.map(k =>
+        `<button class="subtab-btn${k===key?' active':''}" id="subtabbtn-${k}" onclick="switchTab('${k}')">${(parentGroup.subLabels&&parentGroup.subLabels[k])||CURRENT_LABEL_BY_KEY[k]||k}</button>`).join('');
+      subRow.style.display = 'flex';
+    } else {
+      subRow.innerHTML = '';
+      subRow.style.display = 'none';
+    }
+  }
+  document.querySelectorAll('#tabs-row .tab-btn').forEach(b => b.classList.remove('active'));
+  let btn = document.getElementById('tabbtn-'+key);
+  if(!btn && parentGroup) btn = document.getElementById('tabbtn-'+parentGroup.key);
   if(btn) btn.classList.add('active');
   if(key === 'report') renderReportTab();
   if(key === 'entry') renderEntryTab();
@@ -3374,19 +3433,19 @@ async function deleteRecord(id){
 
 /* ---------------- USERS TAB (admin only: تغيير اليوزر/الباسورد بتاع أي حد) ---------------- */
 const TAB_CATALOG = [
-  {key:'report', label:'📊 تقييم الأداء'},
-  {key:'entry', label:'📝 تسجيل الأداء'},
+  {key:'report', label:'📊 تقييم أداء'},
+  {key:'entry', label:'📝 تسجيل أداء'},
   {key:'bestperf', label:'🏅 أفضل أداء'},
-  {key:'jard', label:'📦 الجرد'},
-  {key:'jardreg', label:'📝 تسجيل الجرد'},
-  {key:'target', label:'🎯 التارجت'},
-  {key:'targetreg', label:'📝 تسجيل التارجت'},
-  {key:'targetexec', label:'📐 تنفيذ التارجت'},
-  {key:'hallpower', label:'💪 قوة الصالة'},
-  {key:'hallpowerreg', label:'📝 تسجيل قوة الصالة'},
-  {key:'nightpower', label:'🌙 قوة السهر'},
-  {key:'nightpowerreg', label:'📝 تسجيل قوة السهر'},
-  {key:'operators', label:'👥 العاملين'}
+  {key:'jard', label:'📦 جرد'},
+  {key:'jardreg', label:'📝 تسجيل جرد'},
+  {key:'target', label:'🎯 تارجت'},
+  {key:'targetreg', label:'📝 تسجيل تارجت'},
+  {key:'targetexec', label:'📐 تنفيذ تارجت'},
+  {key:'hallpower', label:'💪 قوة صالة'},
+  {key:'hallpowerreg', label:'📝 تسجيل قوة صالة'},
+  {key:'nightpower', label:'🌙 قوة سهر'},
+  {key:'nightpowerreg', label:'📝 تسجيل قوة سهر'},
+  {key:'operators', label:'👥 عاملين'}
 ];
 async function saveUserPermissions(username, btn){
   const u = USERS.find(x=>x.user===username);
