@@ -865,6 +865,13 @@ const FS_COLLECTION = 'milano_production'; // كل بيانات النظام م�
 // permission-denied لأنه خارج نطاق القاعدة. فبدل كولكشن مستقل، بنستخدم subcollection جوه
 // مستند داخل milano_production نفسه — بيفضل مغطّى بنفس القاعدة القديمة.
 function entriesCol(){ return db.collection(FS_COLLECTION).doc('mlp_entries_index').collection('items'); }
+// نفس مبدأ entriesCol بالظبط بس لخطط التارجت: كل خطة (صالة+فترة) بقت مستند مستقل صغير جوه
+// كولكشن، بدل ما كل خطط التارجت كلها من كل الصالات ومن كل الوقت تتلزّق في مستند واحد.
+// ده بيحل مشكلتين كانوا بيحصلوا مع تخزين المستند الواحد: (1) لو صالتين حفظوا في نفس اللحظة
+// تقريبًا، حفظ الصالة اللي وصلت متأخر كان بيدرّس (يمسح) حفظ الصالة التانية لإن الاتنين بيكتبوا
+// نفس المستند الكبير كامل. (2) المستند بيكبر مع الوقت (كل فترة تارجت من كل الصالات من الأول)
+// وده كان بيبطّئ الحفظ أكتر مع الوقت وممكن يوصل يوم لحد حجم المستند المسموح به.
+function targetPlansCol(){ return db.collection(FS_COLLECTION).doc('mlp_targets_index').collection('items'); }
 let realtimeUnsubs = []; // دوال إلغاء الاشتراك في مراقبة السيرفر اللحظية (onSnapshot)
 
 /* تحميل سجلات تقييم الأداء من الكولكشن الجديد (مستند لكل سجل). لو الكولكشن الجديد لسه فاضي بس
@@ -901,6 +908,33 @@ async function loadEntriesFromDb(){
   }catch(e2){}
 }
 /* ---------------- STORAGE (Firebase Firestore بدل نظام Claude) ---------------- */
+/* تحميل خطط التارجت من الكولكشن الجديد (مستند لكل خطة). لو الكولكشن الجديد لسه فاضي بس
+   فيه بيانات قديمة في المستند القديم (mlp_targets بشكله القديم قبل التعديل)، بننقلها مرة واحدة بس. */
+async function loadTargetPlansFromDb(){
+  const col = targetPlansCol();
+  const snap = await col.get();
+  if(!snap.empty){
+    TARGET_PLANS = snap.docs.map(d => d.data());
+    return;
+  }
+  try{
+    const legacy = await db.collection(FS_COLLECTION).doc('mlp_targets').get();
+    if(legacy.exists){
+      const oldArr = JSON.parse(legacy.data().value || '[]');
+      if(Array.isArray(oldArr) && oldArr.length){
+        const batchSize = 400;
+        for(let i=0;i<oldArr.length;i+=batchSize){
+          const batch = db.batch();
+          oldArr.slice(i,i+batchSize).forEach(plan => { batch.set(col.doc(String(plan.id)), plan); });
+          await batch.commit();
+        }
+        TARGET_PLANS = oldArr;
+        return;
+      }
+    }
+  }catch(e){ console.warn('فشل ترحيل خطط التارجت القديمة:', e); }
+  TARGET_PLANS = [];
+}
 async function loadData(){
   if(!firebaseReady){
     // مفيش اتصال بـ Firebase (غالبًا معاينة Claude) — نشتغل بالبيانات المبدئية بدون حفظ دائم
@@ -976,14 +1010,7 @@ async function loadData(){
     JARD = SEED_JARD;
     try{ await db.collection(FS_COLLECTION).doc('mlp_jard').set({value: JSON.stringify(JARD)}); }catch(e2){}
   }
-  try{
-    const snap5 = await db.collection(FS_COLLECTION).doc('mlp_targets').get();
-    if(!snap5.exists) throw new Error('not-found');
-    TARGET_PLANS = JSON.parse(snap5.data().value);
-  }catch(e){
-    TARGET_PLANS = [];
-    try{ await db.collection(FS_COLLECTION).doc('mlp_targets').set({value: JSON.stringify(TARGET_PLANS)}); }catch(e2){}
-  }
+  try{ await loadTargetPlansFromDb(); }catch(e){ console.warn('فشل تحميل خطط التارجت:', e); TARGET_PLANS = TARGET_PLANS || []; }
   try{
     const snap5b = await db.collection(FS_COLLECTION).doc('mlp_targetexec').get();
     if(!snap5b.exists) throw new Error('not-found');
@@ -1148,6 +1175,10 @@ function applySnapshotNow(spec, data){
   // لو المستخدم عامل تعليم/تعديل في تنفيذ التارجت محليًا ولسه مادوسش "حفظ التنفيذ"،
   // منستبدلش TARGET_EXEC بنسخة السيرفر عشان مانمسحش تعديلاته اللي لسه في انتظار الحفظ.
   if(spec.docId === 'mlp_targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved) return;
+  // نفس المبدأ بالظبط لشاشة "تسجيل التارجت": لو فيه فورم مفتوح وعليه تعديل لسه ما اتحفظش
+  // (زي رقم "تارجت التسليم")، منستبدلش TARGET_PLANS بنسخة السيرفر ومنعملش إعادة رسم للشاشة —
+  // عشان كده بالظبط كان بيحصل إن "تارجت التسليم" يتمسح لو حد تاني حفظ في نفس اللحظة.
+  if(spec.docId === 'mlp_targets' && typeof targetFormDirty !== 'undefined' && targetFormDirty) return;
   spec.apply(data);
   setBaseline(spec.docId, data, spec.idKey);
   if(spec.tabs.includes(activeTab)){
@@ -1208,11 +1239,17 @@ function startRealtimeSync(){
     handleIncomingSync(entriesSpec, data);
   }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
   realtimeUnsubs.push(unsubEntries);
+  // نفس فكرة مراقبة entriesCol بالظبط: كولكشن مستقل لخطط التارجت، مش مستند واحد
+  const targetsSpec = {docId:'mlp_targets', apply:v=>{TARGET_PLANS=v;}, tabs:['target','targetexec'], idKey:'id'};
+  const unsubTargets = targetPlansCol().onSnapshot(snap => {
+    const data = snap.docs.map(d => d.data());
+    handleIncomingSync(targetsSpec, data);
+  }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
+  realtimeUnsubs.push(unsubTargets);
   const specs = [
     {docId:'mlp_operators',   apply:v=>{OPERATORS=v;},    tabs:['operators'], idKey:'c'},
     {docId:'mlp_users',       apply:v=>{USERS=v;},        tabs:['users'], idKey:'user'},
     {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id'},
-    {docId:'mlp_targets',     apply:v=>{TARGET_PLANS=v;}, tabs:['target','targetexec'], idKey:'id'},
     {docId:'mlp_targetexec',  apply:v=>{TARGET_EXEC=v;},  tabs:['targetexec'], idKey:'planId'},
     {docId:'mlp_hallpower',   apply:v=>{HALL_POWER=v;},   tabs:['hallpower'], idKey:'id'},
     {docId:'mlp_nightpower',  apply:v=>{NIGHT_POWER=v;},  tabs:['nightpower'], idKey:'id'},
@@ -1287,12 +1324,23 @@ async function saveJard(){
   });
   return ok;
 }
-async function saveTargetPlans(){
+// بتحفظ خطة تارجت واحدة بس (الصالة/الفترة اللي إنت عدلتها دلوقتي) — مش كل الخطط من كل الصالات.
+// كده لو صالتين حفظوا في نفس اللحظة، كل واحدة بتكتب مستندها الصغير المستقل من غير ما تلمس التانية خالص.
+async function saveTargetPlanRecord(plan){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_targets', async () => {
-    try{ TARGET_PLANS = await transactionalArraySave('mlp_targets', TARGET_PLANS, 'id'); }
+    try{ await targetPlansCol().doc(String(plan.id)).set(plan); }
     catch(e){ ok = false; showToast('❌ فشل حفظ التارجت — ' + saveErrorDetail(e), true); }
+  });
+  return ok;
+}
+async function deleteTargetPlanRecord(id){
+  if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
+  let ok = true;
+  await queueSave('mlp_targets', async () => {
+    try{ await targetPlansCol().doc(String(id)).delete(); }
+    catch(e){ ok = false; showToast('❌ فشل حذف خطة التارجت — ' + saveErrorDetail(e), true); }
   });
   return ok;
 }
@@ -1339,11 +1387,11 @@ async function saveHallManagersToDb(){
    نسخة مخزّنة (كاش) جوه المتصفح أو في الذاكرة المحلية — عشان تتأكد بعينك 100% إن اللي حفظته
    فعلاً وصل واتخزن على السيرفر، مش بس ظاهر في شاشتك دلوقتي. الهدف: محدش يتفاجأ إن حاجة "متتحفظتش". */
 const VERIFY_DOC_SPECS = {
-  mlp_entries:      { type:'collection', label:'سجلات متابعة الإنتاج' },
+  mlp_entries:      { type:'collection', label:'سجلات متابعة الإنتاج', col: entriesCol },
   mlp_operators:    { type:'arraydoc',   label:'بيانات العاملين' },
   mlp_users:        { type:'arraydoc',   label:'المستخدمين' },
   mlp_jard:         { type:'arraydoc',   label:'الجرد' },
-  mlp_targets:      { type:'arraydoc',   label:'خطط التارجت' },
+  mlp_targets:      { type:'collection', label:'خطط التارجت', col: targetPlansCol },
   mlp_targetexec:   { type:'arraydoc',   label:'تنفيذ التارجت' },
   mlp_hallpower:    { type:'arraydoc',   label:'قوة الصالة' },
   mlp_nightpower:   { type:'arraydoc',   label:'قوة السهر' },
@@ -1352,7 +1400,7 @@ const VERIFY_DOC_SPECS = {
 async function fetchDocFromServer(docId){
   const spec = VERIFY_DOC_SPECS[docId];
   if(spec.type === 'collection'){
-    const snap = await entriesCol().get({source:'server'});
+    const snap = await spec.col().get({source:'server'});
     return snap.docs.map(d => d.data());
   }
   const snap = await db.collection(FS_COLLECTION).doc(docId).get({source:'server'});
@@ -1641,6 +1689,10 @@ function switchTab(key){
   if(activeTab === 'targetexec' && key !== 'targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved){
     if(!confirm('⚠️ عندك تعديلات في تنفيذ التارجت لسه ما اتحفظتش. عايز تسيب الشاشة من غير ما تحفظ؟')) return;
     execHasUnsaved = false;
+  }
+  if(activeTab === 'target' && key !== 'target' && typeof targetFormDirty !== 'undefined' && targetFormDirty){
+    if(!confirm('⚠️ عندك تعديل في فورم تسجيل التارجت لسه ما اتحفظش (زي تارجت التسليم). عايز تسيب الشاشة من غير ما تحفظ؟')) return;
+    targetFormDirty = false;
   }
   activeTab = key;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -4220,9 +4272,11 @@ function updateHallProductionTotal(){
 
 function renderTargetRegTab(){
   const main = document.getElementById('main-content');
+  // بنصفّر العلم هنا لإن الفورم اتبنى دلوقتي من نسخة محدّثة، فمفيش تعديل معلّق لسه
+  targetFormDirty = false;
   main.innerHTML = `
     <div class="section-title">🎯 تسجيل خطة تارجت جديدة <span class="count" id="target-edit-label"></span></div>
-    <div class="entry-header-box">
+    <div class="entry-header-box" oninput="markTargetFormDirty()">
       <div class="ehb-eyebrow">// فترة التارجت</div>
       <div class="grid3">
         <div><label>من تاريخ</label><input type="date" id="target-from" onchange="renderTargetPlansList()"></div>
@@ -4238,7 +4292,7 @@ function renderTargetRegTab(){
     </div>
     <div class="data-note" id="target-hall-production-total" style="margin-bottom:10px;"></div>
     <div class="data-note" style="margin-bottom:10px;">✅ يمكنك لصق من Excel داخل كل جدول خط: الأرتيكل ثم العدد ثم الساعات ثم الدقائق.</div>
-    <div id="target-lines-container"></div>
+    <div id="target-lines-container" oninput="markTargetFormDirty()"></div>
     <button class="save-btn" style="margin-bottom:10px;" onclick="saveTargetPlan()">💾 حفظ خطة التارجت</button>
     <button class="apply-btn" style="background:#8891A4;margin-bottom:18px;" onclick="cancelTargetEdit()">✖️ إلغاء / خطة جديدة فاضية</button>
 
@@ -4390,20 +4444,24 @@ async function saveTargetPlan(){
     const idx = TARGET_PLANS.findIndex(p=>p.id===editingTargetPlanId);
     if(idx>-1) TARGET_PLANS[idx] = {...TARGET_PLANS[idx], hall, from, to, hallManager, hallTargetDeliveries, lines};
     editingTargetPlanId = null;
-    await saveTargetPlans();
+    await saveTargetPlanRecord(TARGET_PLANS[idx]);
+    targetFormDirty = false; // اتحفظ فعليًا دلوقتي، مفيش داعي نمنع أي تحديث لحظي جاي بعد كده
     showToast('✅ اتحفظ التعديل على خطة التارجت');
   } else {
-    TARGET_PLANS.push({
+    const newPlan = {
       id: 't'+Date.now()+Math.random().toString(36).slice(2,6),
       hall, from, to, hallManager, hallTargetDeliveries, lines, enteredBy: currentUser.user, ts: new Date().toISOString()
-    });
-    await saveTargetPlans();
+    };
+    TARGET_PLANS.push(newPlan);
+    await saveTargetPlanRecord(newPlan);
+    targetFormDirty = false;
     showToast(`✅ اتحفظت خطة تارجت ${hall} من ${from} إلى ${to}`);
   }
   renderTargetRegTab();
 }
 function cancelTargetEdit(){
   editingTargetPlanId = null;
+  targetFormDirty = false;
   renderTargetRegTab();
 }
 function renderTargetPlansList(){
@@ -4473,7 +4531,7 @@ function editTargetPlan(id){
 }
 async function deleteTargetPlan(id){
   TARGET_PLANS = TARGET_PLANS.filter(p=>p.id!==id);
-  await saveTargetPlans();
+  await deleteTargetPlanRecord(id);
   showToast('🗑️ اتمسحت خطة التارجت');
   renderTargetPlansList();
 }
@@ -5126,10 +5184,13 @@ function addManualExecItem(planId, lineNum){
   markExecDirty();
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
+/* ---------- تتبّع التعديلات اللي لسه ما اتحفظتش في فورم "تسجيل التارجت" (نفس مبدأ execHasUnsaved تحت) ---------- */
+let targetFormDirty = false;
+function markTargetFormDirty(){ targetFormDirty = true; }
 /* ---------- تتبّع التعديلات اللي لسه ما اتحفظتش + زرار الحفظ اليدوي ---------- */
 let execHasUnsaved = false;
 window.addEventListener('beforeunload', function(e){
-  if(execHasUnsaved){ e.preventDefault(); e.returnValue = ''; }
+  if(execHasUnsaved || (typeof targetFormDirty !== 'undefined' && targetFormDirty)){ e.preventDefault(); e.returnValue = ''; }
 });
 function markExecDirty(){
   execHasUnsaved = true;
