@@ -872,6 +872,22 @@ function entriesCol(){ return db.collection(FS_COLLECTION).doc('mlp_entries_inde
 // نفس المستند الكبير كامل. (2) المستند بيكبر مع الوقت (كل فترة تارجت من كل الصالات من الأول)
 // وده كان بيبطّئ الحفظ أكتر مع الوقت وممكن يوصل يوم لحد حجم المستند المسموح به.
 function targetPlansCol(){ return db.collection(FS_COLLECTION).doc('mlp_targets_index').collection('items'); }
+// نفس مبدأ targetPlansCol بالظبط بس لتنفيذ التارجت: كل سجل تنفيذ (خطة واحدة = صالة+فترة) بقى
+// مستند مستقل صغير جوه كولكشن، بدل ما تنفيذ كل الخطط من كل الصالات ومن كل الوقت يتلزّق في
+// مستند واحد. ده هو نفس الحل اللي كان بيحل مشكلتين: (1) لو صالتين بيسجّلوا تنفيذ في نفس اللحظة
+// تقريبًا، حفظ المتأخر كان بيدرّس حفظ التاني لإن الاتنين بيكتبوا نفس المستند الكبير كامل.
+// (2) المستند بيكبر مع الوقت (كل تنفيذ خطة من كل الصالات من الأول) وده كان بيبطّئ الحفظ أكتر
+// مع الوقت وممكن يوصل يوم لحد حجم المستند المسموح به — وهي بالظبط رسالة "تجاوزنا الحد اليومي"
+// اللي كانت بتظهر في شاشة تنفيذ التارجت تحديدًا لإنها أكتر شاشة بتتحدّث باستمرار من ناس كتير.
+function targetExecCol(){ return db.collection(FS_COLLECTION).doc('mlp_targetexec_index').collection('items'); }
+// نفس المبدأ بالظبط، مطبّق دلوقتي على باقي الأقسام كمان (جرد، قوة الصالة، قوة السهر، العاملين،
+// المستخدمين، مديري الصالات) — كل قسم بقى كولكشن مستقل (مستند لكل سجل) بدل مستند واحد مشترك.
+function jardCol(){ return db.collection(FS_COLLECTION).doc('mlp_jard_index').collection('items'); }
+function hallPowerCol(){ return db.collection(FS_COLLECTION).doc('mlp_hallpower_index').collection('items'); }
+function nightPowerCol(){ return db.collection(FS_COLLECTION).doc('mlp_nightpower_index').collection('items'); }
+function operatorsCol(){ return db.collection(FS_COLLECTION).doc('mlp_operators_index').collection('items'); }
+function usersCol(){ return db.collection(FS_COLLECTION).doc('mlp_users_index').collection('items'); }
+function hallManagersCol(){ return db.collection(FS_COLLECTION).doc('mlp_hallmanagers_index').collection('items'); }
 let realtimeUnsubs = []; // دوال إلغاء الاشتراك في مراقبة السيرفر اللحظية (onSnapshot)
 
 /* تحميل سجلات تقييم الأداء من الكولكشن الجديد (مستند لكل سجل). لو الكولكشن الجديد لسه فاضي بس
@@ -935,6 +951,60 @@ async function loadTargetPlansFromDb(){
   }catch(e){ console.warn('فشل ترحيل خطط التارجت القديمة:', e); }
   TARGET_PLANS = [];
 }
+/* تحميل تنفيذ التارجت من الكولكشن الجديد (مستند لكل خطة تنفيذ). لو الكولكشن الجديد لسه فاضي
+   بس فيه بيانات قديمة في المستند القديم (mlp_targetexec بشكله القديم قبل التعديل)، بننقلها
+   مرة واحدة بس — البيانات القديمة المحفوظة عندك دلوقتي هتترحّل تلقائيًا أول مرة تفتح فيها
+   الصفحة بعد الرفع، من غير ما تعمل حاجة إضافية. */
+async function loadTargetExecFromDb(){
+  const col = targetExecCol();
+  const snap = await col.get();
+  if(!snap.empty){
+    TARGET_EXEC = snap.docs.map(d => d.data());
+    return;
+  }
+  try{
+    const legacy = await db.collection(FS_COLLECTION).doc('mlp_targetexec').get();
+    if(legacy.exists){
+      const oldArr = JSON.parse(legacy.data().value || '[]');
+      if(Array.isArray(oldArr) && oldArr.length){
+        const batchSize = 400; // حد أقصى ~500 عملية لكل batch في Firestore
+        for(let i=0;i<oldArr.length;i+=batchSize){
+          const batch = db.batch();
+          oldArr.slice(i,i+batchSize).forEach(pe => { batch.set(col.doc(String(pe.planId)), pe); });
+          await batch.commit();
+        }
+        TARGET_EXEC = oldArr;
+        return;
+      }
+    }
+  }catch(e){ console.warn('فشل ترحيل تنفيذ التارجت القديم:', e); }
+  TARGET_EXEC = [];
+}
+// دالة عامة لتحميل أي قسم من الكولكشن الجديد (مستند لكل سجل)، ولو لسه فاضي بس فيه بيانات
+// قديمة في المستند القديم (arraydoc) بترحّلها مرة واحدة بس — نفس فكرة loadTargetExecFromDb
+// بالظبط، معمولة دالة عامة عشان نستخدمها لأي قسم (جرد/قوة الصالة/قوة السهر/العاملين/
+// المستخدمين/مديري الصالات) من غير ما نكرر نفس الكود 6 مرات.
+async function loadCollectionWithLegacyMigration(colFn, legacyDocId, idKey){
+  const col = colFn();
+  const snap = await col.get();
+  if(!snap.empty) return snap.docs.map(d => d.data());
+  try{
+    const legacy = await db.collection(FS_COLLECTION).doc(legacyDocId).get();
+    if(legacy.exists){
+      const oldArr = JSON.parse(legacy.data().value || '[]');
+      if(Array.isArray(oldArr) && oldArr.length){
+        const batchSize = 400;
+        for(let i=0;i<oldArr.length;i+=batchSize){
+          const batch = db.batch();
+          oldArr.slice(i,i+batchSize).forEach(rec => { batch.set(col.doc(String(rec[idKey])), rec); });
+          await batch.commit();
+        }
+        return oldArr;
+      }
+    }
+  }catch(e){ console.warn('فشل ترحيل بيانات قديمة لـ '+legacyDocId+':', e); }
+  return [];
+}
 async function loadData(){
   if(!firebaseReady){
     // مفيش اتصال بـ Firebase (غالبًا معاينة Claude) — نشتغل بالبيانات المبدئية بدون حفظ دائم
@@ -943,21 +1013,13 @@ async function loadData(){
   }
   try{ await loadEntriesFromDb(); }catch(e){ console.warn('فشل تحميل سجلات تقييم الأداء:', e); ENTRIES = ENTRIES || SEED_ENTRIES; }
   try{
-    const snap2 = await db.collection(FS_COLLECTION).doc('mlp_operators').get();
-    if(!snap2.exists) throw new Error('not-found');
-    OPERATORS = JSON.parse(snap2.data().value);
-  }catch(e){
-    OPERATORS = SEED_OPERATORS;
-    try{ await db.collection(FS_COLLECTION).doc('mlp_operators').set({value: JSON.stringify(OPERATORS)}); }catch(e2){}
-  }
+    OPERATORS = await loadCollectionWithLegacyMigration(operatorsCol, 'mlp_operators', 'c');
+    if(!OPERATORS.length) OPERATORS = SEED_OPERATORS;
+  }catch(e){ OPERATORS = SEED_OPERATORS; }
   try{
-    const snap3 = await db.collection(FS_COLLECTION).doc('mlp_users').get();
-    if(!snap3.exists) throw new Error('not-found');
-    USERS = JSON.parse(snap3.data().value);
-  }catch(e){
-    USERS = SEED_USERS;
-    try{ await db.collection(FS_COLLECTION).doc('mlp_users').set({value: JSON.stringify(USERS)}); }catch(e2){}
-  }
+    USERS = await loadCollectionWithLegacyMigration(usersCol, 'mlp_users', 'user');
+    if(!USERS.length) USERS = SEED_USERS;
+  }catch(e){ USERS = SEED_USERS; }
   // مزامنة المستخدمين الأساسيين — نضمن إن مسؤولي التسجيل الجداد يظهروا حتى لو النسخة القديمة متخزنة في Firebase
   try{
     let usersChanged = false;
@@ -987,7 +1049,7 @@ async function loadData(){
     }
     if(usersChanged){
       if(USER_AUTO_SYNC){
-        await db.collection(FS_COLLECTION).doc('mlp_users').set({value: JSON.stringify(USERS)});
+        await collectionArraySave('mlp_users', usersCol, USERS, 'user');
       } else {
         console.warn('User auto-sync is disabled; changes to USERS not written to Firestore.');
       }
@@ -999,50 +1061,24 @@ async function loadData(){
     const resetFlag = await db.collection(FS_COLLECTION).doc('mlp_jard_reset_v2').get();
     if(!resetFlag.exists){
       JARD = [];
-      await db.collection(FS_COLLECTION).doc('mlp_jard').set({value: JSON.stringify(JARD)});
       await db.collection(FS_COLLECTION).doc('mlp_jard_reset_v2').set({done:true, ts:new Date().toISOString()});
     } else {
-      const snap4 = await db.collection(FS_COLLECTION).doc('mlp_jard').get();
-      if(!snap4.exists) throw new Error('not-found');
-      JARD = JSON.parse(snap4.data().value);
+      JARD = await loadCollectionWithLegacyMigration(jardCol, 'mlp_jard', 'id');
     }
   }catch(e){
     JARD = SEED_JARD;
-    try{ await db.collection(FS_COLLECTION).doc('mlp_jard').set({value: JSON.stringify(JARD)}); }catch(e2){}
   }
   try{ await loadTargetPlansFromDb(); }catch(e){ console.warn('فشل تحميل خطط التارجت:', e); TARGET_PLANS = TARGET_PLANS || []; }
+  try{ await loadTargetExecFromDb(); }catch(e){ console.warn('فشل تحميل تنفيذ التارجت:', e); TARGET_EXEC = TARGET_EXEC || []; }
   try{
-    const snap5b = await db.collection(FS_COLLECTION).doc('mlp_targetexec').get();
-    if(!snap5b.exists) throw new Error('not-found');
-    TARGET_EXEC = JSON.parse(snap5b.data().value);
-  }catch(e){
-    TARGET_EXEC = [];
-    try{ await db.collection(FS_COLLECTION).doc('mlp_targetexec').set({value: JSON.stringify(TARGET_EXEC)}); }catch(e2){}
-  }
+    HALL_POWER = await loadCollectionWithLegacyMigration(hallPowerCol, 'mlp_hallpower', 'id');
+  }catch(e){ HALL_POWER = []; }
   try{
-    const snap6 = await db.collection(FS_COLLECTION).doc('mlp_hallpower').get();
-    if(!snap6.exists) throw new Error('not-found');
-    HALL_POWER = JSON.parse(snap6.data().value);
-  }catch(e){
-    HALL_POWER = [];
-    try{ await db.collection(FS_COLLECTION).doc('mlp_hallpower').set({value: JSON.stringify(HALL_POWER)}); }catch(e2){}
-  }
+    NIGHT_POWER = await loadCollectionWithLegacyMigration(nightPowerCol, 'mlp_nightpower', 'id');
+  }catch(e){ NIGHT_POWER = []; }
   try{
-    const snap7 = await db.collection(FS_COLLECTION).doc('mlp_nightpower').get();
-    if(!snap7.exists) throw new Error('not-found');
-    NIGHT_POWER = JSON.parse(snap7.data().value);
-  }catch(e){
-    NIGHT_POWER = [];
-    try{ await db.collection(FS_COLLECTION).doc('mlp_nightpower').set({value: JSON.stringify(NIGHT_POWER)}); }catch(e2){}
-  }
-  try{
-    const snap8 = await db.collection(FS_COLLECTION).doc('mlp_hallmanagers').get();
-    if(!snap8.exists) throw new Error('not-found');
-    HALL_MANAGERS = JSON.parse(snap8.data().value);
-  }catch(e){
-    HALL_MANAGERS = [];
-    try{ await db.collection(FS_COLLECTION).doc('mlp_hallmanagers').set({value: JSON.stringify(HALL_MANAGERS)}); }catch(e2){}
-  }
+    HALL_MANAGERS = await loadCollectionWithLegacyMigration(hallManagersCol, 'mlp_hallmanagers', 'hall');
+  }catch(e){ HALL_MANAGERS = []; }
   // نسجّل "الأساس المرجعي" لكل قسم فور ما نحمّله من السيرفر، عشان محرك الحفظ يقدر يميّز
   // بعد كده بين سجل اتمسح فعلاً من الجهاز ده (كان موجود في الأساس ومختفي دلوقتي) وسجل
   // جهاز تاني ضافه (مكانش موجود في الأساس أصلًا) — تفاصيل الفكرة فوق transactionalArraySave.
@@ -1066,8 +1102,43 @@ async function loadData(){
 // لكل قسم = آخر نسخة معروفة من السيرفر. أي سجل كان موجود في الأساس ومش موجود في نسختي المحلية
 // دلوقتي = أنا مسحته فعلاً، فمنضيفوش تاني حتى لو لسه موجود عند السيرفر.
 let BASELINES = {}; // { docId: Set(ids) }
+// أساس مرجعي تاني، بس بمحتوى السجل كامل (JSON) مش بس الـ id — مستخدم في collectionArraySave
+// تحت عشان نعرف نقارن كل سجل بآخر نسخة معروفة من السيرفر ونكتب بس اللي اتغيّر فعلاً محتواه،
+// من غير ما نعيد كتابة كل سجلات القسم (اللي ممكن تكون مئات) كل مرة حد يعمل تعديل بسيط واحد.
+let CONTENT_BASELINES = {}; // { docId: Map(id -> JSON string) }
 function setBaseline(docId, arr, idKey){
   BASELINES[docId] = new Set(arr.map(e => e[idKey]));
+  CONTENT_BASELINES[docId] = new Map(arr.map(e => [String(e[idKey]), JSON.stringify(e)]));
+}
+// بتحفظ قسم كامل (جرد/قوة الصالة/قوة السهر/العاملين/المستخدمين/مديري الصالات) كمستندات
+// صغيرة مستقلة — مستند لكل سجل، بدل مستند واحد كبير فيه كل السجلات. بتقارن كل سجل بآخر نسخة
+// معروفة من السيرفر (CONTENT_BASELINES) وبتكتب/تمسح بس اللي اتغيّر فعلاً؛ أي سجل ثابت
+// (مش متعدّل) مبيتكتبش تاني خالص. ده نفس مبدأ saveTargetPlanRecord/saveTargetExec بالظبط،
+// بس بشكل عام يشتغل على أي قسم من غير ما نكتب دالة حفظ مخصصة لكل واحد فيهم.
+async function collectionArraySave(docId, colFn, localArr, idKey){
+  const col = colFn();
+  const baseline = CONTENT_BASELINES[docId] || new Map();
+  const localIds = new Set();
+  const toSet = [];
+  const toDeleteIds = [];
+  localArr.forEach(item => {
+    const id = String(item[idKey]);
+    localIds.add(id);
+    const json = JSON.stringify(item);
+    if(baseline.get(id) !== json) toSet.push(item);
+  });
+  baseline.forEach((_, id) => { if(!localIds.has(id)) toDeleteIds.push(id); });
+  const ops = [...toSet.map(item=>({type:'set', item})), ...toDeleteIds.map(id=>({type:'delete', id}))];
+  const batchSize = 400; // حد أقصى ~500 عملية لكل batch في Firestore
+  for(let i=0;i<ops.length;i+=batchSize){
+    const batch = db.batch();
+    ops.slice(i,i+batchSize).forEach(op => {
+      if(op.type==='set') batch.set(col.doc(String(op.item[idKey])), op.item);
+      else batch.delete(col.doc(String(op.id)));
+    });
+    await batch.commit();
+  }
+  setBaseline(docId, localArr, idKey);
 }
 // طابور حفظ لكل مستند: لو المستخدم علّم على أكتر من أرتيكل (أو عمل أكتر من تعديل) بسرعة ورا
 // بعض، كل نداء لدالة الحفظ كان بيبدأ transaction خاصة بيه فورًا من غير ما ينتظر اللي قبله يخلص،
@@ -1246,24 +1317,27 @@ function startRealtimeSync(){
     handleIncomingSync(targetsSpec, data);
   }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
   realtimeUnsubs.push(unsubTargets);
-  const specs = [
-    {docId:'mlp_operators',   apply:v=>{OPERATORS=v;},    tabs:['operators'], idKey:'c'},
-    {docId:'mlp_users',       apply:v=>{USERS=v;},        tabs:['users'], idKey:'user'},
-    {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id'},
-    {docId:'mlp_targetexec',  apply:v=>{TARGET_EXEC=v;},  tabs:['targetexec'], idKey:'planId'},
-    {docId:'mlp_hallpower',   apply:v=>{HALL_POWER=v;},   tabs:['hallpower'], idKey:'id'},
-    {docId:'mlp_nightpower',  apply:v=>{NIGHT_POWER=v;},  tabs:['nightpower'], idKey:'id'},
-    {docId:'mlp_hallmanagers',apply:v=>{HALL_MANAGERS=v;},tabs:[], idKey:'hall'},
+  // نفس فكرة مراقبة targetPlansCol بالظبط: كولكشن مستقل لتنفيذ التارجت، مش مستند واحد
+  const targetExecSpec = {docId:'mlp_targetexec', apply:v=>{TARGET_EXEC=v;}, tabs:['targetexec'], idKey:'planId'};
+  const unsubTargetExec = targetExecCol().onSnapshot(snap => {
+    const data = snap.docs.map(d => d.data());
+    handleIncomingSync(targetExecSpec, data);
+  }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
+  realtimeUnsubs.push(unsubTargetExec);
+  // باقي الأقسام (جرد، قوة الصالة، قوة السهر، العاملين، المستخدمين، مديري الصالات) بقت كمان
+  // كولكشن مستقل (مستند لكل سجل) بدل مستند واحد — نفس فكرة entriesCol/targetPlansCol بالظبط.
+  const collectionSpecs = [
+    {docId:'mlp_operators',   apply:v=>{OPERATORS=v;},    tabs:['operators'], idKey:'c',    col: operatorsCol},
+    {docId:'mlp_users',       apply:v=>{USERS=v;},        tabs:['users'], idKey:'user',      col: usersCol},
+    {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id',         col: jardCol},
+    {docId:'mlp_hallpower',   apply:v=>{HALL_POWER=v;},   tabs:['hallpower'], idKey:'id',    col: hallPowerCol},
+    {docId:'mlp_nightpower',  apply:v=>{NIGHT_POWER=v;},  tabs:['nightpower'], idKey:'id',   col: nightPowerCol},
+    {docId:'mlp_hallmanagers',apply:v=>{HALL_MANAGERS=v;},tabs:[], idKey:'hall',             col: hallManagersCol},
   ];
-  specs.forEach(spec => {
-    const unsub = db.collection(FS_COLLECTION).doc(spec.docId).onSnapshot(snap => {
-      if(!snap.exists || !currentUser) return;
-      let data;
-      try{ data = JSON.parse(snap.data().value); }catch(e){ return; }
-      // منستبدلش البيانات المحلية خالص لو المستخدم دلوقتي بيكتب في حقل إدخال أو لسه واقف
-      // في عنصر جوه الصفحة (زي مربع تعليم اتحطّط منذ لحظات) — عشان لو فيه تعديل لسه
-      // بيتحفظ في الخلفية، نسخة السيرفر القديمة متمسحوش التعديل ده قبل ما يوصل ويتحفظ.
-      // بس بدل ما نرمي التحديث خالص، بنسيبه معلّق (pending) عشان نطبّقه أول ما يسيب الخانة.
+  collectionSpecs.forEach(spec => {
+    const unsub = spec.col().onSnapshot(snap => {
+      if(!currentUser) return;
+      const data = snap.docs.map(d => d.data());
       handleIncomingSync(spec, data);
     }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
     realtimeUnsubs.push(unsub);
@@ -1300,7 +1374,7 @@ async function saveOperators(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_operators', async () => {
-    try{ OPERATORS = await transactionalArraySave('mlp_operators', OPERATORS, 'c'); }
+    try{ await collectionArraySave('mlp_operators', operatorsCol, OPERATORS, 'c'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات العاملين — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -1309,7 +1383,7 @@ async function saveUsers(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_users', async () => {
-    try{ USERS = await transactionalArraySave('mlp_users', USERS, 'user'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); ok = false; }
+    try{ await collectionArraySave('mlp_users', usersCol, USERS, 'user'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); ok = false; }
   });
   return ok;
 }
@@ -1319,7 +1393,7 @@ async function saveJard(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_jard', async () => {
-    try{ JARD = await transactionalArraySave('mlp_jard', JARD, 'id'); }
+    try{ await collectionArraySave('mlp_jard', jardCol, JARD, 'id'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات الجرد — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -1344,11 +1418,25 @@ async function deleteTargetPlanRecord(id){
   });
   return ok;
 }
+// بتحفظ بس خطط تنفيذ التارجت اللي اتعدّلت فعليًا (EXEC_DIRTY_IDS) — كل واحدة مستند مستقل صغير،
+// مش المستند الكبير كله. كده لو صالتين بيسجّلوا تنفيذ في نفس اللحظة، كل واحدة بتكتب مستنداتها
+// الصغيرة المستقلة من غير ما تلمس التانية خالص (نفس مبدأ saveTargetPlanRecord بالظبط).
 async function saveTargetExec(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
+  const idsToSave = Array.from(EXEC_DIRTY_IDS);
+  if(!idsToSave.length) return true;
   await queueSave('mlp_targetexec', async () => {
-    try{ TARGET_EXEC = await transactionalArraySave('mlp_targetexec', TARGET_EXEC, 'planId'); }
+    try{
+      const col = targetExecCol();
+      const batch = db.batch();
+      idsToSave.forEach(pid => {
+        const pe = TARGET_EXEC.find(x=>x.planId===pid);
+        if(pe) batch.set(col.doc(String(pid)), pe);
+      });
+      await batch.commit();
+      idsToSave.forEach(pid => EXEC_DIRTY_IDS.delete(pid));
+    }
     catch(e){ ok = false; showToast('❌ فشل حفظ تنفيذ التارجت — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -1357,7 +1445,7 @@ async function saveHallPowerToDb(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_hallpower', async () => {
-    try{ HALL_POWER = await transactionalArraySave('mlp_hallpower', HALL_POWER, 'id'); }
+    try{ await collectionArraySave('mlp_hallpower', hallPowerCol, HALL_POWER, 'id'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ قوة الصالة — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -1366,7 +1454,7 @@ async function saveNightPowerToDb(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_nightpower', async () => {
-    try{ NIGHT_POWER = await transactionalArraySave('mlp_nightpower', NIGHT_POWER, 'id'); }
+    try{ await collectionArraySave('mlp_nightpower', nightPowerCol, NIGHT_POWER, 'id'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ قوة السهر — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -1375,7 +1463,7 @@ async function saveHallManagersToDb(){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_hallmanagers', async () => {
-    try{ HALL_MANAGERS = await transactionalArraySave('mlp_hallmanagers', HALL_MANAGERS, 'hall'); }
+    try{ await collectionArraySave('mlp_hallmanagers', hallManagersCol, HALL_MANAGERS, 'hall'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات مديري الصالات — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -1388,14 +1476,14 @@ async function saveHallManagersToDb(){
    فعلاً وصل واتخزن على السيرفر، مش بس ظاهر في شاشتك دلوقتي. الهدف: محدش يتفاجأ إن حاجة "متتحفظتش". */
 const VERIFY_DOC_SPECS = {
   mlp_entries:      { type:'collection', label:'سجلات متابعة الإنتاج', col: entriesCol },
-  mlp_operators:    { type:'arraydoc',   label:'بيانات العاملين' },
-  mlp_users:        { type:'arraydoc',   label:'المستخدمين' },
-  mlp_jard:         { type:'arraydoc',   label:'الجرد' },
+  mlp_operators:    { type:'collection', label:'بيانات العاملين', col: operatorsCol },
+  mlp_users:        { type:'collection', label:'المستخدمين', col: usersCol },
+  mlp_jard:         { type:'collection', label:'الجرد', col: jardCol },
   mlp_targets:      { type:'collection', label:'خطط التارجت', col: targetPlansCol },
-  mlp_targetexec:   { type:'arraydoc',   label:'تنفيذ التارجت' },
-  mlp_hallpower:    { type:'arraydoc',   label:'قوة الصالة' },
-  mlp_nightpower:   { type:'arraydoc',   label:'قوة السهر' },
-  mlp_hallmanagers: { type:'arraydoc',   label:'مديري الصالات' },
+  mlp_targetexec:   { type:'collection', label:'تنفيذ التارجت', col: targetExecCol },
+  mlp_hallpower:    { type:'collection', label:'قوة الصالة', col: hallPowerCol },
+  mlp_nightpower:   { type:'collection', label:'قوة السهر', col: nightPowerCol },
+  mlp_hallmanagers: { type:'collection', label:'مديري الصالات', col: hallManagersCol },
 };
 async function fetchDocFromServer(docId){
   const spec = VERIFY_DOC_SPECS[docId];
@@ -1689,6 +1777,7 @@ function switchTab(key){
   if(activeTab === 'targetexec' && key !== 'targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved){
     if(!confirm('⚠️ عندك تعديلات في تنفيذ التارجت لسه ما اتحفظتش. عايز تسيب الشاشة من غير ما تحفظ؟')) return;
     execHasUnsaved = false;
+    EXEC_DIRTY_IDS.clear();
   }
   if(activeTab === 'target' && key !== 'target' && typeof targetFormDirty !== 'undefined' && targetFormDirty){
     if(!confirm('⚠️ عندك تعديل في فورم تسجيل التارجت لسه ما اتحفظش (زي تارجت التسليم). عايز تسيب الشاشة من غير ما تحفظ؟')) return;
@@ -4939,7 +5028,7 @@ function getOrInitPlanExec(plan){
       }
     });
   });
-  if(changed) saveTargetExec();
+  if(changed){ EXEC_DIRTY_IDS.add(plan.id); saveTargetExec(); }
   return pe;
 }
 function execItemAmounts(it, previewReqMin){
@@ -5153,7 +5242,7 @@ function toggleExecItem(planId, lineNum, itemId, cbEl){
   } else {
     it.done = false; it.actualH = null; it.actualM = null; it.doneAt = null; it.doneBy = null;
   }
-  markExecDirty();
+  markExecDirty(planId);
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 function editExecItemField(planId, lineNum, itemId, field, value){
@@ -5163,7 +5252,7 @@ function editExecItemField(planId, lineNum, itemId, field, value){
   if(!it || it.done) return;
   if(field==='h' || field==='m') it[field] = Number(value)||0;
   else it[field] = value;
-  markExecDirty();
+  markExecDirty(planId);
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 function deleteExecItem(planId, lineNum, itemId){
@@ -5173,7 +5262,7 @@ function deleteExecItem(planId, lineNum, itemId){
   const it = le.items.find(x=>x.id===itemId);
   if(it && it.done){ showToast('⚠️ مينفعش تمسح أرتيكل اتعلّم عليه بالفعل'); return; }
   le.items = le.items.filter(x=>x.id!==itemId);
-  markExecDirty();
+  markExecDirty(planId);
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 function addManualExecItem(planId, lineNum){
@@ -5181,7 +5270,7 @@ function addManualExecItem(planId, lineNum){
   const le = pe && pe.lines.find(x=>x.line===lineNum);
   if(!le) return;
   le.items.push({id:newExecItemId(), origIdx:null, article:'', qty:'', h:0, m:0, baseTime:'', done:false, actualH:null, actualM:null, doneAt:null, doneBy:null});
-  markExecDirty();
+  markExecDirty(planId);
   refreshExecPlanCard(TARGET_PLANS.find(x=>x.id===planId));
 }
 /* ---------- تتبّع التعديلات اللي لسه ما اتحفظتش في فورم "تسجيل التارجت" (نفس مبدأ execHasUnsaved تحت) ---------- */
@@ -5189,11 +5278,15 @@ let targetFormDirty = false;
 function markTargetFormDirty(){ targetFormDirty = true; }
 /* ---------- تتبّع التعديلات اللي لسه ما اتحفظتش + زرار الحفظ اليدوي ---------- */
 let execHasUnsaved = false;
+// بتتبّع IDs بس خطط التنفيذ اللي اتعدّلت فعليًا ولسه ما اتحفظتش، عشان saveTargetExec يكتب
+// مستنداتها الصغيرة المستقلة بس — مش تنفيذ كل الخطط من كل الصالات كل مرة.
+let EXEC_DIRTY_IDS = new Set();
 window.addEventListener('beforeunload', function(e){
   if(execHasUnsaved || (typeof targetFormDirty !== 'undefined' && targetFormDirty)){ e.preventDefault(); e.returnValue = ''; }
 });
-function markExecDirty(){
+function markExecDirty(planId){
   execHasUnsaved = true;
+  if(planId!=null) EXEC_DIRTY_IDS.add(planId);
   const bar = document.getElementById('texec-save-bar');
   if(bar) bar.style.display = 'flex';
 }
