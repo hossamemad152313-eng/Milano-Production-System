@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
@@ -704,6 +706,17 @@
     max-height:75vh; overflow:auto;
   }
   .pf-viewer-frame img{ max-width:100%; height:auto; box-shadow:0 6px 24px rgba(0,0,0,.18); background:#fff; }
+  .pf-import-box{ margin-bottom:16px; padding:14px; background:#F8F5EE; border:1px dashed #D7CAB8; border-radius:12px; text-align:center; }
+  .pf-import-status{ margin-top:8px; font-size:12.5px; font-weight:700; color:#3A4257; min-height:16px; }
+  .pf-file-card-wrap{ position:relative; }
+  .pf-file-card-wrap .pf-file-actions{
+    position:absolute; top:6px; left:6px; display:flex; gap:4px; z-index:2;
+  }
+  .pf-file-card-wrap .pf-file-actions button{
+    border:none; background:rgba(255,255,255,.92); width:26px; height:26px; border-radius:8px;
+    font-size:13px; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.15);
+  }
+  .pf-file-card-wrap .pf-file-actions button:hover{ background:#fff; }
   @media print{
     body.print-form-only .phone{ display:none !important; }
     body.print-form-only #print-form-output{ display:block !important; }
@@ -1949,32 +1962,48 @@ function renderPrintFormsTab(){
     <div class="card-box">
       <div class="section-title" style="margin-top:0;">🖨️ طباعة النماذج — نسخ طبق الأصل من ملفات الإكسل</div>
       <div class="data-note">اختار الملف، وبعدين اختار النموذج (الشيت) اللي عايز تطبعه. النموذج هيتفتح بنفس شكله ومقاسه بالظبط زي ما هو في الإكسل.</div>
+      <div class="pf-import-box">
+        <label class="apply-btn" style="margin-top:0;background:#2E6B48;display:inline-block;cursor:pointer;">
+          📥 استيراد ملف إكسل (يتحول تلقائي لصور نماذج بنفس مقاس الطباعة)
+          <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
+        </label>
+        <div id="pf-import-status" class="pf-import-status"></div>
+      </div>
       <div id="pf-body"></div>
     </div>
   `;
   renderPrintFilesGrid();
 }
 
-function renderPrintFilesGrid(){
+async function renderPrintFilesGrid(){
   const body = document.getElementById('pf-body');
-  const keys = Object.keys(PRINT_LIBRARY);
+  body.innerHTML = `<div class="empty-state">⏳ بتحمّل النماذج...</div>`;
+  const lib = await getPrintLibraryAll();
+  const keys = Object.keys(lib);
   body.innerHTML = `
     <div class="pf-files-grid">
       ${keys.map(k => {
-        const f = PRINT_LIBRARY[k];
-        return `<div class="pf-file-card" onclick="openPrintFile('${k}')">
-          <span class="pf-icon">${f.icon}</span>
-          <div class="pf-name">${f.label}</div>
-          <div class="pf-count">${f.forms.length} نموذج</div>
+        const f = lib[k];
+        return `<div class="pf-file-card-wrap">
+          <div class="pf-file-card" onclick="openPrintFile('${k}')">
+            <span class="pf-icon">${f.icon}</span>
+            <div class="pf-name">${f.label}</div>
+            <div class="pf-count">${f.forms.length} نموذج</div>
+          </div>
+          ${f.imported ? `<div class="pf-file-actions">
+            <button onclick="event.stopPropagation();downloadAllForms('${k}')" title="تحميل كل النماذج">⬇️</button>
+            <button onclick="event.stopPropagation();deleteImportedPrintFile('${k}')" title="مسح">🗑️</button>
+          </div>` : ''}
         </div>`;
       }).join('')}
     </div>
   `;
 }
 
-function openPrintFile(fileKey){
+async function openPrintFile(fileKey){
   pfCurrentFileKey = fileKey; pfCurrentFormId = null;
-  const file = PRINT_LIBRARY[fileKey];
+  const lib = await getPrintLibraryAll();
+  const file = lib[fileKey];
   if(!file) return;
   const body = document.getElementById('pf-body');
   body.innerHTML = `
@@ -1994,9 +2023,10 @@ function openPrintFile(fileKey){
   `;
 }
 
-function openPrintForm(fileKey, formId){
+async function openPrintForm(fileKey, formId){
   pfCurrentFileKey = fileKey; pfCurrentFormId = formId;
-  const file = PRINT_LIBRARY[fileKey];
+  const lib = await getPrintLibraryAll();
+  const file = lib[fileKey];
   const form = file && file.forms.find(x => x.id === formId);
   if(!form) return;
   const body = document.getElementById('pf-body');
@@ -2019,8 +2049,9 @@ function openPrintForm(fileKey, formId){
   `;
 }
 
-function printCurrentForm(){
-  const file = PRINT_LIBRARY[pfCurrentFileKey];
+async function printCurrentForm(){
+  const lib = await getPrintLibraryAll();
+  const file = lib[pfCurrentFileKey];
   const form = file && file.forms.find(x => x.id === pfCurrentFormId);
   if(!form) return;
   const out = document.getElementById('print-form-output');
@@ -2028,6 +2059,339 @@ function printCurrentForm(){
   out.innerHTML = `<img src="${form.src}" alt="${form.label}">`;
   document.body.classList.add('print-form-only');
   setTimeout(() => window.print(), 60);
+}
+
+/* ============================================================
+   استيراد ملفات إكسل وتحويلها تلقائي لنماذج طباعة (صورة بمقاس دقيق بالملي)
+   الفكرة: بنقرأ الشيت بكل تنسيقاته (عرض أعمدة/ارتفاع صفوف/دمج/خطوط/ألوان/حدود)
+   عن طريق ExcelJS، بنبنيه كجدول HTML بنفس المقاسات بالظبط، وبعدين بناخده
+   "سكرين شوت" فعلي بمكتبة html2canvas — يعني نفس اللي هيطلع لو دوست Ctrl+P.
+   التخزين بيتم في IndexedDB (مش localStorage) لأن الصور بتاخد مساحة كبيرة
+   وlocalStorage بيبقى مساحته صغيرة جدًا (٥-١٠ ميجا بس) وبيفشل بصمت.
+   ============================================================ */
+const PF_DB_NAME = 'pf_import_db';
+const PF_DB_STORE = 'files';
+
+function pfOpenDb(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(PF_DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(PF_DB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function pfDbGetAll(){
+  const db = await pfOpenDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(PF_DB_STORE, 'readonly');
+    const store = tx.objectStore(PF_DB_STORE);
+    const keysReq = store.getAllKeys();
+    const valsReq = store.getAll();
+    tx.oncomplete = () => {
+      const result = {};
+      keysReq.result.forEach((k,i)=>{ result[k] = valsReq.result[i]; });
+      resolve(result);
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function pfDbSet(key, value){
+  const db = await pfOpenDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(PF_DB_STORE, 'readwrite');
+    tx.objectStore(PF_DB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function pfDbDelete(key){
+  const db = await pfOpenDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(PF_DB_STORE, 'readwrite');
+    tx.objectStore(PF_DB_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function getPrintLibraryAll(){
+  let imported = {};
+  try{ imported = await pfDbGetAll(); }catch(e){ console.error(e); }
+  return Object.assign({}, PRINT_LIBRARY, imported);
+}
+
+function excelColWidthToPx(width, fallback){
+  const MDW = 7; // متوسط عرض الرقم بالبيكسل لخط Calibri 11 (نفس افتراضي إكسل)
+  const w = (width === undefined || width === null || isNaN(width)) ? (fallback || 8.43) : Number(width);
+  return Math.max(4, Math.round(((256*w + Math.trunc(128/MDW))/256)*MDW));
+}
+function ptToPx(pt, fallback){ return Math.round((pt || fallback || 15) * 96/72); }
+// باليت الثيم الافتراضي في أوفيس (لو الملف مش معمول له ثيم مخصص، ده اللي إكسل بيستخدمه):
+const OFFICE_THEME = ['FFFFFF','000000','E7E6E6','44546A','4472C4','ED7D31','A5A5A5','FFC000','5B9BD5','70AD47'];
+function applyTint(hex, tint){
+  if(!tint) return hex;
+  const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+  const adj = v => {
+    let nv = tint < 0 ? v*(1+tint) : v*(1-tint) + 255*tint;
+    return Math.max(0, Math.min(255, Math.round(nv)));
+  };
+  const toHex = v => v.toString(16).padStart(2,'0').toUpperCase();
+  return toHex(adj(r)) + toHex(adj(g)) + toHex(adj(b));
+}
+function resolveColor(colorObj){
+  if(!colorObj) return null;
+  if(colorObj.argb) return argbToCss(colorObj.argb);
+  if(colorObj.theme !== undefined && OFFICE_THEME[colorObj.theme]){
+    return '#' + applyTint(OFFICE_THEME[colorObj.theme], colorObj.tint || 0);
+  }
+  return null;
+}
+function argbToCss(argb){
+  if(!argb) return null;
+  const hex = argb.length === 8 ? argb.slice(2) : argb;
+  if(hex.toUpperCase() === '000000' && argb.length === 8 && argb.slice(0,2).toUpperCase() === '00') return null; // شفاف
+  return '#'+hex;
+}
+function excelBorderToCss(b){
+  if(!b || !b.style) return '';
+  const color = (b.color && b.color.argb) ? (argbToCss(b.color.argb) || '#000') : '#000';
+  const map = {
+    thin:['1px','solid'], medium:['2px','solid'], thick:['3px','solid'],
+    dashed:['1px','dashed'], dotted:['1px','dotted'], double:['3px','double'],
+    hair:['0.5px','solid'], mediumDashed:['2px','dashed'], slantDashDot:['1px','dashed'],
+    dashDot:['1px','dashed'], dashDotDot:['1px','dotted']
+  };
+  const pair = map[b.style] || ['1px','solid'];
+  return `${pair[0]} ${pair[1]} ${color}`;
+}
+function colLettersToNum(letters){
+  let n = 0;
+  for(let i=0;i<letters.length;i++) n = n*26 + (letters.charCodeAt(i)-64);
+  return n;
+}
+function collectMerges(ws){
+  const anchors = {}, covered = {};
+  let ranges = [];
+  if(ws.model && Array.isArray(ws.model.merges)) ranges = ws.model.merges;
+  else if(ws._merges) ranges = Object.keys(ws._merges);
+  ranges.forEach(rangeStr=>{
+    const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(rangeStr);
+    if(!m) return;
+    const c1 = colLettersToNum(m[1]), r1 = parseInt(m[2],10);
+    const c2 = colLettersToNum(m[3]), r2 = parseInt(m[4],10);
+    anchors[`${r1}:${c1}`] = { colSpan: c2-c1+1, rowSpan: r2-r1+1 };
+    for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++){
+      if(r===r1 && c===c1) continue;
+      covered[`${r}:${c}`] = true;
+    }
+  });
+  return { anchors, covered };
+}
+function formatCellText(cell){
+  let val = cell.value;
+  if(val && typeof val === 'object' && val.richText){
+    return val.richText.map(rt=>rt.text).join('');
+  }
+  if(val && typeof val === 'object' && 'result' in val){
+    val = val.result;
+  }
+  if(val === null || val === undefined) return '';
+  if(val instanceof Date){
+    try{ return XLSX.SSF.format(cell.numFmt || 'dd/mm/yyyy', val); }
+    catch(e){ return val.toLocaleDateString('ar-EG'); }
+  }
+  if(typeof val === 'number' && cell.numFmt){
+    try{ return XLSX.SSF.format(cell.numFmt, val); }
+    catch(e){ return String(val); }
+  }
+  return String(val);
+}
+// إكسل غالبًا بيسجل الحد بين خليتين على جنب واحد بس (فوقاني أو تحتاني، شمال أو يمين) —
+// لو مشيناها زي ما هي كده هتلاقي حدود ناقصة أو خطوط متقطعة. الدالة دي بتوحّد
+// كل حد مشترك بين خليتين جيران بحيث لو أي ضلع منهم فيه حد، الاتنين ياخدوا نفس الحد.
+function resolveBorders(ws, rowCount, colCount){
+  const raw = [];
+  for(let r=1; r<=rowCount; r++){
+    raw[r] = [];
+    const row = ws.getRow(r);
+    for(let c=1; c<=colCount; c++){
+      const cell = row.getCell(c);
+      const b = (cell.style && cell.style.border) || {};
+      raw[r][c] = { top:b.top||null, bottom:b.bottom||null, left:b.left||null, right:b.right||null };
+    }
+  }
+  const eff = [];
+  for(let r=1; r<=rowCount; r++){
+    eff[r] = [];
+    for(let c=1; c<=colCount; c++){
+      const cur = raw[r][c];
+      const above = r>1 ? raw[r-1][c] : null;
+      const below = r<rowCount ? raw[r+1][c] : null;
+      const leftCell = c>1 ? raw[r][c-1] : null;
+      const rightCell = c<colCount ? raw[r][c+1] : null;
+      eff[r][c] = {
+        top: cur.top || (above && above.bottom) || null,
+        bottom: cur.bottom || (below && below.top) || null,
+        left: cur.left || (leftCell && leftCell.right) || null,
+        right: cur.right || (rightCell && rightCell.left) || null
+      };
+    }
+  }
+  return eff;
+}
+function applyCellStyle(td, cell, effBorder){
+  td.textContent = formatCellText(cell);
+  const s = cell.style || {};
+  const font = s.font || {};
+  td.style.fontFamily = "'Cairo', Arial, sans-serif";
+  td.style.fontSize = (font.size || 11) + 'pt';
+  td.style.fontWeight = font.bold ? '800' : '400';
+  td.style.fontStyle = font.italic ? 'italic' : 'normal';
+  if(font.underline) td.style.textDecoration = 'underline';
+  td.style.color = resolveColor(font.color) || '#000';
+
+  const fill = s.fill;
+  if(fill && fill.type === 'pattern' && fill.pattern === 'solid' && fill.fgColor){
+    const bg = resolveColor(fill.fgColor);
+    if(bg) td.style.background = bg;
+  }
+
+  const align = s.alignment || {};
+  const hMap = {left:'left', center:'center', right:'right', justify:'justify', centerContinuous:'center', fill:'left'};
+  td.style.textAlign = hMap[align.horizontal] || (typeof cell.value === 'number' ? 'right' : 'right');
+  const vMap = {top:'top', middle:'middle', bottom:'bottom'};
+  td.style.verticalAlign = vMap[align.vertical] || 'middle';
+  td.style.whiteSpace = align.wrapText ? 'pre-wrap' : 'pre';
+  td.style.overflow = 'hidden';
+  td.style.padding = '1px 3px';
+  td.style.boxSizing = 'border-box';
+
+  const b = effBorder || {};
+  td.style.borderTop = b.top ? excelBorderToCss(b.top) : '';
+  td.style.borderBottom = b.bottom ? excelBorderToCss(b.bottom) : '';
+  td.style.borderLeft = b.left ? excelBorderToCss(b.left) : '';
+  td.style.borderRight = b.right ? excelBorderToCss(b.right) : '';
+}
+function buildSheetTable(ws){
+  const table = document.createElement('table');
+  table.style.borderCollapse = 'collapse';
+  table.style.background = '#fff';
+  table.style.tableLayout = 'fixed'; // يفرض عرض الأعمدة بالبكسل زي الإكسل بالظبط، من غير ما المتصفح يغيّرها حسب المحتوى
+
+  const defaultColWidth = ws.properties && ws.properties.defaultColWidth;
+  const defaultRowHeightPt = ws.properties && ws.properties.defaultRowHeight;
+
+  const colCount = Math.max(ws.columnCount || 0, ws.actualColumnCount || 0, 1);
+  const colgroup = document.createElement('colgroup');
+  let totalWidthPx = 0;
+  for(let c=1; c<=colCount; c++){
+    const col = ws.getColumn(c);
+    const colEl = document.createElement('col');
+    const wPx = excelColWidthToPx(col ? col.width : null, defaultColWidth);
+    colEl.style.width = wPx + 'px';
+    totalWidthPx += wPx;
+    colgroup.appendChild(colEl);
+  }
+  table.appendChild(colgroup);
+  table.style.width = totalWidthPx + 'px';
+
+  const tbody = document.createElement('tbody');
+  const merges = collectMerges(ws);
+  const rowCount = Math.max(ws.rowCount || 0, ws.actualRowCount || 0, 1);
+  const borders = resolveBorders(ws, rowCount, colCount);
+
+  for(let r=1; r<=rowCount; r++){
+    const row = ws.getRow(r);
+    const tr = document.createElement('tr');
+    tr.style.height = ptToPx(row.height, defaultRowHeightPt) + 'px';
+    for(let c=1; c<=colCount; c++){
+      if(merges.covered[`${r}:${c}`]) continue;
+      const cell = row.getCell(c);
+      const td = document.createElement('td');
+      applyCellStyle(td, cell, borders[r][c]);
+      const span = merges.anchors[`${r}:${c}`];
+      if(span){
+        if(span.colSpan > 1) td.colSpan = span.colSpan;
+        if(span.rowSpan > 1) td.rowSpan = span.rowSpan;
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+async function renderSheetToImage(ws){
+  const table = buildSheetTable(ws);
+  const wrap = document.createElement('div');
+  wrap.style.position = 'fixed';
+  wrap.style.left = '-99999px';
+  wrap.style.top = '0';
+  wrap.style.background = '#fff';
+  wrap.appendChild(table);
+  document.body.appendChild(wrap);
+  if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
+  await new Promise(r => setTimeout(r, 40));
+  let dataUrl;
+  try{
+    const canvas = await html2canvas(table, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+    dataUrl = canvas.toDataURL('image/png');
+  } finally {
+    document.body.removeChild(wrap);
+  }
+  return dataUrl;
+}
+async function importExcelFormsFile(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('pf-import-status');
+  if(statusEl) statusEl.textContent = '⏳ جاري فتح الملف...';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const sheets = wb.worksheets.filter(ws => ws.state !== 'hidden' && ws.state !== 'veryHidden');
+    if(!sheets.length) throw new Error('no-sheets');
+    const forms = [];
+    for(let i=0;i<sheets.length;i++){
+      const ws = sheets[i];
+      if(statusEl) statusEl.textContent = `⏳ جاري تحويل النموذج ${i+1} من ${sheets.length}: ${ws.name}`;
+      const src = await renderSheetToImage(ws);
+      const orientation = (ws.pageSetup && ws.pageSetup.orientation === 'landscape') ? 'landscape' : 'portrait';
+      forms.push({ id: `s${i}_${Date.now()}`, label: ws.name, src, orientation });
+    }
+    const fileKey = 'imp_' + Date.now();
+    const fileEntry = { label: file.name.replace(/\.xlsx?$/i,''), icon: '📄', forms, imported: true };
+    await pfDbSet(fileKey, fileEntry);
+    if(statusEl) statusEl.textContent = `✅ اتحول ${forms.length} نموذج بنجاح، تقدر تفتحهم وتطبعهم دلوقتي`;
+    showToast(`✅ اتحول ${forms.length} نموذج من ${file.name}`);
+    await renderPrintFilesGrid();
+  }catch(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '';
+    showToast('❌ حصلت مشكلة في تحويل الملف — تأكد إنه ملف إكسل سليم (xlsx)', true);
+  }
+  input.value = '';
+}
+async function deleteImportedPrintFile(fileKey){
+  if(!confirm('متأكد إنك عايز تمسح النماذج دي؟')) return;
+  try{ await pfDbDelete(fileKey); }catch(e){ console.error(e); }
+  await renderPrintFilesGrid();
+}
+function downloadAllForms(fileKey){
+  getPrintLibraryAll().then(lib => {
+    const file = lib[fileKey];
+    if(!file) return;
+    file.forms.forEach((fm, i) => {
+      setTimeout(() => {
+        const a = document.createElement('a');
+        a.href = fm.src;
+        a.download = `${file.label}_${fm.label}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }, i * 300);
+    });
+  });
 }
 
 /* ---------------- REPORT TAB ---------------- */
@@ -5603,13 +5967,13 @@ function printTargetExecDetails(){
         <div class="power-print-card target-card" style="flex:none;max-width:none;width:100%;">
           <table class="print-onepage target-print-table">
             <thead>
-              <tr><th colspan="5">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
-              <tr><th>أرتيكل</th><th>مستهدف</th><th>المطلوب في الجديد</th><th>الفرق</th><th>الحالة</th></tr>
+              <tr><th colspan="6">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
+              <tr><th>أرتيكل</th><th>أساسي</th><th>مستهدف</th><th>المطلوب في الجديد</th><th>الفرق</th><th>الحالة</th></tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtSignedMinutes(((r.h||0)*60+(r.m||0)) - ((r.actualH||0)*60+(r.actualM||0))) : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="5">لا يوجد</td></tr>'}
-              <tr class="total-row"><td colspan="2">إجمالي اللي اتعلّم عليه</td><td colspan="3"><b>${fmtMinutes(t.execMin)}</b></td></tr>
-              <tr class="total-row"><td colspan="2">إجمالي العجز</td><td colspan="3"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
+              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${r.baseTime||'-'}</td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtSignedMinutes(((r.h||0)*60+(r.m||0)) - ((r.actualH||0)*60+(r.actualM||0))) : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="6">لا يوجد</td></tr>'}
+              <tr class="total-row"><td colspan="3">إجمالي اللي اتعلّم عليه</td><td colspan="3"><b>${fmtMinutes(t.execMin)}</b></td></tr>
+              <tr class="total-row"><td colspan="3">إجمالي العجز</td><td colspan="3"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
             </tbody>
           </table>
         </div>`;
