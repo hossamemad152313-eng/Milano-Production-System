@@ -5964,8 +5964,8 @@ function printTargetExecDetails(){
       hallExecMin += t.execMin; hallPendMin += t.pendMin;
       const rows = le.items || [];
       return `
-        <div class="power-print-card target-card" style="flex:none;max-width:none;width:100%;">
-          <table class="print-onepage target-print-table">
+        <div class="power-print-card target-card" style="flex:none;max-width:none;width:100%;min-width:0;">
+          <table class="print-onepage target-print-table" style="table-layout:fixed;">
             <thead>
               <tr><th colspan="6">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
               <tr><th>أرتيكل</th><th>أساسي</th><th>مستهدف</th><th>المطلوب في الجديد</th><th>الفرق</th><th>الحالة</th></tr>
