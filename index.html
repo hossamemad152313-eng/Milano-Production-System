@@ -684,7 +684,8 @@
   .pf-file-card .pf-icon img{ width:40px; height:40px; object-fit:cover; border-radius:10px; display:inline-block; box-shadow:0 2px 6px rgba(0,0,0,.12); }
   .pf-file-card .pf-name{ font-size:13px; font-weight:800; color:#2A2A2A; }
   .pf-file-card .pf-count{ font-size:11px; color:#8A8A8A; margin-top:2px; }
-  .pf-breadcrumb{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; font-size:13px; }
+  .pf-breadcrumb{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:0; font-size:13px; }
+  .pf-breadcrumb-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
   .pf-breadcrumb a{ color:#3A4257; font-weight:700; cursor:pointer; text-decoration:none; }
   .pf-breadcrumb a:hover{ text-decoration:underline; }
   .pf-breadcrumb span.sep{ color:#B8AE9E; }
@@ -2056,11 +2057,24 @@ async function openPrintFile(fileKey){
   if(!file) return;
   const body = document.getElementById('pf-body');
   body.innerHTML = `
-    <div class="pf-breadcrumb">
-      <a onclick="renderPrintFormsTab()">🖨️ طباعة النماذج</a>
-      <span class="sep">/</span>
-      <span class="current">${file.iconImg ? `<img src="${file.iconImg}" alt="" style="width:16px;height:16px;object-fit:cover;border-radius:4px;vertical-align:-3px;">` : file.icon} ${file.label}</span>
+    <div class="pf-breadcrumb-row">
+      <div class="pf-breadcrumb">
+        <a onclick="renderPrintFormsTab()">🖨️ طباعة النماذج</a>
+        <span class="sep">/</span>
+        <span class="current">${file.iconImg ? `<img src="${file.iconImg}" alt="" style="width:16px;height:16px;object-fit:cover;border-radius:4px;vertical-align:-3px;">` : file.icon} ${file.label}</span>
+      </div>
+      <div class="pf-import-mini">
+        <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="إضافة نموذج من إكسل لنفس الملف">
+          📥
+          <input type="file" accept=".xlsx,.xls" style="display:none" onchange="addExcelFormsToFile(this,'${fileKey}')">
+        </label>
+        <label class="pf-mini-icon-btn" style="background:#3A4257;" title="إضافة صورة نموذج لنفس الملف">
+          📷
+          <input type="file" accept="image/*" multiple style="display:none" onchange="addImageFormsToFile(this,'${fileKey}')">
+        </label>
+      </div>
     </div>
+    <div id="pf-file-import-status" class="pf-import-status" style="text-align:right;margin-top:0;margin-bottom:10px;"></div>
     <div class="pf-forms-grid">
       ${file.forms.map(fm => `
         <div class="pf-form-card" onclick="openPrintForm('${fileKey}','${fm.id}')">
@@ -2068,6 +2082,7 @@ async function openPrintFile(fileKey){
           <div class="pf-form-menu" id="pf-form-menu-${fm.id}" style="display:none;">
             <button onclick="event.stopPropagation();closePfFormMenus();renameFormLabel('${fileKey}','${fm.id}');">✏️ تعديل الاسم</button>
             <button onclick="event.stopPropagation();closePfFormMenus();cropFormImage('${fileKey}','${fm.id}');">✂️ قص/تعديل مقاس الصورة</button>
+            <button class="pf-danger" onclick="event.stopPropagation();closePfFormMenus();deleteFormFromFile('${fileKey}','${fm.id}');">🗑️ حذف النموذج</button>
           </div>
           <div class="pf-form-thumb"><img src="${fm.src}" alt="${fm.label}"></div>
           <div class="pf-form-name">${fm.label}</div>
@@ -2462,6 +2477,78 @@ async function importImageFormsFile(input){
   }
   input.value = '';
 }
+async function addExcelFormsToFile(input, fileKey){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('pf-file-import-status');
+  if(statusEl) statusEl.textContent = '⏳ جاري فتح الملف...';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const sheets = wb.worksheets.filter(ws => ws.state !== 'hidden' && ws.state !== 'veryHidden');
+    if(!sheets.length) throw new Error('no-sheets');
+    const newForms = [];
+    for(let i=0;i<sheets.length;i++){
+      const ws = sheets[i];
+      if(statusEl) statusEl.textContent = `⏳ جاري تحويل النموذج ${i+1} من ${sheets.length}: ${ws.name}`;
+      const src = await renderSheetToImage(ws);
+      const orientation = (ws.pageSetup && ws.pageSetup.orientation === 'landscape') ? 'landscape' : 'portrait';
+      newForms.push({ id: `s${i}_${Date.now()}`, label: ws.name, src, orientation });
+    }
+    const lib = await getPrintLibraryAll();
+    const fileEntry = lib[fileKey];
+    if(!fileEntry) return;
+    fileEntry.forms = [...fileEntry.forms, ...newForms];
+    await pfDbSet(fileKey, fileEntry);
+    if(statusEl) statusEl.textContent = `✅ اتضاف ${newForms.length} نموذج للملف`;
+    showToast(`✅ اتضاف ${newForms.length} نموذج للملف`);
+    await openPrintFile(fileKey);
+  }catch(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '';
+    showToast('❌ حصلت مشكلة في تحويل الملف — تأكد إنه ملف إكسل سليم (xlsx)', true);
+  }
+  input.value = '';
+}
+async function addImageFormsToFile(input, fileKey){
+  const files = Array.from(input.files || []);
+  if(!files.length) return;
+  const statusEl = document.getElementById('pf-file-import-status');
+  if(statusEl) statusEl.textContent = '⏳ جاري إضافة الصور...';
+  try{
+    const newForms = [];
+    for(let i=0;i<files.length;i++){
+      const file = files[i];
+      const src = await new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const orientation = await new Promise((resolve)=>{
+        const img = new Image();
+        img.onload = () => resolve(img.width >= img.height ? 'landscape' : 'portrait');
+        img.onerror = () => resolve('portrait');
+        img.src = src;
+      });
+      newForms.push({ id: `img${i}_${Date.now()}`, label: file.name.replace(/\.[^.]+$/,''), src, orientation });
+    }
+    const lib = await getPrintLibraryAll();
+    const fileEntry = lib[fileKey];
+    if(!fileEntry) return;
+    fileEntry.forms = [...fileEntry.forms, ...newForms];
+    await pfDbSet(fileKey, fileEntry);
+    if(statusEl) statusEl.textContent = `✅ اتضافت ${newForms.length} صورة للملف`;
+    showToast(`✅ اتضافت ${newForms.length} صورة للملف`);
+    await openPrintFile(fileKey);
+  }catch(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = '';
+    showToast('❌ حصلت مشكلة في إضافة الصور', true);
+  }
+  input.value = '';
+}
 function togglePfFormMenu(e, fileKey, formId){
   e.stopPropagation();
   const menu = document.getElementById('pf-form-menu-'+formId);
@@ -2547,6 +2634,22 @@ async function savePfCrop(fileKey, formId){
   }catch(e){
     console.error(e);
     showToast('❌ حصل خطأ أثناء حفظ الصورة', true);
+  }
+}
+async function deleteFormFromFile(fileKey, formId){
+  const lib = await getPrintLibraryAll();
+  const file = lib[fileKey];
+  const form = file && file.forms.find(x => x.id === formId);
+  if(!file || !form) return;
+  if(!confirm(`متأكد إنك عايز تمسح نموذج "${form.label}"؟`)) return;
+  file.forms = file.forms.filter(x => x.id !== formId);
+  try{
+    await pfDbSet(fileKey, file);
+    showToast('✅ اتمسح النموذج');
+    await openPrintFile(fileKey);
+  }catch(e){
+    console.error(e);
+    showToast('❌ حصل خطأ أثناء حذف النموذج', true);
   }
 }
 async function renameFormLabel(fileKey, formId){
