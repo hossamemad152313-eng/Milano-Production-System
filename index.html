@@ -2622,8 +2622,15 @@ function closePfCropModal(){
 }
 async function savePfCrop(fileKey, formId){
   if(!pfCropperInstance) return;
-  // من غير تحديد width/height، Cropper بيرجع الصورة بأعلى دقة ممكنة (مقاس الصورة الأصلية الحقيقي، مش المعروض على الشاشة بس)
-  const canvas = pfCropperInstance.getCroppedCanvas({ imageSmoothingEnabled: true, imageSmoothingQuality: 'high' });
+  // بنفرض دقة عالية (لحد 4K تقريبًا) حتى لو الصورة الأصلية كانت أصغر من كدة — Cropper هيكبّرها بجودة عالية (imageSmoothingQuality:high) عشان تطبع نضيفة
+  const canvas = pfCropperInstance.getCroppedCanvas({
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high',
+    minWidth: 2200,
+    minHeight: 2200,
+    maxWidth: 4096,
+    maxHeight: 4096
+  });
   if(!canvas){ showToast('❌ حدد جزء من الصورة الأول', true); return; }
   const dataUrl = canvas.toDataURL('image/png');
   const lib = await getPrintLibraryAll();
@@ -2635,7 +2642,7 @@ async function savePfCrop(fileKey, formId){
   try{
     await pfDbSet(fileKey, file);
     closePfCropModal();
-    showToast('✅ اتحفظت الصورة بعد القص');
+    showToast('✅ اتحفظت الصورة بجودة عالية بعد القص');
     await openPrintFile(fileKey);
   }catch(e){
     console.error(e);
@@ -3011,6 +3018,7 @@ function printRankOnly(){
         <td><b>${idx+1}</b></td>
         <td><b>${w.code}</b></td>
         <td>${w.name||'-'}</td>
+        <td>${[...w.lines].filter(l=>l!==undefined && l!==null && l!=='').sort((a,b)=>a-b).join('، ') || '-'}</td>
         <td>${experienceText((OPERATORS.find(o=>o.c===w.code)||{}).hd, toDate)}</td>
         <td>${fmtNum(w.agg.target)}</td>
         <td>${fmtNum(w.agg.production)}</td>
@@ -3021,11 +3029,11 @@ function printRankOnly(){
     return `
       <table class="target-print-table">
         <thead>
-          <tr><th colspan="9">${titleText}</th></tr>
-          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+          <tr><th colspan="10">${titleText}</th></tr>
+          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
         </thead>
         <tbody>
-          ${rowsHtml || '<tr><td colspan="9">لا يوجد</td></tr>'}
+          ${rowsHtml || '<tr><td colspan="10">لا يوجد</td></tr>'}
         </tbody>
       </table>`;
   };
@@ -3095,7 +3103,7 @@ function printPerformanceSummary(){
     <div class="section-title" style="margin:14px 2px 8px;">العاملات — ${workers.length} (كود مرة واحدة)</div>
     <table class="target-print-table">
       <thead>
-        <tr><th>م</th><th>الكود</th><th>الاسم</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+        <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
       </thead>
       <tbody>
         ${workers.map((w,idx) => `
@@ -3103,6 +3111,7 @@ function printPerformanceSummary(){
             <td>${idx+1}</td>
             <td><b>${w.code}</b></td>
             <td>${w.name||'-'}</td>
+            <td>${[...w.lines].filter(l=>l!==undefined && l!==null && l!=='').sort((a,b)=>a-b).join('، ') || '-'}</td>
             <td>${experienceText((OPERATORS.find(o=>o.c===w.code)||{}).hd, to)}</td>
             <td>${fmtNum(w.agg.target)}</td>
             <td>${fmtNum(w.agg.production)}</td>
