@@ -73,7 +73,18 @@
     display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; text-align:right;
   }
   #print-rank-output .target-print-card{ break-inside:avoid; page-break-inside:avoid; }
-  #print-rank-output .rank-print-page{ break-inside:avoid; page-break-inside:avoid; }
+  #print-rank-output.rank-compact-print .print-header{ margin-bottom:10px; padding-bottom:8px; }
+  #print-rank-output.rank-compact-print .print-header-top{ font-size:10px; margin-bottom:3px; }
+  #print-rank-output.rank-compact-print .print-title{ font-size:16px; margin-bottom:2px; }
+  #print-rank-output.rank-compact-print .print-signature{ font-size:9px; }
+  #print-rank-output.rank-compact-print .print-period{ font-size:11px; }
+  #print-rank-output.rank-compact-print .print-body{ margin-bottom:0; }
+  #print-rank-output.rank-compact-print table.target-print-table{ border-radius:8px; }
+  #print-rank-output.rank-compact-print table.target-print-table th{ font-size:13px; padding:10px 10px; }
+  #print-rank-output.rank-compact-print table.target-print-table thead tr:first-child th{ font-size:13.5px; padding:9px 10px; }
+  #print-rank-output.rank-compact-print table.target-print-table td{ font-size:13px; padding:14px 10px; }
+  #print-rank-output.rank-compact-print .rank-print-front table.target-print-table tbody tr:nth-last-child(-n+2) td{ font-size:11px; padding:7px 10px; }
+  #print-rank-output .rank-print-page{ }
   #print-rank-output .rank-print-page.rank-print-front{ page-break-after:always; break-after:page; }
   #print-rank-output .target-print-card-full{ grid-column:1 / -1; display:flex; justify-content:center; }
   #print-rank-output .target-print-card-full table.target-print-table{ width:50%; min-width:280px; }
@@ -3048,8 +3059,12 @@ function printRankOnly(){
   `;
   document.getElementById('print-rank-output').innerHTML = buildPrintLayout('ترتيب الأداء — MILANO SPORT SHOES', `الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}`, body);
   document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('rank-compact-print');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('rank-compact-print');
+  }, 800);
 }
 function printPerformanceSummary(){
   const from = document.getElementById('f-from').value;
