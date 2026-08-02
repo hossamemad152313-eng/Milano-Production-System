@@ -2000,20 +2000,22 @@ function renderPrintFormsTab(){
   const main = document.getElementById('main-content');
   main.innerHTML = `
     <div class="card-box">
-      <div class="pf-header-row">
-        <div class="section-title">🖨️ طباعة النماذج</div>
-        <div class="pf-import-mini">
-          <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="استيراد ملف إكسل">
-            📥
-            <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
-          </label>
-          <label class="pf-mini-icon-btn" style="background:#3A4257;" title="استيراد صورة">
-            📷
-            <input type="file" accept="image/*" multiple style="display:none" onchange="importImageFormsFile(this)">
-          </label>
+      <div id="pf-top-toolbar">
+        <div class="pf-header-row">
+          <div class="section-title">🖨️ طباعة النماذج</div>
+          <div class="pf-import-mini">
+            <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="استيراد ملف إكسل">
+              📥
+              <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
+            </label>
+            <label class="pf-mini-icon-btn" style="background:#3A4257;" title="استيراد صورة">
+              📷
+              <input type="file" accept="image/*" multiple style="display:none" onchange="importImageFormsFile(this)">
+            </label>
+          </div>
         </div>
+        <div id="pf-import-status" class="pf-import-status"></div>
       </div>
-      <div id="pf-import-status" class="pf-import-status"></div>
       <div id="pf-body"></div>
     </div>
   `;
@@ -2021,6 +2023,8 @@ function renderPrintFormsTab(){
 }
 
 async function renderPrintFilesGrid(){
+  const topToolbar = document.getElementById('pf-top-toolbar');
+  if(topToolbar) topToolbar.style.display = '';
   const body = document.getElementById('pf-body');
   body.innerHTML = `<div class="empty-state">⏳ بتحمّل النماذج...</div>`;
   const lib = await getPrintLibraryAll();
@@ -2052,6 +2056,8 @@ async function renderPrintFilesGrid(){
 
 async function openPrintFile(fileKey){
   pfCurrentFileKey = fileKey; pfCurrentFormId = null;
+  const topToolbar = document.getElementById('pf-top-toolbar');
+  if(topToolbar) topToolbar.style.display = 'none';
   const lib = await getPrintLibraryAll();
   const file = lib[fileKey];
   if(!file) return;
