@@ -795,6 +795,15 @@
   }
   #print-form-output{ display:none; }
   #print-form-output img{ display:block; width:100%; height:100vh; object-fit:contain; }
+  #milano-print-logo{ display:none; }
+  @media print{
+    #milano-print-logo{
+      display:block; position:fixed; bottom:5mm; left:7mm; z-index:9999; pointer-events:none;
+      font-family:'Cairo',sans-serif; font-weight:800; font-size:10px; letter-spacing:2.5px;
+      color:#9C7A3C; opacity:.6; line-height:1;
+    }
+    #milano-print-logo::after{ content:''; display:block; width:100%; height:1px; background:#9C7A3C; opacity:.55; margin-top:3px; }
+  }
 </style>
 </head>
 <body>
@@ -852,6 +861,7 @@
 <div class="saving-indicator" id="saving-indicator">🔄 بيتحفظ... متقفلش الصفحة دلوقتي</div>
 <div id="print-rank-output"></div>
 <div id="print-form-output"></div>
+<div id="milano-print-logo">MILANO</div>
 <div id="modal-root"></div>
 
 <script>
@@ -2016,7 +2026,7 @@ function renderPrintFormsTab(){
         <div class="pf-header-row">
           <div class="section-title">🖨️ طباعة النماذج</div>
           <div class="pf-import-mini">
-            ${currentUser.role==='admin' ? `<button class="pf-mini-icon-btn" style="background:#8A5A00;border:none;cursor:pointer;" title="نقل النماذج المحلية للسيرفر (مرة واحدة)" onclick="migratePrintFormsToServer()">🔄</button>` : ''}
+            <button class="pf-mini-icon-btn" style="background:#8A5A00;border:none;cursor:pointer;" title="نقل النماذج المحلية للسيرفر (عشان تبقى ظاهرة عند الكل)" onclick="migratePrintFormsToServer()">🔄</button>
             <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="استيراد ملف إكسل">
               📥
               <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
