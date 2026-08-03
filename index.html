@@ -2026,7 +2026,6 @@ function renderPrintFormsTab(){
         <div class="pf-header-row">
           <div class="section-title">🖨️ طباعة النماذج</div>
           <div class="pf-import-mini">
-            <button class="pf-mini-icon-btn" style="background:#8A5A00;border:none;cursor:pointer;" title="نقل النماذج المحلية للسيرفر (عشان تبقى ظاهرة عند الكل)" onclick="migratePrintFormsToServer()">🔄</button>
             <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="استيراد ملف إكسل">
               📥
               <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
@@ -2272,32 +2271,6 @@ async function getPrintLibraryAll(){
   let local = {};
   try{ local = await pfLocalDbGetAll(); }catch(e){ /* عادي لو مفيش قاعدة محلية أصلاً */ }
   return Object.assign({}, PRINT_LIBRARY, local, server);
-}
-
-// ---------- نقل النماذج القديمة (من متصفح حسام) للسيرفر — مرة واحدة، بضغطة زرار ----------
-async function migratePrintFormsToServer(){
-  if(!firebaseReady || !db){ showToast('❌ مفيش اتصال بالسيرفر دلوقتي، جرب تاني بعد شوية', true); return; }
-  if(!confirm('هيتم رفع كل النماذج الموجودة في المتصفح ده على السيرفر عشان تبقى ظاهرة لكل الحسابات المسموح لها. العملية ممكن تاخد وقت حسب عدد النماذج وسرعة النت، وميتقفلش الصفحة لحد ما تخلص. تكمل؟')) return;
-
-  let local = {};
-  try{ local = await pfLocalDbGetAll(); }catch(e){ console.error(e); }
-  const keys = Object.keys(local);
-  if(!keys.length){ showToast('ℹ️ مفيش نماذج محلية في المتصفح ده لنقلها (يمكن اتنقلت قبل كده، أو إنت مش على نفس الجهاز اللي كانت عليه)'); return; }
-
-  let done = 0, failed = 0;
-  for(const key of keys){
-    const label = local[key].label || key;
-    showToast(`⏳ جاري رفع ملف ${done+failed+1} من ${keys.length}: ${label}`);
-    try{
-      await pfDbSet(key, local[key]);
-      done++;
-    }catch(e){
-      console.error('فشل رفع الملف', key, e);
-      failed++;
-    }
-  }
-  showToast(`${failed ? '⚠️' : '✅'} خلصت عملية النقل: ${done} ملف اتنقل بنجاح${failed ? `، ${failed} فشلوا (افتح الـ Console بـ F12 لتفاصيل الخطأ)` : ''}`);
-  await renderPrintFilesGrid();
 }
 
 function excelColWidthToPx(width, fallback){
@@ -2693,7 +2666,7 @@ async function cropFormImage(fileKey, formId){
           <button onclick="pfSetCropRatio(297/210)">📃 A4 أفقي</button>
         </div>
         <div class="pf-crop-wrap">
-          <img id="pf-crop-img" src="${form.src}" alt="">
+          <img id="pf-crop-img" src="${form.src}" crossorigin="anonymous" alt="">
         </div>
         <div class="pf-crop-actions">
           <button class="apply-btn" style="margin-top:0;background:#3A4257;" onclick="pfResetCrop()">↺ إعادة ضبط</button>
@@ -2710,7 +2683,7 @@ async function cropFormImage(fileKey, formId){
       background: false,
       responsive: true,
       guides: true,
-      checkCrossOrigin: false
+      checkCrossOrigin: true
     });
   };
   if(imgEl.complete) initCropper();
@@ -2728,17 +2701,24 @@ function closePfCropModal(){
 }
 async function savePfCrop(fileKey, formId){
   if(!pfCropperInstance) return;
-  // بنفرض دقة عالية (لحد 4K تقريبًا) حتى لو الصورة الأصلية كانت أصغر من كدة — Cropper هيكبّرها بجودة عالية (imageSmoothingQuality:high) عشان تطبع نضيفة
-  const canvas = pfCropperInstance.getCroppedCanvas({
-    imageSmoothingEnabled: true,
-    imageSmoothingQuality: 'high',
-    minWidth: 2200,
-    minHeight: 2200,
-    maxWidth: 4096,
-    maxHeight: 4096
-  });
-  if(!canvas){ showToast('❌ حدد جزء من الصورة الأول', true); return; }
-  const dataUrl = canvas.toDataURL('image/png');
+  let canvas, dataUrl;
+  try{
+    // بنفرض دقة عالية (لحد 4K تقريبًا) حتى لو الصورة الأصلية كانت أصغر من كدة — Cropper هيكبّرها بجودة عالية (imageSmoothingQuality:high) عشان تطبع نضيفة
+    canvas = pfCropperInstance.getCroppedCanvas({
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high',
+      minWidth: 2200,
+      minHeight: 2200,
+      maxWidth: 4096,
+      maxHeight: 4096
+    });
+    if(!canvas){ showToast('❌ حدد جزء من الصورة الأول', true); return; }
+    dataUrl = canvas.toDataURL('image/png');
+  }catch(e){
+    console.error('فشل تصدير الصورة بعد القص (على الأغلب مشكلة تحميل من الكاش)', e);
+    showToast('❌ حصلت مشكلة مؤقتة في تصدير الصورة — اقفل النافذة وجرب القص تاني', true);
+    return;
+  }
   const lib = await getPrintLibraryAll();
   const file = lib[fileKey];
   const form = file && file.forms.find(x => x.id === formId);
