@@ -13,7 +13,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <style>
   @media print{
     @page{ size:A4; margin:10mm; }
@@ -1003,13 +1002,11 @@ const firebaseConfig = {
   appId: "1:295539311061:web:1d49bb98acc532cdcd7d5c"
 };
 let db = null;
-let fbStorage = null;
 let firebaseReady = false;
 try{
   if(typeof firebase !== 'undefined'){
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
-    try{ fbStorage = firebase.storage(); }catch(e){ console.warn('فشل تجهيز Firebase Storage:', e); }
     firebaseReady = true;
   } else {
     console.warn('مكتبة Firebase ما اتحمّلتش — غالبًا لإنك بتجرب الملف جوه معاينة Claude. افتح الرابط المنشور في تاب متصفح مستقل.');
@@ -1051,10 +1048,6 @@ function nightPowerCol(){ return db.collection(FS_COLLECTION).doc('mlp_nightpowe
 function operatorsCol(){ return db.collection(FS_COLLECTION).doc('mlp_operators_index').collection('items'); }
 function usersCol(){ return db.collection(FS_COLLECTION).doc('mlp_users_index').collection('items'); }
 function hallManagersCol(){ return db.collection(FS_COLLECTION).doc('mlp_hallmanagers_index').collection('items'); }
-// نماذج الطباعة: نفس مبدأ الكولكشنات فوق بالظبط (مستند مستقل لكل ملف نماذج) — الفرق الوحيد إن
-// الصور نفسها (اللي ممكن توصل كذا ميجابايت للنموذج الواحد لو 4K) مش بتتخزن جوه المستند
-// (Firestore بيرفض أي مستند أكبر من ~1 ميجابايت)، فبتترفع لـ Firebase Storage والمستند هنا
-// بيخزن بس رابط الصورة (downloadURL) بدل الصورة نفسها.
 function printFormsCol(){ return db.collection(FS_COLLECTION).doc('mlp_printforms_index').collection('items'); }
 let realtimeUnsubs = []; // دوال إلغاء الاشتراك في مراقبة السيرفر اللحظية (onSnapshot)
 
@@ -2163,14 +2156,54 @@ async function printCurrentForm(){
    "سكرين شوت" فعلي بمكتبة html2canvas — يعني نفس اللي هيطلع لو دوست Ctrl+P.
 
    التخزين: بيانات كل ملف (الاسم، الأيقونة، قايمة النماذج) متخزنة في Firestore
-   (printFormsCol) بنفس مبدأ باقي أقسام النظام — مستند مستقل لكل ملف، عشان تبقى
-   ظاهرة لأي حساب على أي جهاز، مش على متصفح واحد بس.
-   الصور الفعلية (اللي ممكن توصل كذا ميجابايت للنموذج الواحد في دقة 4K) مش بتتخزن
-   جوه مستند Firestore (فيه حد أقصى ~1 ميجابايت للمستند)، فبترفع لـ Firebase Storage
-   تحت مسار print_forms/{fileKey}/{formId}.png، والمستند بيخزن بس رابط الصورة.
+   (printFormsCol) عشان تبقى ظاهرة لأي حساب على أي جهاز، مش على متصفح واحد بس.
+   الصور الفعلية بترفع لـ Cloudinary (خدمة تخزين صور مجانية، مش محتاجة كارت/فلوس)
+   لأن Firestore عنده حد أقصى ~1 ميجابايت للمستند، والصور أكبر من كده بكتير.
+   المستند في Firestore بيخزن بس رابط الصورة (secure_url) الراجع من Cloudinary.
+
+   القاعدة المحلية القديمة (IndexedDB) باقية هنا لغرضين بس:
+   1) نقل النماذج القديمة (قبل التعديل ده) للسيرفر مرة واحدة.
+   2) شبكة أمان: لو رفع أي ملف فشل لأي سبب، نموذج فشل رفعه لسه موجود محليًا
+      وهيظهر برضو بدل ما يختفي من غير ما نلاحظ.
    ============================================================ */
 
-// ---------- القاعدة المحلية القديمة (IndexedDB) — باقية بس عشان ننقل منها القديم مرة واحدة ----------
+// ---------- Cloudinary (تخزين الصور) ----------
+const CLOUDINARY_CLOUD_NAME = 'dcdpi2vg';
+const CLOUDINARY_UPLOAD_PRESET = 'ml_default';
+async function uploadToCloudinary(dataUrl){
+  const formData = new FormData();
+  formData.append('file', dataUrl);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 ثانية أقصى انتظار — عشان مفيش تعليق للأبد زي المرة اللي فاتت
+  try{
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+      method: 'POST', body: formData, signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if(!res.ok){
+      let errMsg = res.status;
+      try{ const errJson = await res.json(); errMsg = errJson?.error?.message || res.status; }catch(_e){}
+      throw new Error(`cloudinary: ${errMsg}`);
+    }
+    const data = await res.json();
+    if(!data.secure_url) throw new Error('cloudinary: no secure_url returned');
+    return data.secure_url;
+  }catch(e){
+    clearTimeout(timeoutId);
+    if(e.name === 'AbortError') throw new Error('cloudinary: انتهت مهلة الرفع (45 ثانية) — تأكد من النت وحاول تاني');
+    throw e;
+  }
+}
+// لو الصورة أصلاً رابط (اترفعت قبل كده)، بنسيبها زي ما هي من غير رفع تاني.
+// لو لسه data: (صورة جديدة/اتقصت/اتغيرت)، بنرفعها لـ Cloudinary ونرجّع رابطها.
+async function pfUploadDataUrlIfNeeded(srcValue){
+  if(!srcValue || !srcValue.startsWith('data:')) return srcValue || null;
+  return await uploadToCloudinary(srcValue);
+}
+
+// ---------- القاعدة المحلية القديمة (IndexedDB) — للنقل مرة واحدة + شبكة أمان ----------
 const PF_LOCAL_DB_NAME = 'pf_import_db';
 const PF_LOCAL_DB_STORE = 'files';
 function pfOpenLocalDb(){
@@ -2197,23 +2230,14 @@ async function pfLocalDbGetAll(){
   });
 }
 
-// ---------- التخزين الجديد على السيرفر (Firestore + Firebase Storage) ----------
-// لو الصورة أصلاً رابط (رفعناها قبل كده)، بنسيبها زي ما هي من غير رفع تاني.
-// لو لسه data: (صورة جديدة/اتقصت/اتغيرت)، بنرفعها لـ Storage ونرجّع رابطها.
-async function pfUploadDataUrlIfNeeded(path, srcValue){
-  if(!srcValue || !srcValue.startsWith('data:')) return srcValue || null;
-  if(!fbStorage) throw new Error('storage-not-ready');
-  const ref = fbStorage.ref().child(path);
-  await ref.putString(srcValue, firebase.storage.StringFormat.DATA_URL);
-  return await ref.getDownloadURL();
-}
+// ---------- التخزين على السيرفر (Firestore + Cloudinary) ----------
 async function pfDbSet(key, value){
   if(!firebaseReady || !db) throw new Error('firebase-not-ready');
   const forms = await Promise.all((value.forms || []).map(async (fm) => {
-    const src = await pfUploadDataUrlIfNeeded(`print_forms/${key}/${fm.id}.png`, fm.src);
+    const src = await pfUploadDataUrlIfNeeded(fm.src);
     return Object.assign({}, fm, { src });
   }));
-  const iconImg = value.iconImg ? await pfUploadDataUrlIfNeeded(`print_forms/${key}/_icon.png`, value.iconImg) : null;
+  const iconImg = value.iconImg ? await pfUploadDataUrlIfNeeded(value.iconImg) : null;
   const docData = Object.assign({}, value, { forms, iconImg });
   await printFormsCol().doc(key).set(docData);
 }
@@ -2227,18 +2251,17 @@ async function pfDbGetAll(){
 async function pfDbDelete(key){
   if(!firebaseReady || !db) throw new Error('firebase-not-ready');
   await printFormsCol().doc(key).delete();
-  if(fbStorage){
-    try{
-      const folderRef = fbStorage.ref().child(`print_forms/${key}`);
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete().catch(()=>{})));
-    }catch(e){ console.warn('تعذر مسح صور الملف من Storage (مش مشكلة كبيرة):', e); }
-  }
+  // ملحوظة: صور الملف بتفضل موجودة على Cloudinary من غير مسح تلقائي (تنضيف يدوي
+  // مش ضروري — المساحة المجانية كبيرة جدًا بالنسبة لعدد النماذج المتوقع).
 }
 async function getPrintLibraryAll(){
-  let imported = {};
-  try{ imported = await pfDbGetAll(); }catch(e){ console.error(e); }
-  return Object.assign({}, PRINT_LIBRARY, imported);
+  let server = {};
+  try{ server = await pfDbGetAll(); }catch(e){ console.error(e); }
+  // شبكة أمان: أي ملف لسه موجود بس محليًا (فشل رفعه أو لسه ما اتنقلش) بيتضاف هنا
+  // عشان محدش يشوف قايمة فاضية بسبب مشكلة رفع مؤقتة.
+  let local = {};
+  try{ local = await pfLocalDbGetAll(); }catch(e){ /* عادي لو مفيش قاعدة محلية أصلاً */ }
+  return Object.assign({}, PRINT_LIBRARY, local, server);
 }
 
 // ---------- نقل النماذج القديمة (من متصفح حسام) للسيرفر — مرة واحدة، بضغطة زرار ----------
