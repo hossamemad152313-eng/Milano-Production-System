@@ -2017,6 +2017,7 @@ function renderPrintFormsTab(){
           <div class="section-title">🖨️ طباعة النماذج</div>
           <div class="pf-import-mini">
             ${currentUser.role==='admin' ? `<button class="pf-mini-icon-btn" style="background:#8A5A00;border:none;cursor:pointer;" title="نقل النماذج المحلية للسيرفر (مرة واحدة)" onclick="migratePrintFormsToServer()">🔄</button>` : ''}
+            ${currentUser.role==='admin' ? `<button class="pf-mini-icon-btn" style="background:#2E7D32;border:none;cursor:pointer;" title="تحسين جودة كل الصور الموجودة حاليًا" onclick="enhanceExistingPrintLibrary()">✨</button>` : ''}
             <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="استيراد ملف إكسل">
               📥
               <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
@@ -2170,6 +2171,18 @@ async function printCurrentForm(){
 // ---------- Cloudinary (تخزين الصور) ----------
 const CLOUDINARY_CLOUD_NAME = 'dcdpi2vg';
 const CLOUDINARY_UPLOAD_PRESET = 'ml_default';
+
+// تحسين تلقائي زي "Remini" بس مجاني عن طريق Cloudinary Transformations:
+// e_improve = تحسين إضاءة/ألوان تلقائي | e_auto_contrast = تباين أوضح
+// e_sharpen:60 = توضيح الكتابة والحواف | q_auto,f_auto = أفضل جودة وحجم تلقائي
+const PF_ENHANCE_TRANSFORM = 'e_improve,e_auto_contrast,e_sharpen:60,q_auto,f_auto';
+function enhanceCloudinaryUrl(url){
+  if(!url || typeof url !== 'string') return url;
+  if(!url.includes('res.cloudinary.com') || !url.includes('/upload/')) return url; // مش رابط Cloudinary
+  if(url.includes(PF_ENHANCE_TRANSFORM)) return url; // اتحسنت قبل كده، منكررش
+  return url.replace('/upload/', `/upload/${PF_ENHANCE_TRANSFORM}/`);
+}
+
 async function uploadToCloudinary(dataUrl){
   const formData = new FormData();
   formData.append('file', dataUrl);
@@ -2189,7 +2202,7 @@ async function uploadToCloudinary(dataUrl){
     }
     const data = await res.json();
     if(!data.secure_url) throw new Error('cloudinary: no secure_url returned');
-    return data.secure_url;
+    return enhanceCloudinaryUrl(data.secure_url); // <-- التحسين التلقائي بيتطبق هنا لأي صورة جديدة
   }catch(e){
     clearTimeout(timeoutId);
     if(e.name === 'AbortError') throw new Error('cloudinary: انتهت مهلة الرفع (45 ثانية) — تأكد من النت وحاول تاني');
@@ -2262,6 +2275,41 @@ async function getPrintLibraryAll(){
   let local = {};
   try{ local = await pfLocalDbGetAll(); }catch(e){ /* عادي لو مفيش قاعدة محلية أصلاً */ }
   return Object.assign({}, PRINT_LIBRARY, local, server);
+}
+
+// ---------- تحسين كل الصور القديمة الموجودة بالفعل في المكتبة — مرة واحدة، بضغطة زرار ----------
+// بيمشي على كل ملف وكل نموذج جواه، ولو الصورة رابط Cloudinary مش محسّن، بيحسّنه ويحفظه.
+// ملحوظة: التحسين هنا بيتم عن طريق تعديل الرابط بس (مفيش إعادة رفع الصورة تاني)،
+// فالعملية سريعة وموفّرة، لأن Cloudinary بيطبق التحويل وقت الفتح مش وقت الحفظ.
+async function enhanceExistingPrintLibrary(){
+  if(!firebaseReady || !db){ showToast('❌ مفيش اتصال بالسيرفر دلوقتي، جرب تاني بعد شوية', true); return; }
+  if(!confirm('هيتم تحسين جودة كل الصور الموجودة حاليًا في مكتبة نماذج الطباعة (وضوح وتباين وإضاءة). العملية آمنة ومش هتمسح أي حاجة. تكمل؟')) return;
+
+  let lib = {};
+  try{ lib = await pfDbGetAll(); }catch(e){ console.error(e); showToast('❌ فشل تحميل المكتبة', true); return; }
+
+  const keys = Object.keys(lib);
+  let filesChanged = 0, formsChanged = 0;
+  for(let i=0;i<keys.length;i++){
+    const key = keys[i];
+    const fileEntry = lib[key];
+    showToast(`⏳ جاري تحسين ملف ${i+1} من ${keys.length}: ${fileEntry.label || key}`);
+    let changed = false;
+    const newForms = (fileEntry.forms || []).map(fm => {
+      const enhanced = enhanceCloudinaryUrl(fm.src);
+      if(enhanced !== fm.src){ changed = true; formsChanged++; return Object.assign({}, fm, { src: enhanced }); }
+      return fm;
+    });
+    if(changed){
+      fileEntry.forms = newForms;
+      try{
+        await printFormsCol().doc(key).set(fileEntry); // حفظ مباشر (الرابط بس اتغير، مفيش داعي لإعادة رفع)
+        filesChanged++;
+      }catch(e){ console.error('فشل تحديث الملف', key, e); }
+    }
+  }
+  showToast(`✅ خلص التحسين: ${formsChanged} صورة في ${filesChanged} ملف اتحسّنوا`);
+  await renderPrintFilesGrid();
 }
 
 // ---------- نقل النماذج القديمة (من متصفح حسام) للسيرفر — مرة واحدة، بضغطة زرار ----------
