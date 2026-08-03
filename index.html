@@ -2017,6 +2017,7 @@ function renderPrintFormsTab(){
           <div class="section-title">🖨️ طباعة النماذج</div>
           <div class="pf-import-mini">
             ${currentUser.role==='admin' ? `<button class="pf-mini-icon-btn" style="background:#8A5A00;border:none;cursor:pointer;" title="نقل النماذج المحلية للسيرفر (مرة واحدة)" onclick="migratePrintFormsToServer()">🔄</button>` : ''}
+            ${currentUser.role==='admin' ? `<button class="pf-mini-icon-btn" style="background:#2E7D32;border:none;cursor:pointer;" title="استرجاع الصور اللي اتبوّظت من التحسين القديم لأصلها" onclick="enhanceExistingPrintLibrary()">↩️</button>` : ''}
             <label class="pf-mini-icon-btn" style="background:#2E6B48;" title="استيراد ملف إكسل">
               📥
               <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importExcelFormsFile(this)">
@@ -2170,6 +2171,20 @@ async function printCurrentForm(){
 // ---------- Cloudinary (تخزين الصور) ----------
 const CLOUDINARY_CLOUD_NAME = 'dcdpi2vg';
 const CLOUDINARY_UPLOAD_PRESET = 'ml_default';
+
+// ملحوظة: جرّبنا تحسين تلقائي (e_improve) بس طلع بيغيّر شكل النماذج بشكل مصطنع
+// (لأنه مصمم لصور فوتوغرافية عادية مش مستندات/نماذج). اتلغى خالص هنا.
+// الرابط ده باقي موجود بس عشان نقدر نرجّع أي صورة اتأثرت لأصلها (شوف enhanceCloudinaryUrl تحت).
+const PF_OLD_ENHANCE_TRANSFORM = 'e_improve,e_auto_contrast,e_sharpen:60,q_auto,f_auto';
+function enhanceCloudinaryUrl(url){
+  return url; // اتعطّلت — الصور بترجع من Cloudinary زي ما هي بالظبط من غير أي تعديل
+}
+// بيشيل أي تحسين قديم اتطبق غلط على الرابط ويرجّعه لصورته الأصلية زي ما رفعتها بالظبط
+function stripEnhanceFromUrl(url){
+  if(!url || typeof url !== 'string') return url;
+  return url.replace(`/upload/${PF_OLD_ENHANCE_TRANSFORM}/`, '/upload/');
+}
+
 async function uploadToCloudinary(dataUrl){
   const formData = new FormData();
   formData.append('file', dataUrl);
@@ -2189,7 +2204,7 @@ async function uploadToCloudinary(dataUrl){
     }
     const data = await res.json();
     if(!data.secure_url) throw new Error('cloudinary: no secure_url returned');
-    return data.secure_url;
+    return data.secure_url; // <-- رجعت زي ما كانت، من غير أي تعديل على الصورة
   }catch(e){
     clearTimeout(timeoutId);
     if(e.name === 'AbortError') throw new Error('cloudinary: انتهت مهلة الرفع (45 ثانية) — تأكد من النت وحاول تاني');
@@ -2262,6 +2277,39 @@ async function getPrintLibraryAll(){
   let local = {};
   try{ local = await pfLocalDbGetAll(); }catch(e){ /* عادي لو مفيش قاعدة محلية أصلاً */ }
   return Object.assign({}, PRINT_LIBRARY, local, server);
+}
+
+// ---------- استرجاع الصور اللي اتبوّظت بسبب "التحسين" القديم — مرة واحدة، بضغطة زرار ----------
+// بيمشي على كل ملف وكل نموذج جواه، ولو الرابط فيه أثر التحسين القديم، بيشيله ويرجّع الصورة لأصلها.
+async function enhanceExistingPrintLibrary(){
+  if(!firebaseReady || !db){ showToast('❌ مفيش اتصال بالسيرفر دلوقتي، جرب تاني بعد شوية', true); return; }
+  if(!confirm('هيتم استرجاع كل الصور اللي اتغيرت بسبب "التحسين" القديم لشكلها الأصلي زي ما رفعتها بالظبط. تكمل؟')) return;
+
+  let lib = {};
+  try{ lib = await pfDbGetAll(); }catch(e){ console.error(e); showToast('❌ فشل تحميل المكتبة', true); return; }
+
+  const keys = Object.keys(lib);
+  let filesChanged = 0, formsChanged = 0;
+  for(let i=0;i<keys.length;i++){
+    const key = keys[i];
+    const fileEntry = lib[key];
+    showToast(`⏳ جاري استرجاع ملف ${i+1} من ${keys.length}: ${fileEntry.label || key}`);
+    let changed = false;
+    const newForms = (fileEntry.forms || []).map(fm => {
+      const original = stripEnhanceFromUrl(fm.src);
+      if(original !== fm.src){ changed = true; formsChanged++; return Object.assign({}, fm, { src: original }); }
+      return fm;
+    });
+    if(changed){
+      fileEntry.forms = newForms;
+      try{
+        await printFormsCol().doc(key).set(fileEntry);
+        filesChanged++;
+      }catch(e){ console.error('فشل تحديث الملف', key, e); }
+    }
+  }
+  showToast(formsChanged ? `✅ خلص الاسترجاع: ${formsChanged} صورة في ${filesChanged} ملف رجعت لأصلها` : 'ℹ️ مفيش صور محتاجة استرجاع');
+  await renderPrintFilesGrid();
 }
 
 // ---------- نقل النماذج القديمة (من متصفح حسام) للسيرفر — مرة واحدة، بضغطة زرار ----------
