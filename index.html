@@ -954,7 +954,9 @@ function computeTieRankLabels(sortedRows, accessor){
   });
   // لو المتصدر عدّى نسبته الـ100% بيبقى "سوبر سبيشيال" برا الترتيب العادي (مرة واحدة بس، للمتصدر المطلق).
   const topIsSuper = groups[0].value > 1;
-  // أي مجموعة تانية (غير المتصدر) حققت 100% فأكتر لازم تاخد لقب "الأول" برضو (اللقب بيتكرر، مش ترتيب تسلسلي)،
+  // المجموعة اللي جايه على طول بعد السوبر سبيشيال، لو هي كمان عدّت الـ100%، بتاخد لقب "سبيشيال" (مرة واحدة بس).
+  const secondIsSpecial = topIsSuper && groups.length > 1 && groups[1].value > 1;
+  // أي مجموعة تانية (غير المتصدر والـ"سبيشيال") حققت 100% فأكتر لازم تاخد لقب "الأول" برضو (اللقب بيتكرر، مش ترتيب تسلسلي)،
   // لأن "الأول" فئة إنجاز (100% أو أكتر) مش ترتيب حسب مين جاب نسبة أعلى من التاني.
   let belowRankIdx = 0;   // فهرس الترتيب التسلسلي لللي تحت الـ100%
   let usedFirstTier = false; // هل اتاستخدم لقب "الأول" قبل كده (لصالة وصلت 100% فأكتر)
@@ -962,6 +964,8 @@ function computeTieRankLabels(sortedRows, accessor){
     let label;
     if(gIdx === 0 && topIsSuper){
       label = '⭐ سوبر سبيشيال';
+    } else if(gIdx === 1 && secondIsSpecial){
+      label = '🌟 سبيشيال';
     } else if(group.value >= 1){
       label = rankLabel(0); // "الأول" - بتتكرر لأي صالة حققت 100% فأكتر
       usedFirstTier = true;
