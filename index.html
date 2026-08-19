@@ -652,6 +652,7 @@
   .file-card::before{ content:"🗂️"; position:absolute; top:10px; left:50%; transform:translateX(-50%); font-size:24px; line-height:1; }
   .file-card::after{ content:""; position:absolute; top:0; left:0; right:0; height:4px; background:linear-gradient(90deg,var(--amber),var(--amber-dark)); }
   .file-card:hover{ transform:translateY(-3px); box-shadow:0 10px 22px rgba(18,22,31,.14); border-color:var(--amber); }
+  .file-card:focus-visible{ outline:2px solid var(--amber); outline-offset:2px; }
   .file-card:active{ transform:translateY(-1px); box-shadow:0 4px 10px rgba(18,22,31,.12); }
   .file-card .rtop{ display:flex; flex-direction:column; align-items:center; gap:2px; width:100%; }
   .file-card .rname{ font-size:11px; font-weight:800; color:var(--navy); line-height:1.35; word-break:break-word; }
@@ -899,11 +900,11 @@ input[type="number"], input[type="text"], input[type="date"], select{
     </div>
 
     <div class="field">
-      <label>المستخدم</label>
+      <label for="login-user">المستخدم</label>
       <select id="login-user"></select>
     </div>
     <div class="field">
-      <label>كلمة المرور</label>
+      <label for="login-pass">كلمة المرور</label>
       <input type="password" id="login-pass" placeholder="••••">
     </div>
     <button class="btn-primary" id="login-btn" onclick="doLogin()" disabled>بيحمّل البيانات...</button>
@@ -5406,7 +5407,7 @@ function renderJardSessionsList(){
   list.innerHTML = hallsSorted.map(h => `
     <div class="section-title">🏭 ${h} <span class="count">(${byHall[h].length} ملف)</span></div>
     ${byHall[h].map(s => `
-      <div class="file-card" onclick="editJardSession('${s.id}')">
+      <div class="file-card" role="button" tabindex="0" onclick="editJardSession('${s.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editJardSession('${s.id}');}">
         <div class="rtop">
           <div><div class="rname">${s.from} → ${s.to}</div><div class="rmeta">${s.lines.length} خط<br>${s.enteredBy||'-'}</div></div>
           <div class="ractions">
@@ -6097,7 +6098,7 @@ function renderTargetPlansList(){
   list.innerHTML = hallsSorted.map(h => `
     <div class="section-title">🏭 ${h} <span class="count">(${byHall[h].length} ملف)</span></div>
     ${byHall[h].map(p => `
-      <div class="file-card" onclick="editTargetPlan('${p.id}')">
+      <div class="file-card" role="button" tabindex="0" onclick="editTargetPlan('${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editTargetPlan('${p.id}');}">
         <div class="rtop">
           <div><div class="rname">${p.from} → ${p.to}</div><div class="rmeta">${p.lines.length} خط<br>${p.enteredBy||'-'}</div></div>
           <div class="ractions">
@@ -7100,7 +7101,7 @@ function renderHpList(){
   if(date) records = records.filter(p => p.date === date);
   const sorted = records.sort((a,b)=>(b.date).localeCompare(a.date));
   list.innerHTML = sorted.slice(0,30).map(p => `
-    <div class="file-card" onclick="editHallPower('${p.id}')">
+    <div class="file-card" role="button" tabindex="0" onclick="editHallPower('${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editHallPower('${p.id}');}">
       <div class="rtop">
         <div><div class="rname">${p.date}</div><div class="rmeta">${p.halls.length} صالة<br>${p.enteredBy||'-'}</div></div>
         <div class="ractions">
@@ -7448,7 +7449,7 @@ function renderNpList(){
   if(date) records = records.filter(p => p.date === date);
   const sorted = records.sort((a,b)=>(b.date).localeCompare(a.date));
   list.innerHTML = sorted.slice(0,30).map(p => `
-    <div class="file-card" onclick="editNightPower('${p.id}')">
+    <div class="file-card" role="button" tabindex="0" onclick="editNightPower('${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();editNightPower('${p.id}');}">
       <div class="rtop">
         <div><div class="rname">${p.date}</div><div class="rmeta">${p.enteredBy||'-'}</div></div>
         <div class="ractions">
