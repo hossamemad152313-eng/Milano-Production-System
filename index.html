@@ -992,6 +992,11 @@ const SEED_OPERATORS = [{"c":19660,"n":"نادية علاء سيد عبد الح
 let currentUser = null;
 function userSeesAllHalls(){ return !!(currentUser && currentUser.allHalls); }
 let ENTRIES = [];
+// نافذة زمنية حية + أرشيف عند الطلب لتقليل قراءات Firestore (شوف startRealtimeSync)
+let ENTRIES_LIVE = [];
+let ENTRIES_ARCHIVE = [];
+let ENTRIES_ARCHIVE_LOADED = false;
+let ENTRIES_ARCHIVE_LOADING = null; // Promise شغالة دلوقتي (لو فيه) عشان مانطلبش تحميلين في نفس الوقت
 let OPERATORS = [];
 let USERS = [];
 let HALL_MANAGERS = []; // [{hall:'A صالة', phone:'20xxxxxxxxx'}]
@@ -1303,12 +1308,12 @@ async function loadData(){
     ENTRIES = SEED_ENTRIES; OPERATORS = SEED_OPERATORS; USERS = SEED_USERS; JARD = SEED_JARD; TARGET_PLANS = [];
     return;
   }
-  try{ await loadEntriesFromDb(); }catch(e){ console.warn('فشل تحميل سجلات تقييم الأداء:', e); ENTRIES = ENTRIES || SEED_ENTRIES; }
-  try{
-    const hrSnap = await hrEmployeesColMain().get();
-    OPERATORS = mapHrEmployeesToOperators(hrSnap.docs.map(d => d.data()));
-    if(!OPERATORS.length) OPERATORS = SEED_OPERATORS;
-  }catch(e){ console.warn('فشل تحميل بيانات شئون الموظفين لمزامنة العاملين:', e); OPERATORS = SEED_OPERATORS; }
+  // ملحوظة أداء مهمة جدًا: قبل كده كانت الدالة دي بتحمّل كل سجلات الإنتاج (بدون أي حد
+  // زمني) وكل الموظفين (من المسار القديم غير المُجمّع) على شاشة تسجيل الدخول — أي مجرد
+  // ما حد يفتح الموقع، حتى لو ما دخلش خالص. ده كان بيتنفذ مع كل زيارة/تحديث للصفحة،
+  // وكان على الأرجح أكبر سبب في تخطي كوتة القراءة اليومية. شاشة الدخول مش محتاجة غير
+  // أسماء المستخدمين (USERS) عشان تعرض قائمة الاختيار. الإنتاج والعاملين بيتحمّلوا صح
+  // (بالنافذة الزمنية والشرائح المُجمّعة) في startRealtimeSync() بعد الدخول الفعلي بس.
   try{
     USERS = await loadCollectionWithLegacyMigration(usersCol, 'mlp_users', 'user');
     if(!USERS.length) USERS = SEED_USERS;
@@ -1593,12 +1598,31 @@ function handleIncomingSync(spec, data){
   delete PENDING_SNAPSHOTS[spec.docId];
   applySnapshotNow(spec, data);
 }
+// نافذة زمنية حية لسجلات الإنتاج (تقليل قراءات Firestore) — شوف الشرح في startRealtimeSync
+let ENTRIES_LIVE_WINDOW_DAYS = 21;
+function entriesCutoffStr(){
+  const d = new Date();
+  d.setDate(d.getDate() - ENTRIES_LIVE_WINDOW_DAYS);
+  return d.toISOString().slice(0,10);
+}
+function rebuildEntries(){
+  const liveIds = new Set(ENTRIES_LIVE.map(e=>e.id));
+  ENTRIES = [...ENTRIES_ARCHIVE.filter(e=>!liveIds.has(e.id)), ...ENTRIES_LIVE];
+}
 function startRealtimeSync(){
   if(!firebaseReady) return;
   stopRealtimeSync();
+  // ============ نافذة زمنية حية لسجلات الإنتاج (تقليل قراءات Firestore) ============
+  // سجلات الإنتاج بتتراكم يوميًا (آلاف السجلات بعد كام شهر)، وكانت المراقبة اللحظية
+  // بتاخد الكولكشن كله من الصفر كل ما أي جهاز يفتح البرنامج — ده كان أكبر سبب لتخطي
+  // كوتة القراءة اليومية المجانية في Firebase. الحل: المراقبة اللحظية بقت بس على آخر
+  // ENTRIES_LIVE_WINDOW_DAYS يوم (وده كافي جدًا للشغل اليومي: تسجيل إنتاج، فحص تكرار،
+  // متابعة الأداء الحالي). البيانات الأقدم (الأرشيف) بتتحمّل مرة واحدة بس وقت الحاجة
+  // الفعلية ليها (تاب التقارير أو أفضل أداء)، مش بشكل مستمر في الخلفية.
+  // لسه real-time بالكامل جوه النافذة: أي سجل جديد أو تعديل بيوصل فورًا لكل الأجهزة.
   // سجلات تقييم الأداء بقت في كولكشن (مستند مستقل لكل سجل) بدل مستند واحد، فبنراقب الكولكشن كله
-  const entriesSpec = {docId:'mlp_entries', apply:v=>{ENTRIES=v;}, tabs:['report','entry','bestperf'], idKey:'id'};
-  const unsubEntries = entriesCol().onSnapshot(snap => {
+  const entriesSpec = {docId:'mlp_entries', apply:v=>{ENTRIES_LIVE=v; rebuildEntries();}, tabs:['report','entry','bestperf'], idKey:'id'};
+  const unsubEntries = entriesCol().where('d','>=', entriesCutoffStr()).onSnapshot(snap => {
     const data = snap.docs.map(d => d.data());
     handleIncomingSync(entriesSpec, data);
   }, ()=>{ /* تجاهل أخطاء الاتصال المؤقتة — هترجع تتزامن تاني لما الاتصال يرجع */ });
@@ -1665,6 +1689,28 @@ function stopRealtimeSync(){
   realtimeUnsubs.forEach(u => { try{ u(); }catch(e){} });
   realtimeUnsubs = [];
   PENDING_SNAPSHOTS = {};
+}
+// بتحمّل سجلات الإنتاج الأقدم من النافذة الحية (الأرشيف) مرة واحدة بس عند أول مرة حد
+// يفتح فيها تاب محتاج تاريخ كامل (التقارير / أفضل أداء) — مش بشكل مستمر في الخلفية.
+// لو الأرشيف اتحمّل قبل كده في نفس الجلسة، بترجع فورًا من غير أي قراءة إضافية.
+async function ensureEntriesArchiveLoaded(){
+  if(ENTRIES_ARCHIVE_LOADED) return;
+  if(ENTRIES_ARCHIVE_LOADING) return ENTRIES_ARCHIVE_LOADING;
+  if(!firebaseReady){ ENTRIES_ARCHIVE_LOADED = true; return; }
+  ENTRIES_ARCHIVE_LOADING = (async () => {
+    try{
+      const snap = await entriesCol().where('d','<', entriesCutoffStr()).get();
+      ENTRIES_ARCHIVE = snap.docs.map(d => d.data());
+      ENTRIES_ARCHIVE_LOADED = true;
+      rebuildEntries();
+    }catch(e){
+      console.warn('فشل تحميل أرشيف الإنتاج القديم', e);
+      showToast('⚠️ تعذّر تحميل بيانات الإنتاج الأقدم من ' + ENTRIES_LIVE_WINDOW_DAYS + ' يوم دلوقتي. البيانات الحديثة شغالة عادي.', true);
+    }finally{
+      ENTRIES_ARCHIVE_LOADING = null;
+    }
+  })();
+  return ENTRIES_ARCHIVE_LOADING;
 }
 // بتحفظ سجلات تقييم الأداء: كل سجل مستند مستقل، فبنكتب/نمسح بس السجلات اللي اتغيّرت فعلاً —
 // مش السجلات كلها كل مرة. ده اللي بيمنع مشكلة "حجم المستند كبر عن الحد المسموح" نهائيًا،
@@ -3080,7 +3126,7 @@ function renderReportTab(){
   main.innerHTML = `
     <div class="card-box filters">
       <div class="grid2">
-        <div><label>من تاريخ</label><input type="date" id="f-from" min="${minDate}" max="${maxDate}"></div>
+        <div><label>من تاريخ</label><input type="date" id="f-from" max="${maxDate}"></div>
         <div><label>إلى تاريخ</label><input type="date" id="f-to" min="${minDate}" max="${maxDate}"></div>
       </div>
       <div class="grid2 full">
@@ -3107,10 +3153,15 @@ function renderReportTab(){
   document.getElementById('f-hall').addEventListener('change', updateLineOptions);
   updateLineOptions();
 }
-function searchWorkerByCode(){
+async function searchWorkerByCode(){
   const code = document.getElementById('worker-search-code').value;
   const box = document.getElementById('worker-search-result');
   if(!code){ box.innerHTML = ''; return; }
+  // البحث بالكود بيدوّر على تاريخ العاملة كله، مش بس آخر 21 يوم، فلازم نجيب الأرشيف الأول لو لسه ما جاش
+  if(!ENTRIES_ARCHIVE_LOADED){
+    box.innerHTML = '<div class="empty-state">⏳ جاري تحميل السجلات الأقدم...</div>';
+    await ensureEntriesArchiveLoaded();
+  }
   const rows = ENTRIES.filter(e => String(e.c) === String(code)).sort((a,b)=>a.d.localeCompare(b.d));
   if(!rows.length){ box.innerHTML = '<div class="empty-state">مفيش سجلات للكود ده خالص.</div>'; return; }
   const name = rows[rows.length-1].n || 'بدون اسم';
@@ -3175,13 +3226,19 @@ function groupByWorker(rows){
 }
 function pctClass(p){ if(p >= 0.95) return 'pct-good'; if(p >= 0.8) return 'pct-mid'; return 'pct-bad'; }
 
-function applyFilters(){
+async function applyFilters(){
   const box = document.getElementById('report-results');
   const fromVal = document.getElementById('f-from').value;
   const toVal = document.getElementById('f-to').value;
   if(!fromVal || !toVal){
     box.innerHTML = '<div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ الأول عشان تشوف تقييم الأداء.</div>';
     return;
+  }
+  // لو المدى المطلوب بيرجع لتاريخ أقدم من النافذة الحية، نجيب الأرشيف مرة واحدة بس قبل
+  // ما نحسب النتيجة (شوف ensureEntriesArchiveLoaded) — وإلا نكمل عادي من غير أي تحميل إضافي.
+  if(fromVal < entriesCutoffStr() && !ENTRIES_ARCHIVE_LOADED){
+    box.innerHTML = '<div class="empty-state">⏳ جاري تحميل بيانات أقدم من ' + ENTRIES_LIVE_WINDOW_DAYS + ' يوم...</div>';
+    await ensureEntriesArchiveLoaded();
   }
   const rows = currentFilteredRows();
   if(!rows.length){ box.innerHTML = `<div class="empty-state">مفيش بيانات في الفترة أو الفلتر ده.</div>`; return; }
@@ -4567,12 +4624,16 @@ function dateRangeList(from, to){
   }
   return out;
 }
-function applyCoverageReport(){
+async function applyCoverageReport(){
   const from = document.getElementById('cov-from').value;
   const to = document.getElementById('cov-to').value;
   const hallSel = document.getElementById('cov-hall').value;
   const resultsEl = document.getElementById('coverage-report-results');
   if(!resultsEl) return;
+  if(from && from < entriesCutoffStr() && !ENTRIES_ARCHIVE_LOADED){
+    resultsEl.innerHTML = '<div class="empty-state">⏳ جاري تحميل سجلات أقدم...</div>';
+    await ensureEntriesArchiveLoaded();
+  }
   const days = dateRangeList(from, to);
   if(!days.length){ resultsEl.innerHTML = `<div class="empty-state">حدد فترة صحيحة (من تاريخ أصغر من أو يساوي إلى تاريخ)</div>`; return; }
   const halls = hallSel === '__ALL__' ? HALLS : [hallSel];
@@ -4716,7 +4777,14 @@ function onRecHallChange(){
   lineSel.innerHTML = `<option value="__ALL__">كل الخطوط</option>` + lines.map(l=>`<option value="${l}">خط ${l}</option>`).join('');
   applyRecordsFilter();
 }
-function applyRecordsFilter(){
+async function applyRecordsFilter(){
+  // لو المستخدم غيّر "من تاريخ" لفترة أقدم من النافذة الحية، لازم نجيب الأرشيف الأول
+  const fromVal = document.getElementById('rec-from')?.value;
+  if(fromVal && fromVal < entriesCutoffStr() && !ENTRIES_ARCHIVE_LOADED){
+    const list = document.getElementById('records-list');
+    if(list) list.innerHTML = '<div class="empty-state">⏳ جاري تحميل سجلات أقدم...</div>';
+    await ensureEntriesArchiveLoaded();
+  }
   const nonameOnly = document.getElementById('rec-noname-only')?.checked;
   let rows = getFilteredEntries();
   if(nonameOnly) rows = rows.filter(e => !e.n || !e.n.trim());
