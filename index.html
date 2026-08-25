@@ -4297,6 +4297,7 @@ async function saveAllRows(){
 
 /* ---------------- التعيينات / التصفية ---------------- */
 const OP_IMPORT_ROWS = 200;
+let HR_SORT_DIR = 'asc'; // 'asc' = تصاعدي، 'desc' = تنازلي — بيتحكم فيه المستخدم يدويًا وبيفضل ثابت لحد ما يغيّره بنفسه
 function hrFilterOptions(field, activeOnly){
  const vals=[...new Set(OPERATORS.filter(o=>activeOnly ? o.a!==false : o.a===false).map(o=>String(o[field]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
  return '<option value="__ALL__">الكل</option>'+vals.map(v=>`<option value="${String(v).replace(/"/g,'&quot;')}">${v}</option>`).join('');
@@ -4317,11 +4318,18 @@ function hrFilterPanel(prefix, inactiveOnly){
      <div><label>إلى تاريخ التعيين</label><input id="${prefix}-hire-to" type="date" onchange="${apply}"></div>
      <div><label>من تاريخ التصفية</label><input id="${prefix}-fire-from" type="date" onchange="${apply}"></div>
      <div><label>إلى تاريخ التصفية</label><input id="${prefix}-fire-to" type="date" onchange="${apply}"></div>
+     <div><label>الترتيب</label><button type="button" id="${prefix}-sort-btn" class="op-btn" style="width:100%;" onclick="toggleHrSortDir('${prefix}')">${HR_SORT_DIR==='asc'?'⬆️ تصاعدي':'⬇️ تنازلي'}</button></div>
    </div>
    <div style="display:flex;gap:8px;justify-content:flex-start;margin-top:12px;">
      <button type="button" class="op-btn" onclick="${clear}">✕ مسح الفلاتر</button>
    </div>
  </div>`;
+}
+function toggleHrSortDir(prefix){
+ HR_SORT_DIR = HR_SORT_DIR==='asc' ? 'desc' : 'asc';
+ const btn=document.getElementById(prefix+'-sort-btn');
+ if(btn) btn.textContent = HR_SORT_DIR==='asc' ? '⬆️ تصاعدي' : '⬇️ تنازلي';
+ if(prefix==='op') applyOperatorsFilters(); else applyTerminationsFilters();
 }
 function getHrFilteredOperators(prefix, inactiveOnly){
  const val=id=>document.getElementById(prefix+'-'+id)?.value.trim()||'';
@@ -4339,7 +4347,7 @@ function getHrFilteredOperators(prefix, inactiveOnly){
    if(ff && String(o.fd||'')<ff) return false;
    if(ft && String(o.fd||'')>ft) return false;
    return true;
- });
+ }).sort((a,b)=> HR_SORT_DIR==='asc' ? (a.c-b.c) : (b.c-a.c));
 }
 function applyOperatorsFilters(){renderOperatorsList(getHrFilteredOperators('op',false));}
 function clearOperatorsFilters(){['q','dept','job','khat','status','hire-from','hire-to','fire-from','fire-to'].forEach(k=>{const e=document.getElementById('op-'+k);if(e)e.value=(k==='dept'||k==='job'||k==='khat'||k==='status')?'__ALL__':'';});applyOperatorsFilters();}
@@ -4418,7 +4426,20 @@ async function saveOperatorEdit(code){
   const box=document.getElementById('opedit-'+code);
   if(box)box.innerHTML='';
   showToast('✅ اتعدّلت بيانات '+o.n);
-  renderOperatorsList(getHrFilteredOperators('op',false)); // تحديث الليستة بس - من غير ما الصفحة كلها تتبني تاني
+  updateOperatorRowDisplay(code); // بنحدّث بيانات الصف في مكانه فقط، من غير ما نعيد فلترة القايمة (عشان الصف ميختفيش لو القيمة الجديدة مش مطابقة للفلتر الحالي)
+}
+function updateOperatorRowDisplay(code){
+  const o=OPERATORS.find(x=>x.c===code);
+  if(!o)return;
+  document.querySelectorAll('#op-list .op-row').forEach(rowEl=>{
+    const codeEl=rowEl.querySelector('.op-code');
+    if(codeEl && codeEl.textContent===String(o.c)){
+      const nameEl=rowEl.querySelector('.op-name');
+      if(nameEl) nameEl.textContent=o.n;
+      const metaEl=rowEl.querySelector('span[style*="margin-right:auto"]');
+      if(metaEl) metaEl.textContent=`${o.job||''} ${o.dept?'• '+o.dept:''} ${o.khat?'• خط '+o.khat:''}`;
+    }
+  });
 }
 function deleteOperator(code){
   const o=OPERATORS.find(x=>x.c===code);
