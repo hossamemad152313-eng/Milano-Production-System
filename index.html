@@ -544,13 +544,19 @@
   @keyframes dupPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(220,53,69,.5);} 50%{ box-shadow:0 0 0 4px rgba(220,53,69,.15);} }
   .entry-table input[type="date"]{ min-width:112px; font-size:11px; }
   .entry-table .rownum{ font-family:'JetBrains Mono',monospace; font-size:14px; color:var(--amber-dark); font-weight:800; text-align:center; }
-  /* الخانة اللي بتتكتب فيها دلوقتي تتلون بالأحمر، والصف كله يتحدد عشان تلاقيه بسهولة */
-  .entry-table input:focus{
+  /* الخانة اللي بتتكتب فيها دلوقتي تتلون بالأحمر، والصف كله يتحدد عشان تلاقيه بسهولة.
+     خانة الاسم مستثناة من التلوين ده عشان لما تبقى قابلة للكتابة (كود مؤقت) يفضل الكلام
+     اللي بتكتبه باين (نص غامق على خلفية فاتحة)، مش أبيض على أبيض. */
+  .entry-table input:not(.ename):focus{
     background:var(--red) !important;
     color:#fff !important;
     outline:2px solid var(--red-dark);
     outline-offset:-2px;
     font-weight:800;
+  }
+  .entry-table input.ename:focus{
+    outline:2px solid var(--amber-dark, #C98A1D);
+    outline-offset:-2px;
   }
   .entry-table tr.row-active{ background:#FBE4DF; }
   .entry-table tr.row-active td:first-child{ background:var(--amber); color:var(--navy); font-weight:800; border-radius:4px; }
