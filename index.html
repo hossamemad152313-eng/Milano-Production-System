@@ -537,6 +537,8 @@
   .entry-table .ename{ min-width:180px; text-align:right; font-size:13px; font-weight:700; padding:8px 8px !important; }
   .entry-table .ename.found{ color:var(--green); font-weight:700; background:#E4F3EA !important; border-radius:6px; }
   .entry-table .ename.missing{ color:var(--red); background:#FBE9E5 !important; border-radius:6px; }
+  .entry-table .ename.missing:not([readonly]){ color:#8a5a00; background:#FFF3D6 !important; border:1px solid #E8B84B; }
+  .entry-table .ename.found.manual{ background:#FFF3D6 !important; color:#8a5a00; }
   #bonus-rows-container input.code-ok{ background:#E4F3EA !important; border-color:var(--green) !important; color:var(--green); font-weight:700; border-radius:6px; }
   #bonus-rows-container input.code-dup{ background:#FBE9E5 !important; border-color:var(--red) !important; color:var(--red); font-weight:700; border-radius:6px; animation:dupPulse 1s ease-in-out 2; }
   @keyframes dupPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(220,53,69,.5);} 50%{ box-shadow:0 0 0 4px rgba(220,53,69,.15);} }
@@ -1232,6 +1234,28 @@ function mapHrEmployeesToOperators(list){
       hd: e.hire_date || null, fd: e.exit_date || null
     }));
 }
+/* ---------------- أكواد مضافة يدويًا (لسه مش موجودة في شئون الموظفين) ----------------
+   شئون الموظفين لسه هو المصدر "الرسمي"، لكن لو حد سجّل أداء بكود لسه ملحقش يتضاف هناك،
+   بنسمحله يكتب الاسم وتاريخ التعيين يدويًا مرة واحدة، ونحفظهم في كولكشن منفصل
+   (manual_employees_index) عشان تاني مرة يكتب نفس الكود يلاقي الاسم جاهز تلقائي.
+   لو الكود ده اتضاف بعدين فعليًا في شئون الموظفين، بيانات شئون الموظفين بتكسب دايمًا
+   (شوف rebuildOperatorsMain) وبتبقى هي المرجع النهائي. */
+let MANUAL_OPERATORS = [];
+function manualEmployeesCol(){ return db.collection(FS_COLLECTION).doc('manual_employees_index').collection('items'); }
+function mapManualToOperators(list){
+  return (list||[])
+    .filter(e => e && e.code !== undefined && e.code !== null && String(e.code).trim() !== '')
+    .map(e => ({ c:Number(e.code), n:e.name||'', job:'', dept:'', s:'نشط', a:true, hd:e.hire_date||null, manual:true }));
+}
+async function saveManualEmployeeRecord(emp){
+  if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
+  let ok = true;
+  await queueSave('manual_employees_'+emp.code, async () => {
+    try{ await manualEmployeesCol().doc(String(emp.code)).set(emp); }
+    catch(e){ ok = false; showToast('❌ فشل حفظ بيانات الكود اليدوي — ' + saveErrorDetail(e), true); }
+  });
+  return ok;
+}
 function usersCol(){ return db.collection(FS_COLLECTION).doc('mlp_users_index').collection('items'); }
 function hallManagersCol(){ return db.collection(FS_COLLECTION).doc('mlp_hallmanagers_index').collection('items'); }
 function printFormsCol(){ return db.collection(FS_COLLECTION).doc('mlp_printforms_index').collection('items'); }
@@ -1820,10 +1844,16 @@ function hrEmpChunkDocMain(i){
 }
 function watchEmployeeChunksMain(){
   const chunkArrs = new Array(HR_EMP_CHUNKS).fill(null);
+  let manualArr = [];
+  // شئون الموظفين كسبانة دايمًا: أي كود موجود هناك بيلغي أي نسخة يدوية بنفس الكود،
+  // فلو حد ضاف الكود ده رسميًا بعدين، البيانات الرسمية هي اللي هتظهر من غير أي تعديل تاني.
   const rebuild = () => {
     const merged = [];
     chunkArrs.forEach(a => { if (a) a.forEach(r => merged.push(r)); });
-    OPERATORS = mapHrEmployeesToOperators(merged);
+    const hrOps = mapHrEmployeesToOperators(merged);
+    const hrCodes = new Set(hrOps.map(o => o.c));
+    const manualOnly = MANUAL_OPERATORS.filter(o => !hrCodes.has(o.c));
+    OPERATORS = hrOps.concat(manualOnly);
   };
   for (let i = 0; i < HR_EMP_CHUNKS; i++){
     const idx = i;
@@ -1835,6 +1865,12 @@ function watchEmployeeChunksMain(){
     }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
     realtimeUnsubs.push(unsub);
   }
+  const unsubManual = manualEmployeesCol().onSnapshot(snap => {
+    manualArr = snap.docs.map(d => d.data());
+    MANUAL_OPERATORS = mapManualToOperators(manualArr);
+    rebuild();
+  }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
+  realtimeUnsubs.push(unsubManual);
 }
 function stopRealtimeSync(){
   realtimeUnsubs.forEach(u => { try{ u(); }catch(e){} });
@@ -4238,17 +4274,19 @@ function onCodeInput(id){
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
   if(found){
-    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found';
-    hireEl.disabled = true; hireEl.value = '';
+    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found' + (found.manual ? ' manual' : '');
+    hireEl.disabled = true; hireEl.value = found.hd || '';
+    hireEl.title = found.manual ? 'كود مؤقت (مش من شئون الموظفين) — الاسم والتاريخ اتكتبوا يدويًا قبل كده' : '';
     if(!targetInput.value){
       const last = [...ENTRIES].reverse().find(e => e.c === Number(code));
       if(last) targetInput.placeholder = `آخر تارجت ${last.t}`;
     }
   } else {
-    // الكود مش موجود في شئون الموظفين — بقى مينفعش تتسجل حاجة بيه، لازم يتضاف هناك الأول
-    nameEl.value = ''; nameEl.readOnly = true; nameEl.className = 'ename missing';
-    nameEl.placeholder = '⚠️ الكود مش موجود في شئون الموظفين';
-    hireEl.disabled = true; hireEl.value = '';
+    // الكود مش موجود في شئون الموظفين ولا في الأكواد اليدوية — اسمحله يكتب الاسم وتاريخ
+    // التعيين يدويًا مرة واحدة؛ هيتحفظ تلقائي عشان لو رجع يسجل بنفس الكود يوم تاني يلاقيه جاهز.
+    nameEl.value = ''; nameEl.readOnly = false; nameEl.className = 'ename missing';
+    nameEl.placeholder = '⚠️ الكود مش موجود في شئون الموظفين — اكتب الاسم هنا (تسجيل مؤقت)';
+    hireEl.disabled = false; hireEl.value = ''; hireEl.title = 'اختياري — تاريخ تعيين مؤقت لحد ما يتضاف رسميًا في شئون الموظفين';
   }
   checkCodeDuplicates();
 }
@@ -4282,9 +4320,13 @@ async function saveAllRows(){
   const readRows = pendingRowIds.map(id => {
     const code = document.getElementById('code-'+id).value;
     const found = OPERATORS.find(o => String(o.c) === String(code));
+    const nameEl = document.getElementById('name-'+id);
+    const hireEl = document.getElementById('newhire-'+id);
+    const manualName = !found && nameEl ? nameEl.value.trim() : '';
     const aatalObj = {}; AATAL_KEYS.forEach(k => aatalObj[k] = Number(document.getElementById('aatal-'+id+'-'+k).value)||0);
     return {
-      code, name: found ? found.n : '', knownCode: !!found,
+      code, name: found ? found.n : manualName, knownCode: !!found || !!manualName,
+      isManual: !found && !!manualName, manualHireDate: hireEl ? hireEl.value : '',
       target: document.getElementById('target-'+id).value,
       production: document.getElementById('production-'+id).value,
       halak: document.getElementById('halak-'+id).value,
@@ -4294,13 +4336,23 @@ async function saveAllRows(){
   });
   const valid = readRows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تكتب كود على الأقل لصف واحد'); return; }
-  // الكود لازم يكون موجود في شئون الموظفين الأول — التعيين بقى بيتم من هناك بس
+  // الكود لازم يكون معروف — إما من شئون الموظفين، أو باسم اتكتب يدويًا دلوقتي لكود مش موجود هناك
   const unknownCodes = [...new Set(valid.filter(r => !r.knownCode).map(r => r.code))];
   if(unknownCodes.length){
-    showToast(`⚠️ الكود (${unknownCodes.join('، ')}) مش موجود في شئون الموظفين. لازم يتضاف هناك الأول قبل ما تقدر تسجّله هنا.`, true);
+    showToast(`⚠️ الكود (${unknownCodes.join('، ')}) مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم بتاعته عشان تسجله مؤقتًا، أو ضيفه في شئون الموظفين الأول.`, true);
     return;
   }
   if(valid.some(r => !r.target)){ showToast('⚠️ لازم تحدد التارجت لكل عاملة (ممكن يختلف من مكنة للتانية)'); return; }
+  // الأكواد اللي اتكتب لها اسم يدوي دلوقتي — بنحفظها في كولكشن منفصل عشان تاني مرة
+  // نفس الكود يتكتب، الاسم يبقى جاهز تلقائي من غير ما يحتاج يتكتب تاني.
+  const newManualEmployees = [];
+  const seenManualCodes = new Set();
+  valid.filter(r => r.isManual).forEach(r => {
+    const codeNum = Number(r.code);
+    if(seenManualCodes.has(codeNum)) return;
+    seenManualCodes.add(codeNum);
+    newManualEmployees.push({ code: codeNum, name: r.name, hire_date: r.manualHireDate || null, addedBy: currentUser.user, addedAt: new Date().toISOString() });
+  });
 
   const entriesBackup = ENTRIES;
   // مانع التكرار: بيلفت نظرنا لو نفس الكود هيتسجل تاني في نفس اليوم/الصالة/الخط —
@@ -4354,8 +4406,20 @@ async function saveAllRows(){
     showToast('❌ السجلات ما اتحفظتش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (البيانات لسه في الفورم قدامك ومحدش هيضيع)', true);
     return;
   }
+  // نحفظ الأكواد اليدوية بعد نجاح حفظ السجلات — لو الكود ده اتضاف رسميًا بعدين في شئون
+  // الموظفين، بياناته الرسمية هتكسب تلقائي (rebuildOperatorsMain) من غير أي تعديل تاني.
+  if(newManualEmployees.length){
+    for(const emp of newManualEmployees){
+      await saveManualEmployeeRecord(emp);
+      if(!OPERATORS.some(o => o.c === emp.code)){
+        MANUAL_OPERATORS = MANUAL_OPERATORS.filter(o => o.c !== emp.code).concat([{c:emp.code, n:emp.name, job:'', dept:'', s:'نشط', a:true, hd:emp.hire_date, manual:true}]);
+        OPERATORS = OPERATORS.filter(o => o.c !== emp.code).concat(MANUAL_OPERATORS.filter(o=>o.c===emp.code));
+      }
+    }
+  }
+  const manualNote = newManualEmployees.length ? ` — 📝 اتحفظ اسم ${newManualEmployees.length} كود مؤقت (${newManualEmployees.map(m=>m.code).join('، ')}) هيظهر تلقائي المرة الجاية، لحد ما يتضاف رسميًا في شئون الموظفين` : '';
   const skippedNote = skippedCodes.length ? ` — ⚠️ اتجاهل ${skippedCodes.length} كود (${skippedCodes.join('، ')}) لأنه كان متسجل أصلاً في نفس اليوم/الصالة/الخط` : '';
-  showToast(`✅ اتحفظ ${rowsToSave.length} سجل بنجاح على ${hall} - خط ${line}${skippedNote}`, !!skippedCodes.length);
+  showToast(`✅ اتحفظ ${rowsToSave.length} سجل بنجاح على ${hall} - خط ${line}${manualNote}${skippedNote}`, !!skippedCodes.length);
   renderEntryTab();
 }
 
@@ -5060,10 +5124,11 @@ function startEditRecord(id){
   if(!e) return;
   const hasName = !!(e.n && e.n.trim());
   document.getElementById('rec-edit-'+id).innerHTML = `
-    ${!hasName ? `<div class="data-note" style="margin-bottom:6px;">⚠️ الكود ده لسه بدون اسم — غالبًا الكود اتكتب غلط أصلاً. صحّح الكود تحت؛ الاسم هيتجاب تلقائي لو الكود موجود في شئون الموظفين.</div>` : ''}
+    ${!hasName ? `<div class="data-note" style="margin-bottom:6px;">⚠️ الكود ده لسه بدون اسم — صحّح الكود تحت لو اتكتب غلط، وهيتجاب الاسم تلقائي لو موجود في شئون الموظفين. لو الكود صح بس مش موجود هناك، اكتب الاسم يدويًا وهيتحفظ تلقائي للمرة الجاية.</div>` : ''}
     <div class="record-edit-grid">
       <div><label>الكود</label><input type="number" id="edit-c-${id}" value="${e.c}" placeholder="كود العاملة" oninput="onEditCodeInput('${id}')"></div>
-      <div><label>الاسم</label><input type="text" id="edit-n-${id}" class="ename${OPERATORS.find(o=>Number(o.c)===Number(e.c))?' found':''}" value="${e.n||''}" placeholder="اكتب الاسم هنا" readonly></div>
+      <div><label>الاسم</label><input type="text" id="edit-n-${id}" class="ename${OPERATORS.find(o=>Number(o.c)===Number(e.c))?' found':''}" value="${e.n||''}" placeholder="اكتب الاسم هنا" ${OPERATORS.find(o=>Number(o.c)===Number(e.c))?'readonly':''}></div>
+      <div><label>تاريخ التعيين (اختياري لو الكود مؤقت)</label><input type="date" id="edit-hd-${id}" value="" ${OPERATORS.find(o=>Number(o.c)===Number(e.c))?'disabled':''}></div>
       <div><label>تارجت</label><input type="number" id="edit-t-${id}" value="${e.t}"></div>
       <div><label>إنتاج</label><input type="number" id="edit-p-${id}" value="${e.p}"></div>
       <div><label>هالك</label><input type="number" id="edit-hk-${id}" value="${e.hk}"></div>
@@ -5076,19 +5141,23 @@ function startEditRecord(id){
 function onEditCodeInput(id){
   const codeEl = document.getElementById('edit-c-'+id);
   const nameEl = document.getElementById('edit-n-'+id);
+  const hireEl = document.getElementById('edit-hd-'+id);
   if(!codeEl || !nameEl) return;
   const code = codeEl.value;
   if(!code){
     nameEl.readOnly = false; nameEl.className = 'ename'; nameEl.placeholder = 'اكتب الاسم هنا';
+    if(hireEl){ hireEl.disabled = false; }
     return;
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
   if(found){
-    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found';
+    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found' + (found.manual ? ' manual' : '');
+    if(hireEl){ hireEl.disabled = true; hireEl.value = found.hd || ''; }
   } else {
-    // الكود مش موجود في شئون الموظفين — بقى مينفعش نضيف اسم يدوي هنا
-    nameEl.value = ''; nameEl.readOnly = true; nameEl.className = 'ename missing';
-    nameEl.placeholder = '⚠️ الكود مش موجود في شئون الموظفين';
+    // الكود مش موجود في شئون الموظفين ولا في الأكواد اليدوية — اسمحله يكتب الاسم يدويًا
+    nameEl.value = ''; nameEl.readOnly = false; nameEl.className = 'ename missing';
+    nameEl.placeholder = '⚠️ الكود مش موجود في شئون الموظفين — اكتب الاسم هنا (تسجيل مؤقت)';
+    if(hireEl){ hireEl.disabled = false; hireEl.value = ''; }
   }
 }
 async function commitEditRecord(id){
@@ -5100,10 +5169,17 @@ async function commitEditRecord(id){
   const codeInput = document.getElementById('edit-c-'+id);
   let newCode = codeInput ? Number(codeInput.value) : oldCode;
   if(!newCode || isNaN(newCode)){ showToast('⚠️ لازم تكتب كود صحيح'); return; }
-  // الكود لازم يكون موجود في شئون الموظفين — التعيين بقى بيتم من هناك بس
+  // الكود لازم يكون معروف — إما من شئون الموظفين، أو باسم يدوي اتكتب دلوقتي لكود مش موجود هناك
   const matchOp = OPERATORS.find(o => Number(o.c) === newCode);
-  if(!matchOp){ showToast(`⚠️ الكود ${newCode} مش موجود في شئون الموظفين. لازم يتضاف هناك الأول.`, true); return; }
-  const newName = matchOp.n || '';
+  const nameEl = document.getElementById('edit-n-'+id);
+  const manualName = !matchOp && nameEl ? nameEl.value.trim() : '';
+  if(!matchOp && !manualName){ showToast(`⚠️ الكود ${newCode} مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم عشان تسجله مؤقتًا، أو ضيفه هناك الأول.`, true); return; }
+  const newName = matchOp ? (matchOp.n || '') : manualName;
+  let newManualEmployee = null;
+  if(!matchOp && manualName){
+    const hireEl = document.getElementById('edit-hd-'+id);
+    newManualEmployee = { code: newCode, name: manualName, hire_date: (hireEl && hireEl.value) || null, addedBy: currentUser.user, addedAt: new Date().toISOString() };
+  }
   const codeChanged = newCode !== Number(oldCode);
   e.c = newCode;
   e.n = newName;
@@ -5132,8 +5208,16 @@ async function commitEditRecord(id){
     applyRecordsFilter();
     return;
   }
+  if(newManualEmployee){
+    await saveManualEmployeeRecord(newManualEmployee);
+    if(!OPERATORS.some(o => o.c === newManualEmployee.code)){
+      MANUAL_OPERATORS = MANUAL_OPERATORS.filter(o => o.c !== newManualEmployee.code).concat([{c:newManualEmployee.code, n:newManualEmployee.name, job:'', dept:'', s:'نشط', a:true, hd:newManualEmployee.hire_date, manual:true}]);
+      OPERATORS = OPERATORS.filter(o => o.c !== newManualEmployee.code).concat(MANUAL_OPERATORS.filter(o=>o.c===newManualEmployee.code));
+    }
+  }
   const codeMsg = codeChanged ? `✅ اتصحّح الكود من ${oldCode} إلى ${newCode}` : '✅ اتعدّل السجل';
-  showToast(propagatedCount ? `${codeMsg}، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود` : codeMsg);
+  const manualMsg = newManualEmployee ? ` — 📝 اتحفظ اسم الكود ${newManualEmployee.code} كتسجيل مؤقت، هيظهر تلقائي المرة الجاية` : '';
+  showToast(propagatedCount ? `${codeMsg}، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود${manualMsg}` : codeMsg+manualMsg);
   applyRecordsFilter();
 }
 async function deleteRecord(id){
