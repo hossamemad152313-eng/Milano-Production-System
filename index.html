@@ -1145,6 +1145,38 @@ try{
       // هيكمل شغل عادي بس من غير الفايدة دي في تقليل القراءات.
       console.warn('تعذّر تفعيل التخزين المؤقت المحلي (persistence):', err && err.code, err && err.message);
     });
+    // --- حماية تلقائية من عطل "Failed to obtain primary lease" ---
+    // البتاع ده بيحصل لما تاب قديم/متجمد فاضل ماسك صلاحية استقبال تحديثات IndexedDB،
+    // فالتاب الحالي بيفضل واقف من غير ما يستقبل أي جديد من السيرفر (زي كود اتضاف حديثًا).
+    // بدل ما المستخدم يضطر يقفل كل التابات يدويًا، بنراقب رسائل الخطأ دي، ولو اتكررت
+    // كذا مرة خلال ثواني قليلة بنعمل تحديث تلقائي واحد بس للصفحة (مش loop) عشان يترتب
+    // مين التاب الأساسي من جديد وتنزل التحديثات الفايتة.
+    (function watchForPrimaryLeaseFailures(){
+      var PATTERN = 'Failed to obtain primary lease';
+      var STORAGE_KEY = 'mlp_lease_autoreload_at';
+      var hitCount = 0;
+      var firstHitTime = 0;
+      var originalConsoleError = console.error.bind(console);
+      console.error = function(){
+        try{
+          var joined = Array.prototype.slice.call(arguments).join(' ');
+          if(joined.indexOf(PATTERN) !== -1){
+            var now = Date.now();
+            if(!firstHitTime || now - firstHitTime > 15000){ firstHitTime = now; hitCount = 0; }
+            hitCount++;
+            // لو تكرر 2 مرة خلال 15 ثانية، وماعملناش تحديث تلقائي من دقيقتين على الأقل
+            // (عشان منعملش تحديث كل ثانية لو المشكلة مستمرة لسبب تاني)، نعمل تحديث واحد.
+            var lastReload = Number(sessionStorage.getItem(STORAGE_KEY) || 0);
+            if(hitCount >= 2 && now - lastReload > 120000){
+              sessionStorage.setItem(STORAGE_KEY, String(now));
+              originalConsoleError('[مزامنة] رصدنا تعارض في الوصول للتخزين المحلي — بيتم تحديث الصفحة تلقائيًا لحل المشكلة...');
+              setTimeout(function(){ location.reload(); }, 300);
+            }
+          }
+        }catch(e){}
+        originalConsoleError.apply(console, arguments);
+      };
+    })();
   } else {
     console.warn('مكتبة Firebase ما اتحمّلتش — غالبًا لإنك بتجرب الملف جوه معاينة Claude. افتح الرابط المنشور في تاب متصفح مستقل.');
   }
