@@ -6491,12 +6491,13 @@ function printJardHallDetail(){
       <td>${fmtNum(l.eslah)}</td>
       <td>${fmtPct(l.eslahPct)}</td>
       <td><b>${fmtPct(l.successPct)}</b></td>
+      <td>${(l.needles || l.maintOther.length) ? `${l.needles?fmtNum(l.needles)+' إبرة':''}${l.maintOther.length?(l.needles?' · ':'')+l.maintOther.join('، '):''}` : '-'}</td>
     </tr>`).join('');
   const bodyHtml = `
     <table class="target-print-table">
       <thead>
-        <tr><th colspan="13">${hall}</th></tr>
-        <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th></tr>
+        <tr><th colspan="14">${hall}</th></tr>
+        <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th>صيانة</th></tr>
       </thead>
       <tbody>
         ${rowsHtml}
@@ -6513,6 +6514,7 @@ function printJardHallDetail(){
           <td><b>${fmtNum(t.eslah)}</b></td>
           <td><b>${fmtPct(t.eslahPct)}</b></td>
           <td><b>${fmtPct(t.successPct)}</b></td>
+          <td><b>${fmtNum(t.needles)} إبرة</b></td>
         </tr>
       </tbody>
     </table>`;
@@ -6541,8 +6543,9 @@ function printJardAllHallsTotals(){
     deliveries: g.deliveries + h.totals.deliveries,
     halak: g.halak + h.totals.halak,
     eslah: g.eslah + h.totals.eslah,
-    deficitMinutes: g.deficitMinutes + h.totals.deficitMinutes
-  }), {targetProduction:0, production:0, deficitProduction:0, deliveries:0, halak:0, eslah:0, deficitMinutes:0});
+    deficitMinutes: g.deficitMinutes + h.totals.deficitMinutes,
+    needles: g.needles + h.totals.needles
+  }), {targetProduction:0, production:0, deficitProduction:0, deliveries:0, halak:0, eslah:0, deficitMinutes:0, needles:0});
   const grandDeficitPct = grand.targetProduction ? grand.deficitProduction/grand.targetProduction : 0;
   const grandHalakPct = grand.deliveries ? grand.halak/grand.deliveries : 0;
   const grandEslahPct = grand.deliveries ? grand.eslah/grand.deliveries : 0;
@@ -6562,12 +6565,13 @@ function printJardAllHallsTotals(){
       <td>${fmtNum(h.totals.eslah)}</td>
       <td>${fmtPct(h.totals.eslahPct)}</td>
       <td><b>${fmtPct(h.totals.successPct)}</b></td>
+      <td>${fmtNum(h.totals.needles)} إبرة</td>
     </tr>`).join('');
   const bodyHtml = `
     <table class="target-print-table">
       <thead>
-        <tr><th colspan="12">إجمالي كل الصالات</th></tr>
-        <tr><th>الصالة</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th></tr>
+        <tr><th colspan="13">إجمالي كل الصالات</th></tr>
+        <tr><th>الصالة</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th>صيانة</th></tr>
       </thead>
       <tbody>
         ${rowsHtml}
@@ -6584,6 +6588,7 @@ function printJardAllHallsTotals(){
           <td><b>${fmtNum(grand.eslah)}</b></td>
           <td><b>${fmtPct(grandEslahPct)}</b></td>
           <td><b>${fmtPct(grandSuccessPct)}</b></td>
+          <td><b>${fmtNum(grand.needles)} إبرة</b></td>
         </tr>
       </tbody>
     </table>`;
