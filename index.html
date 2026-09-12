@@ -427,6 +427,15 @@
   .jflat-table input.jgrid-cell.jgrid-active{ outline:2px solid var(--navy); outline-offset:-1px; background:#dde5ff !important; }
   .jflat-table input.jgrid-cell.jgrid-fill-preview{ outline:2px dashed var(--navy); outline-offset:-2px; background:#eef1ff !important; }
   body.jgrid-fill-dragging, body.jgrid-fill-dragging *{ cursor:ns-resize !important; user-select:none !important; }
+  /* ---------- مقبض نسخ سريع (زي مقبض التعبئة في إكسل) لعمود "التارجت" في تسجيل الأداء ---------- */
+  .entry-table td.efh-cell{ position:relative; }
+  .entry-fill-handle{
+    position:absolute; left:2px; bottom:1px; width:9px; height:9px;
+    background:var(--amber); border:1px solid #fff; border-radius:1px;
+    cursor:crosshair; z-index:6; touch-action:none;
+  }
+  .entry-table input.entry-fill-preview{ background:#FBF2DF !important; outline:2px dashed var(--amber-dark); outline-offset:-2px; }
+  body.efh-dragging, body.efh-dragging *{ cursor:crosshair !important; user-select:none !important; }
   /* ---------- تجربة تحرير زي إكسل لجدول التارجت (تسجيل تارجت) ---------- */
   .ttab input.tgrid-cell.tgrid-selected{ background:#e3e9ff !important; }
   .ttab input.tgrid-cell.tgrid-active{ outline:2px solid var(--navy); outline-offset:-1px; background:#dde5ff !important; }
@@ -4213,7 +4222,7 @@ function entryRowHtml(id, idx){
     <tr id="rowcard-${id}">
       <td class="rownum">${idx+1}</td>
       <td><input type="number" id="code-${id}" oninput="onCodeInput(${id})" onpaste="handleEntryPaste(event, ${idx}, 0)"></td>
-      <td><input type="number" id="target-${id}" onpaste="handleEntryPaste(event, ${idx}, 1)"></td>
+      <td class="efh-cell"><input type="number" id="target-${id}" onpaste="handleEntryPaste(event, ${idx}, 1)"><span class="entry-fill-handle" title="اسحب لنسخ التارجت للصفوف اللي تحت" onpointerdown="entryFillHandlePointerdown(event, ${id})"></span></td>
       <td><input type="number" id="production-${id}" onpaste="handleEntryPaste(event, ${idx}, 2)"></td>
       <td><input type="number" id="eslah-${id}" onpaste="handleEntryPaste(event, ${idx}, 3)"></td>
       <td><input type="number" id="halak-${id}" onpaste="handleEntryPaste(event, ${idx}, 4)"></td>
@@ -4247,6 +4256,55 @@ function handleEntryPaste(e, startIdx, startCol){
   });
   checkCodeDuplicates();
   showToast(`✅ اتلصق ${rowsTxt.length} صف بالترتيب: كود، تارجت، إنتاج، إصلاح، هالك، ص ف ج س ظ ع ن`);
+}
+/* ---------- مقبض نسخ سريع لعمود "التارجت" (زي مقبض التعبئة في إكسل): اسحب من المربع الصغير
+   في آخر الخانة لتحت عشان تنسخ نفس قيمة التارجت على كل الصفوف اللي هتعدي عليها ---------- */
+let entryFillDrag = null;
+function entryTargetInputsInOrder(){
+  return Array.from(document.querySelectorAll('#rows-container input[id^="target-"]'));
+}
+function entryFillHandlePointerdown(e, id){
+  e.preventDefault();
+  const sourceEl = document.getElementById('target-'+id);
+  if(!sourceEl) return;
+  entryFillDrag = { sourceId: id, sourceValue: sourceEl.value, toIdx: null };
+  document.body.classList.add('efh-dragging');
+  document.addEventListener('pointermove', entryFillHandlePointermove);
+  document.addEventListener('pointerup', entryFillHandlePointerup, {once:true});
+}
+function entryFillHandlePointermove(e){
+  if(!entryFillDrag) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const row = el ? el.closest('tr') : null;
+  const hoverInput = row ? row.querySelector('input[id^="target-"]') : null;
+  if(!hoverInput) return;
+  const inputs = entryTargetInputsInOrder();
+  const fromIdx = inputs.findIndex(i => i.id === 'target-'+entryFillDrag.sourceId);
+  const toIdx = inputs.indexOf(hoverInput);
+  if(fromIdx === -1 || toIdx === -1) return;
+  entryFillDrag.toIdx = toIdx;
+  const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+  inputs.forEach((inp, i) => inp.classList.toggle('entry-fill-preview', i>=lo && i<=hi && i!==fromIdx));
+}
+function entryFillHandlePointerup(){
+  document.removeEventListener('pointermove', entryFillHandlePointermove);
+  document.body.classList.remove('efh-dragging');
+  if(!entryFillDrag) return;
+  const inputs = entryTargetInputsInOrder();
+  inputs.forEach(inp => inp.classList.remove('entry-fill-preview'));
+  const fromIdx = inputs.findIndex(i => i.id === 'target-'+entryFillDrag.sourceId);
+  const toIdx = entryFillDrag.toIdx;
+  if(fromIdx !== -1 && toIdx !== null && toIdx !== -1 && toIdx !== fromIdx){
+    const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    let count = 0;
+    for(let i=lo;i<=hi;i++){
+      if(i===fromIdx) continue;
+      inputs[i].value = entryFillDrag.sourceValue;
+      count++;
+    }
+    if(count) showToast(`✅ اتنسخ التارجت (${entryFillDrag.sourceValue}) على ${count} صف`);
+  }
+  entryFillDrag = null;
 }
 function onHallChange(){
   const hall = document.getElementById('entry-hall').value;
@@ -6276,6 +6334,9 @@ function editJardSession(id){
   window.scrollTo(0,0);
 }
 async function deleteJardSession(id){
+  const s = JARD.find(x=>x.id===id);
+  const info = s ? `صالة ${s.hall} — من ${s.from} إلى ${s.to} (${(s.lines||[]).length} خط)` : 'الجلسة دي';
+  if(!confirm(`⚠️ متأكد إنك عايز تمسح جلسة الجرد دي؟\n${info}\n\nمينفعش تتراجع بعد الحذف.`)) return;
   JARD = JARD.filter(s=>s.id!==id);
   await saveJard();
   showToast('🗑️ اتمسحت جلسة الجرد');
@@ -7370,6 +7431,9 @@ function editTargetPlan(id){
   window.scrollTo(0,0);
 }
 async function deleteTargetPlan(id){
+  const p = TARGET_PLANS.find(x=>x.id===id);
+  const info = p ? `صالة ${p.hall} — من ${p.from} إلى ${p.to} (${(p.lines||[]).length} خط)` : 'الخطة دي';
+  if(!confirm(`⚠️ متأكد إنك عايز تمسح خطة التارجت دي؟\n${info}\n\nمينفعش تتراجع بعد الحذف، وده هيمسح معاها أي تنفيذ تارجت اتسجل عليها.`)) return;
   TARGET_PLANS = TARGET_PLANS.filter(p=>p.id!==id);
   await deleteTargetPlanRecord(id);
   showToast('🗑️ اتمسحت خطة التارجت');
