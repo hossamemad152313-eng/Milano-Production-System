@@ -1859,15 +1859,21 @@ function hrEmpChunkDocMain(i){
 function watchEmployeeChunksMain(){
   const chunkArrs = new Array(HR_EMP_CHUNKS).fill(null);
   let manualArr = [];
-  // شئون الموظفين كسبانة دايمًا: أي كود موجود هناك بيلغي أي نسخة يدوية بنفس الكود،
+  // قائمة "التعيينات الأساسية" (تاب التعيينات/التصفية، mlp_operators_index) هي كمان مصدر
+  // معتمد للأكواد — أي كود اتضاف هناك (يدويًا أو استيراد إكسل) لازم يفضل معروف في سجل الأداء
+  // حتى لو لسه ملحقش يتضاف في شئون الموظفين، فبنحمّله هنا live وبنضمّه في rebuild تحت.
+  let baseOpsArr = [];
+  // شئون الموظفين كسبانة دايمًا: أي كود موجود هناك بيلغي أي نسخة يدوية أو أساسية بنفس الكود،
   // فلو حد ضاف الكود ده رسميًا بعدين، البيانات الرسمية هي اللي هتظهر من غير أي تعديل تاني.
   const rebuild = () => {
     const merged = [];
     chunkArrs.forEach(a => { if (a) a.forEach(r => merged.push(r)); });
     const hrOps = mapHrEmployeesToOperators(merged);
     const hrCodes = new Set(hrOps.map(o => o.c));
-    const manualOnly = MANUAL_OPERATORS.filter(o => !hrCodes.has(o.c));
-    OPERATORS = hrOps.concat(manualOnly);
+    const baseOnly = baseOpsArr.filter(o => o && Number.isFinite(o.c) && !hrCodes.has(o.c));
+    const baseCodes = new Set(baseOnly.map(o => o.c));
+    const manualOnly = MANUAL_OPERATORS.filter(o => !hrCodes.has(o.c) && !baseCodes.has(o.c));
+    OPERATORS = hrOps.concat(baseOnly).concat(manualOnly);
   };
   for (let i = 0; i < HR_EMP_CHUNKS; i++){
     const idx = i;
@@ -1879,6 +1885,11 @@ function watchEmployeeChunksMain(){
     }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
     realtimeUnsubs.push(unsub);
   }
+  const unsubBaseOps = operatorsCol().onSnapshot(snap => {
+    baseOpsArr = snap.docs.map(d => d.data());
+    rebuild();
+  }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
+  realtimeUnsubs.push(unsubBaseOps);
   const unsubManual = manualEmployeesCol().onSnapshot(snap => {
     manualArr = snap.docs.map(d => d.data());
     MANUAL_OPERATORS = mapManualToOperators(manualArr);
