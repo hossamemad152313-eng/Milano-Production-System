@@ -1406,12 +1406,29 @@ async function loadData(){
     USERS = await loadCollectionWithLegacyMigration(usersCol, 'mlp_users', 'user');
     if(!USERS.length) USERS = SEED_USERS;
   }catch(e){ USERS = SEED_USERS; }
-  // مزامنة المستخدمين الأساسيين — نضمن إن مسؤولي التسجيل الجداد يظهروا حتى لو النسخة القديمة متخزنة في Firebase
+  // مزامنة المستخدمين الأساسيين — نضمن إن مسؤولي التسجيل الجداد يظهروا حتى لو النسخة القديمة متخزنة في Firebase.
+  // ملحوظة مهمة: كنا بنعتبر أي يوزر أساسي (زي Hall.C أو HR) "ناقص" لو مش موجود بنفس اليوزرنيم
+  // القديم، ونضيفه تاني بالقيم الافتراضية — ده كان بيرجّع اسم/يوزر اتغيّر يدويًا من شاشة
+  // "مستخدمين" للقيمة الافتراضية القديمة تاني أول ما حد يقفل ويفتح الصفحة، لأن اليوزرنيم
+  // القديم بقى "مش موجود" بعد التعديل فكان بيتحسب ناقص وينضاف من جديد. عشان كده بقينا
+  // نسجّل مرة واحدة بس (mlp_users_seed_synced_v1) أي يوزر أساسي اتوصله بالفعل قبل كده،
+  // وبعدها منضيفوش تاني حتى لو الأدمن غيّر اسمه أو مسحه قصدًا.
   try{
     let usersChanged = false;
+    const seedSyncedRef = db.collection(FS_COLLECTION).doc('mlp_users_seed_synced_v1');
+    const seedSyncedSnap = await seedSyncedRef.get();
+    const alreadySynced = new Set(seedSyncedSnap.exists ? (seedSyncedSnap.data().synced || []) : []);
+    let seedSyncedChanged = false;
     SEED_USERS.forEach(su => {
-      if(!USERS.find(u => u.user === su.user)){ USERS.push({...su}); usersChanged = true; }
+      if(!USERS.find(u => u.user === su.user) && !alreadySynced.has(su.user)){
+        USERS.push({...su});
+        usersChanged = true;
+      }
+      if(!alreadySynced.has(su.user)){ alreadySynced.add(su.user); seedSyncedChanged = true; }
     });
+    if(seedSyncedChanged){
+      await seedSyncedRef.set({synced: Array.from(alreadySynced), ts: new Date().toISOString()});
+    }
     // ملحوظة: كود الـ forceSync اللي كان بيرجّع باسورد entry و power.entry لقيمة ثابتة
     // في كل تحميل صفحة اتحول لمرة واحدة بس (تحت الفلاج mlp_users_forcesync_v1) — عشان
     // تعديلات الأدمن على الباسورد متفضلش بترجع تلقائي بعد كده.
