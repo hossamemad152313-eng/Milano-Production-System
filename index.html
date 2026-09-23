@@ -1482,6 +1482,7 @@ function usersCol(){ return db.collection(FS_COLLECTION).doc('mlp_users_index').
 function hallManagersCol(){ return db.collection(FS_COLLECTION).doc('mlp_hallmanagers_index').collection('items'); }
 function printFormsCol(){ return db.collection(FS_COLLECTION).doc('mlp_printforms_index').collection('items'); }
 let realtimeUnsubs = [];
+let coreRealtimeUnsubs = []; // اشتراكات دايمة (المستخدمين/الجرد/التارجت/قوة الصالة والسهر/مديري الصالات) — بتتعمل مرة واحدة بس لكل فتحة صفحة ومتتقفلش مع تسجيل الخروج، عشان الدخول والخروج من غير ريفريش للصفحة مايكلفش قراءة تانية
 /* ---- بانر اتصال Firestore: بيتسجّل أي خطأ من أي مراقبة لحظية (تخطي الكوتة، مفيش نت...)
    وبيختفي لوحده أول ما أي مراقبة ترجع توصل بنجاح. مكانش بيتعرض للمستخدم خالص قبل كده. ---- */
 let connFailedListeners = new Set();
@@ -1541,87 +1542,6 @@ async function loadEntriesFromDb(){
   }catch(e2){}
 }
 /* ---------------- STORAGE (Firebase Firestore بدل نظام Claude) ---------------- */
-/* تحميل خطط التارجت من الكولكشن الجديد (مستند لكل خطة). لو الكولكشن الجديد لسه فاضي بس
-   فيه بيانات قديمة في المستند القديم (mlp_targets بشكله القديم قبل التعديل)، بننقلها مرة واحدة بس. */
-async function loadTargetPlansFromDb(){
-  const col = targetPlansCol();
-  const snap = await col.get();
-  if(!snap.empty){
-    TARGET_PLANS = snap.docs.map(d => d.data());
-    return;
-  }
-  try{
-    const legacy = await db.collection(FS_COLLECTION).doc('mlp_targets').get();
-    if(legacy.exists){
-      const oldArr = JSON.parse(legacy.data().value || '[]');
-      if(Array.isArray(oldArr) && oldArr.length){
-        const batchSize = 400;
-        for(let i=0;i<oldArr.length;i+=batchSize){
-          const batch = db.batch();
-          oldArr.slice(i,i+batchSize).forEach(plan => { batch.set(col.doc(String(plan.id)), plan); });
-          await batch.commit();
-        }
-        TARGET_PLANS = oldArr;
-        return;
-      }
-    }
-  }catch(e){ console.warn('فشل ترحيل خطط التارجت القديمة:', e); }
-  TARGET_PLANS = [];
-}
-/* تحميل تنفيذ التارجت من الكولكشن الجديد (مستند لكل خطة تنفيذ). لو الكولكشن الجديد لسه فاضي
-   بس فيه بيانات قديمة في المستند القديم (mlp_targetexec بشكله القديم قبل التعديل)، بننقلها
-   مرة واحدة بس — البيانات القديمة المحفوظة عندك دلوقتي هتترحّل تلقائيًا أول مرة تفتح فيها
-   الصفحة بعد الرفع، من غير ما تعمل حاجة إضافية. */
-async function loadTargetExecFromDb(){
-  const col = targetExecCol();
-  const snap = await col.get();
-  if(!snap.empty){
-    TARGET_EXEC = snap.docs.map(d => d.data());
-    return;
-  }
-  try{
-    const legacy = await db.collection(FS_COLLECTION).doc('mlp_targetexec').get();
-    if(legacy.exists){
-      const oldArr = JSON.parse(legacy.data().value || '[]');
-      if(Array.isArray(oldArr) && oldArr.length){
-        const batchSize = 400; // حد أقصى ~500 عملية لكل batch في Firestore
-        for(let i=0;i<oldArr.length;i+=batchSize){
-          const batch = db.batch();
-          oldArr.slice(i,i+batchSize).forEach(pe => { batch.set(col.doc(String(pe.planId)), pe); });
-          await batch.commit();
-        }
-        TARGET_EXEC = oldArr;
-        return;
-      }
-    }
-  }catch(e){ console.warn('فشل ترحيل تنفيذ التارجت القديم:', e); }
-  TARGET_EXEC = [];
-}
-// دالة عامة لتحميل أي قسم من الكولكشن الجديد (مستند لكل سجل)، ولو لسه فاضي بس فيه بيانات
-// قديمة في المستند القديم (arraydoc) بترحّلها مرة واحدة بس — نفس فكرة loadTargetExecFromDb
-// بالظبط، معمولة دالة عامة عشان نستخدمها لأي قسم (جرد/قوة الصالة/قوة السهر/العاملين/
-// المستخدمين/مديري الصالات) من غير ما نكرر نفس الكود 6 مرات.
-async function loadCollectionWithLegacyMigration(colFn, legacyDocId, idKey){
-  const col = colFn();
-  const snap = await col.get();
-  if(!snap.empty) return snap.docs.map(d => d.data());
-  try{
-    const legacy = await db.collection(FS_COLLECTION).doc(legacyDocId).get();
-    if(legacy.exists){
-      const oldArr = JSON.parse(legacy.data().value || '[]');
-      if(Array.isArray(oldArr) && oldArr.length){
-        const batchSize = 400;
-        for(let i=0;i<oldArr.length;i+=batchSize){
-          const batch = db.batch();
-          oldArr.slice(i,i+batchSize).forEach(rec => { batch.set(col.doc(String(rec[idKey])), rec); });
-          await batch.commit();
-        }
-        return oldArr;
-      }
-    }
-  }catch(e){ console.warn('فشل ترحيل بيانات قديمة لـ '+legacyDocId+':', e); }
-  return [];
-}
 async function loadData(){
   if(!firebaseReady){
     // مفيش اتصال بـ Firebase (غالبًا معاينة Claude) — نشتغل بالبيانات المبدئية بدون حفظ دائم
@@ -1636,9 +1556,11 @@ async function loadData(){
   // (بالنافذة الزمنية والشرائح المُجمّعة) في startRealtimeSync() بعد الدخول الفعلي بس.
   // تحسين سرعة الدخول: قراءات المستخدمين وفلاجات المزامنة الاتنين بتتبعت مع بعض (round trip واحد) بدل ما كانت ورا بعض،
   // وباقي البيانات (الجرد/التارجت/القوة...) بتتحمّل في الخلفية بالتوازي بعد ما شاشة الدخول تفتح (loadRestOfData تحت).
+  startEntriesLiveWatch(); // مراقبة دايمة لسجلات الإنتاج (آخر 21 يوم) — تبدأ مرة واحدة بس هنا، شوف الشرح فوقها
   const settleRead = p => p.then(v => ({ok:true, v}), e => ({ok:false, e}));
   const unwrapRead = r => { if(!r.ok) throw r.e; return r.v; };
-  const usersRead = settleRead(loadCollectionWithLegacyMigration(usersCol, 'mlp_users', 'user'));
+  const usersSpec = {docId:'mlp_users', apply:v=>{USERS=v; pushHrPinToPortal();}, tabs:['users'], idKey:'user'};
+  const usersRead = settleRead(loadCoreCollectionWithLegacyMigration(usersCol(), usersSpec, 'mlp_users', 'user'));
   const seedSyncedRef = db.collection(FS_COLLECTION).doc('mlp_users_seed_synced_v1');
   const seedSyncedRead = settleRead(seedSyncedRef.get());
   const forceSyncRead = settleRead(db.collection(FS_COLLECTION).doc('mlp_users_forcesync_v1').get());
@@ -1704,6 +1626,12 @@ async function loadData(){
 let DATA_REST_PROMISE = null;
 async function loadRestOfData(){
   try{
+    const targetsSpec = {docId:'mlp_targets', apply:v=>{TARGET_PLANS=v;}, tabs:['target','targetexec'], idKey:'id'};
+    const targetExecSpec = {docId:'mlp_targetexec', apply:v=>{TARGET_EXEC=v;}, tabs:['targetexec'], idKey:'planId'};
+    const jardSpec = {docId:'mlp_jard', apply:v=>{JARD=v;}, tabs:['jard'], idKey:'id'};
+    const hallPowerSpec = {docId:'mlp_hallpower', apply:v=>{HALL_POWER=v;}, tabs:['hallpower'], idKey:'id'};
+    const nightPowerSpec = {docId:'mlp_nightpower', apply:v=>{NIGHT_POWER=v;}, tabs:['nightpower'], idKey:'id'};
+    const hallManagersSpec = {docId:'mlp_hallmanagers', apply:v=>{HALL_MANAGERS=v;}, tabs:[], idKey:'hall'};
     await Promise.all([
       (async () => {
         // مسح شامل لبيانات الجرد القديمة (مرة واحدة بس) — طلب حسام صراحة إننا نبدأ الجرد من الأول
@@ -1713,18 +1641,21 @@ async function loadRestOfData(){
           if(!resetFlag.exists){
             JARD = [];
             await db.collection(FS_COLLECTION).doc('mlp_jard_reset_v2').set({done:true, ts:new Date().toISOString()});
+            // نبدأ المراقبة الحية لقسم الجرد بردو حتى بعد المسح (من غير استنى نتيجتها)،
+            // عشان أي جرد يتسجل بعد كده يوصل لحظيًا زي أي قسم تاني.
+            watchCoreCollectionOnce(jardCol(), jardSpec);
           } else {
-            JARD = await loadCollectionWithLegacyMigration(jardCol, 'mlp_jard', 'id');
+            JARD = await loadCoreCollectionWithLegacyMigration(jardCol(), jardSpec, 'mlp_jard', 'id');
           }
         }catch(e){
           JARD = SEED_JARD; noteLoadError('الجرد', e);
         }
       })(),
-      (async () => { try{ await loadTargetPlansFromDb(); }catch(e){ noteLoadError('خطط التارجت', e); TARGET_PLANS = TARGET_PLANS || []; } })(),
-      (async () => { try{ await loadTargetExecFromDb(); }catch(e){ noteLoadError('تنفيذ التارجت', e); TARGET_EXEC = TARGET_EXEC || []; } })(),
-      (async () => { try{ HALL_POWER = await loadCollectionWithLegacyMigration(hallPowerCol, 'mlp_hallpower', 'id'); }catch(e){ HALL_POWER = []; noteLoadError('قوة الصالة', e); } })(),
-      (async () => { try{ NIGHT_POWER = await loadCollectionWithLegacyMigration(nightPowerCol, 'mlp_nightpower', 'id'); }catch(e){ NIGHT_POWER = []; noteLoadError('قوة السهر', e); } })(),
-      (async () => { try{ HALL_MANAGERS = await loadCollectionWithLegacyMigration(hallManagersCol, 'mlp_hallmanagers', 'hall'); }catch(e){ HALL_MANAGERS = []; noteLoadError('مديري الصالات', e); } })()
+      (async () => { try{ TARGET_PLANS = await loadCoreCollectionWithLegacyMigration(targetPlansCol(), targetsSpec, 'mlp_targets', 'id'); }catch(e){ noteLoadError('خطط التارجت', e); TARGET_PLANS = TARGET_PLANS || []; } })(),
+      (async () => { try{ TARGET_EXEC = await loadCoreCollectionWithLegacyMigration(targetExecCol(), targetExecSpec, 'mlp_targetexec', 'planId'); }catch(e){ noteLoadError('تنفيذ التارجت', e); TARGET_EXEC = TARGET_EXEC || []; } })(),
+      (async () => { try{ HALL_POWER = await loadCoreCollectionWithLegacyMigration(hallPowerCol(), hallPowerSpec, 'mlp_hallpower', 'id'); }catch(e){ HALL_POWER = []; noteLoadError('قوة الصالة', e); } })(),
+      (async () => { try{ NIGHT_POWER = await loadCoreCollectionWithLegacyMigration(nightPowerCol(), nightPowerSpec, 'mlp_nightpower', 'id'); }catch(e){ NIGHT_POWER = []; noteLoadError('قوة السهر', e); } })(),
+      (async () => { try{ HALL_MANAGERS = await loadCoreCollectionWithLegacyMigration(hallManagersCol(), hallManagersSpec, 'mlp_hallmanagers', 'hall'); }catch(e){ HALL_MANAGERS = []; noteLoadError('مديري الصالات', e); } })()
     ]);
   }finally{
     try{ showDataLoadWarning(); }catch(e){}
@@ -1937,7 +1868,10 @@ document.addEventListener('focusout', function(){
 }, true);
 // منطق مشترك: بيقرر لو نطبّق التحديث الوارد من السيرفر دلوقتي أو نسيبه معلّق لحد ما المستخدم يسيب خانة الكتابة
 function handleIncomingSync(spec, data){
-  if(!currentUser) return;
+  // قبل تسجيل الدخول (شاشة الدخول لسه مفتوحة) مفيش فورم ولا خانة كتابة نخاف عليها،
+  // فنطبّق البيانات على طول عشان تبقى جاهزة وقت الدخول الفعلي من غير قراءة تانية.
+  // applySnapshotNow نفسها ملهاش أي تأثير على الشاشة قبل الدخول (activeTab لسه فاضي).
+  if(!currentUser){ applySnapshotNow(spec, data); return; }
   const activeEl = document.activeElement;
   const mainEl = document.getElementById('main-content');
   const isTyping = activeEl && ['INPUT','TEXTAREA','SELECT'].includes(activeEl.tagName) && mainEl && mainEl.contains(activeEl);
@@ -1949,6 +1883,59 @@ function handleIncomingSync(spec, data){
   if(isTyping || hasPendingSave){ PENDING_SNAPSHOTS[spec.docId] = {spec, data}; return; }
   delete PENDING_SNAPSHOTS[spec.docId];
   applySnapshotNow(spec, data);
+}
+/* ============ قراءة واحدة + مراقبة دايمة لأقسام: المستخدمين/الجرد/التارجت (خطط
+   وتنفيذ)/قوة الصالة/قوة السهر/مديري الصالات ============
+   قبل كده كل قسم من دول كان بيتقرا مرتين في كل تسجيل دخول: مرة get() واحدة قبل ما
+   المستخدم يدخل (في loadData/loadRestOfData)، ومرة تانية onSnapshot() بعد الدخول
+   (في startRealtimeSync) — وده كان بيتكرر كمان مع كل خروج ودخول تاني من غير ريفريش
+   للصفحة، لأن onSnapshot جديدة = قراءة كاملة جديدة للكولكشن كله، حتى لو البيانات
+   نفسها ماتغيّرتش. الدالتين دول بيبدأو مراقبة لحظية واحدة بس من أول ما الصفحة تفتح
+   (قبل الدخول حتى)، وبيستخدموا أول نتيجة توصل منها كأساس التحميل بدل get() منفصلة،
+   وتفضل شغالة طول عمر التاب من غير ما تتقفل مع تسجيل الخروج (شوف stopRealtimeSync
+   تحت — بتقفل realtimeUnsubs بس، مش coreRealtimeUnsubs) — فكل قسم بيتقرا مرة واحدة
+   بس لكل فتحة صفحة فعلية، مهما المستخدم دخل وخرج مرات كتير. */
+function watchCoreCollectionOnce(colRef, spec){
+  return new Promise(resolve => {
+    let settled = false;
+    const unsub = colRef.onSnapshot(snap => {
+      const data = snap.docs.map(d => d.data());
+      if(!settled){
+        settled = true;
+        resolve(data);
+      } else {
+        try{ const pk = {mlp_jard:'jard', mlp_hallpower:'hallpower', mlp_nightpower:'nightpower', mlp_targets:'target', mlp_targetexec:'targetexec'}[spec.docId]; if(pk) pushOnSnapshot(pk, snap); }catch(e){}
+        handleIncomingSync(spec, data);
+      }
+      connReportOk(spec.docId);
+    }, err => {
+      connReportError(spec.docId, err);
+      if(!settled){ settled = true; resolve(null); }
+    });
+    coreRealtimeUnsubs.push(unsub);
+  });
+}
+// نفس منطق الترحيل القديم اللي كان في loadCollectionWithLegacyMigration بالظبط، بس
+// بيستخدم أول نتيجة من المراقبة اللحظية الدايمة فوق بدل get() منفصلة.
+async function loadCoreCollectionWithLegacyMigration(colRef, spec, legacyDocId, idKey){
+  const data = await watchCoreCollectionOnce(colRef, spec);
+  if(data && data.length) return data;
+  try{
+    const legacy = await db.collection(FS_COLLECTION).doc(legacyDocId).get();
+    if(legacy.exists){
+      const oldArr = JSON.parse(legacy.data().value || '[]');
+      if(Array.isArray(oldArr) && oldArr.length){
+        const batchSize = 400;
+        for(let i=0;i<oldArr.length;i+=batchSize){
+          const batch = db.batch();
+          oldArr.slice(i,i+batchSize).forEach(rec => { batch.set(colRef.doc(String(rec[idKey])), rec); });
+          await batch.commit();
+        }
+        return oldArr; // المراقبة الحية هترجّع نفس البيانات تلقائيًا بعد الكتابة دي، من غير أي فرق يتحس بيه المستخدم
+      }
+    }
+  }catch(e){ console.warn('فشل ترحيل بيانات قديمة لـ '+legacyDocId+':', e); }
+  return [];
 }
 // نافذة زمنية حية لسجلات الإنتاج (تقليل قراءات Firestore) — شوف الشرح في startRealtimeSync
 let ENTRIES_LIVE_WINDOW_DAYS = 21;
@@ -2041,84 +2028,57 @@ async function entriesApplyChanges(setRows, deleteIds){
   }
 }
 /* ============ نهاية نظام تجميع الإنتاج الأسبوعي ============ */
+// ============ نافذة زمنية حية لسجلات الإنتاج (تقليل قراءات Firestore) ============
+// سجلات الإنتاج بتتراكم يوميًا (آلاف السجلات بعد كام شهر)، وكانت المراقبة اللحظية
+// بتاخد الكولكشن كله من الصفر كل ما أي جهاز يفتح البرنامج — ده كان أكبر سبب لتخطي
+// كوتة القراءة اليومية المجانية في Firebase. الحل: المراقبة اللحظية بقت بس على آخر
+// ENTRIES_LIVE_WINDOW_DAYS يوم (وده كافي جدًا للشغل اليومي: تسجيل إنتاج، فحص تكرار،
+// متابعة الأداء الحالي). البيانات الأقدم (الأرشيف) بتتحمّل مرة واحدة بس وقت الحاجة
+// الفعلية ليها (تاب التقارير أو أفضل أداء)، مش بشكل مستمر في الخلفية.
+// ============ نافذة زمنية حية + تجميع أسبوعي لسجلات الإنتاج (تقليل قراءات Firestore) ============
+// بدل ما نراقب كولكشن فيه آلاف المستندات (سجل لكل عملية)، بنراقب أسبوع النافذة
+// الحية بس (عادةً 3 مستندات أسبوعية) — القراءة بقت ~3 بدل ~3700 مهما اتفتح
+// البرنامج مرات كتير في اليوم. لسه real-time بالكامل: أي سجل جديد بيوصل فورًا.
+// الأرشيف (الأقدم من النافذة) بيتحمّل عند الطلب الفعلي بس (شوف ensureEntriesArchiveLoaded).
+// مهم: زي المستخدمين/الجرد/التارجت/القوة/مديري الصالات، دي كمان بقت مراقبة دايمة
+// تتبدأ مرة واحدة بس من أول ما الصفحة تفتح (مش مع كل تسجيل دخول) — عشان دخول وخروج
+// كذا مرة من غير ريفريش للصفحة مايكلفش قراءة الأسابيع دي تاني في كل مرة. الشرط
+// [...].includes(activeTab) بيمنع أي لمسة للشاشة قبل الدخول الفعلي (activeTab = null
+// قبل كده)، فآمن تمامًا نبدأها بدري.
+function startEntriesLiveWatch(){
+  if(!firebaseReady) return;
+  const weekKeys = entriesWeekKeysInRange(entriesCutoffStr(), todayStr());
+  const chunkArrs = {};
+  const rebuildLive = () => {
+    const merged = [];
+    weekKeys.forEach(k => { (chunkArrs[k]||[]).forEach(e => merged.push(e)); });
+    ENTRIES_LIVE = merged;
+    rebuildEntries();
+    // نفس منطق إعادة الرسم اللي كان جوه applySnapshotNow بالظبط: منلمسش فورم
+    // تسجيل الأداء وهو مفتوح، ومنحافظ على فلتر التقارير اللي المستخدم واقف عليه
+    if(['report','entry','bestperf'].includes(activeTab)){
+      if(activeTab === 'entry'){ if(document.getElementById('rec-from')) applyRecordsFilter(); }
+      else switchTab(activeTab);
+    }
+  };
+  weekKeys.forEach(k => {
+    const unsub = entriesWeekDoc(k).onSnapshot(snap => {
+      chunkArrs[k] = entriesParseChunk(snap);
+      rebuildLive();
+      connReportOk('entries:' + k);
+    }, err => connReportError('entries:' + k, err));
+    coreRealtimeUnsubs.push(unsub);
+  });
+}
 function startRealtimeSync(){
   if(!firebaseReady) return;
   stopRealtimeSync();
   connFailedListeners.clear(); const _cb = document.getElementById('conn-banner'); if(_cb) _cb.style.display = 'none';
-  // ============ نافذة زمنية حية لسجلات الإنتاج (تقليل قراءات Firestore) ============
-  // سجلات الإنتاج بتتراكم يوميًا (آلاف السجلات بعد كام شهر)، وكانت المراقبة اللحظية
-  // بتاخد الكولكشن كله من الصفر كل ما أي جهاز يفتح البرنامج — ده كان أكبر سبب لتخطي
-  // كوتة القراءة اليومية المجانية في Firebase. الحل: المراقبة اللحظية بقت بس على آخر
-  // ENTRIES_LIVE_WINDOW_DAYS يوم (وده كافي جدًا للشغل اليومي: تسجيل إنتاج، فحص تكرار،
-  // متابعة الأداء الحالي). البيانات الأقدم (الأرشيف) بتتحمّل مرة واحدة بس وقت الحاجة
-  // الفعلية ليها (تاب التقارير أو أفضل أداء)، مش بشكل مستمر في الخلفية.
-  // لسه real-time بالكامل جوه النافذة: أي سجل جديد أو تعديل بيوصل فورًا لكل الأجهزة.
-  // ============ نافذة زمنية حية + تجميع أسبوعي لسجلات الإنتاج (تقليل قراءات Firestore) ============
-  // بدل ما نراقب كولكشن فيه آلاف المستندات (سجل لكل عملية)، بنراقب أسبوع النافذة
-  // الحية بس (عادةً 3 مستندات أسبوعية) — القراءة بقت ~3 بدل ~3700 مهما اتفتح
-  // البرنامج مرات كتير في اليوم. لسه real-time بالكامل: أي سجل جديد بيوصل فورًا.
-  // الأرشيف (الأقدم من النافذة) بيتحمّل عند الطلب الفعلي بس (شوف ensureEntriesArchiveLoaded).
-  (function watchEntriesLive(){
-    const weekKeys = entriesWeekKeysInRange(entriesCutoffStr(), todayStr());
-    const chunkArrs = {};
-    const rebuildLive = () => {
-      const merged = [];
-      weekKeys.forEach(k => { (chunkArrs[k]||[]).forEach(e => merged.push(e)); });
-      ENTRIES_LIVE = merged;
-      rebuildEntries();
-      // نفس منطق إعادة الرسم اللي كان جوه applySnapshotNow بالظبط: منلمسش فورم
-      // تسجيل الأداء وهو مفتوح، ومنحافظ على فلتر التقارير اللي المستخدم واقف عليه
-      if(['report','entry','bestperf'].includes(activeTab)){
-        if(activeTab === 'entry'){ if(document.getElementById('rec-from')) applyRecordsFilter(); }
-        else switchTab(activeTab);
-      }
-    };
-    weekKeys.forEach(k => {
-      const unsub = entriesWeekDoc(k).onSnapshot(snap => {
-        chunkArrs[k] = entriesParseChunk(snap);
-        rebuildLive();
-        connReportOk('entries:' + k);
-      }, err => connReportError('entries:' + k, err));
-      realtimeUnsubs.push(unsub);
-    });
-  })();
-  // نفس فكرة مراقبة entriesCol بالظبط: كولكشن مستقل لخطط التارجت، مش مستند واحد
-  const targetsSpec = {docId:'mlp_targets', apply:v=>{TARGET_PLANS=v;}, tabs:['target','targetexec'], idKey:'id'};
-  const unsubTargets = targetPlansCol().onSnapshot(snap => {
-    const data = snap.docs.map(d => d.data());
-    try{ pushOnSnapshot('target', snap); }catch(e){}
-    handleIncomingSync(targetsSpec, data);
-    connReportOk('targets');
-  }, err => connReportError('targets', err));
-  realtimeUnsubs.push(unsubTargets);
-  // نفس فكرة مراقبة targetPlansCol بالظبط: كولكشن مستقل لتنفيذ التارجت، مش مستند واحد
-  const targetExecSpec = {docId:'mlp_targetexec', apply:v=>{TARGET_EXEC=v;}, tabs:['targetexec'], idKey:'planId'};
-  const unsubTargetExec = targetExecCol().onSnapshot(snap => {
-    const data = snap.docs.map(d => d.data());
-    try{ pushOnSnapshot('targetexec', snap); }catch(e){}
-    handleIncomingSync(targetExecSpec, data);
-    connReportOk('targetexec');
-  }, err => connReportError('targetexec', err));
-  realtimeUnsubs.push(unsubTargetExec);
-  // باقي الأقسام (جرد، قوة الصالة، قوة السهر، العاملين، المستخدمين، مديري الصالات) بقت كمان
-  // كولكشن مستقل (مستند لكل سجل) بدل مستند واحد — نفس فكرة entriesCol/targetPlansCol بالظبط.
-  const collectionSpecs = [
-    {docId:'mlp_users',       apply:v=>{USERS=v; pushHrPinToPortal();}, tabs:['users'], idKey:'user',      col: usersCol},
-    {docId:'mlp_jard',        apply:v=>{JARD=v;},         tabs:['jard'], idKey:'id',         col: jardCol},
-    {docId:'mlp_hallpower',   apply:v=>{HALL_POWER=v;},   tabs:['hallpower'], idKey:'id',    col: hallPowerCol},
-    {docId:'mlp_nightpower',  apply:v=>{NIGHT_POWER=v;},  tabs:['nightpower'], idKey:'id',   col: nightPowerCol},
-    {docId:'mlp_hallmanagers',apply:v=>{HALL_MANAGERS=v;},tabs:[], idKey:'hall',             col: hallManagersCol},
-  ];
-  collectionSpecs.forEach(spec => {
-    const unsub = spec.col().onSnapshot(snap => {
-      if(!currentUser) return;
-      const data = snap.docs.map(d => d.data());
-      try{ const pk = {mlp_jard:'jard', mlp_hallpower:'hallpower', mlp_nightpower:'nightpower'}[spec.docId]; if(pk) pushOnSnapshot(pk, snap); }catch(e){}
-      handleIncomingSync(spec, data);
-      connReportOk(spec.docId);
-    }, err => connReportError(spec.docId, err));
-    realtimeUnsubs.push(unsub);
-  });
+  // ملحوظة مهمة: سجلات الإنتاج (النافذة الحية) + المستخدمين/الجرد/التارجت (خطط
+  // وتنفيذ)/قوة الصالة/قوة السهر/مديري الصالات بقت مراقبتهم اللحظية دايمة من أول ما
+  // الصفحة تفتح (شوف startEntriesLiveWatch و loadData/loadRestOfData فوق) — فمفيش
+  // داعي نعيد الاشتراك فيهم تاني هنا مع كل تسجيل دخول؛ ده كان هو سبب تضاعف القراءات
+  // (قراءة كاملة وقت الدخول + قراءة كاملة تانية هنا بعد كل دخول/خروج).
   watchEmployeeChunksMain();
 }
 // نظام الموظفين المُجمّع: نفس الـ 5 مستندات اللي بتكتب فيها بوابة شؤون الموظفين
