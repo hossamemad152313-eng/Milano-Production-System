@@ -1314,6 +1314,15 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 let db = null;
 let firebaseReady = false;
 
+// أي طلب لـ Supabase بياخد أكتر من 20 ثانية بيتحول لخطأ واضح تلقائيًا،
+// بدل ما يفضل معلّق للأبد من غير أي رسالة (زي لو النت واقف أو مشكلة شبكة).
+function withTimeout(promise, label){
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('انتهت مهلة الاتصال بـ Supabase (' + label + ') — تأكد من الإنترنت')), 20000))
+  ]);
+}
+
 function fsDocRef(path){
   const id = path.split('/').pop();
   return {
@@ -1322,7 +1331,7 @@ function fsDocRef(path){
     collection(name){ return fsCollRef(path + '/' + name); },
 
     async get(){
-      const { data, error } = await sb.from('fs_documents').select('data').eq('path', path).maybeSingle();
+      const { data, error } = await withTimeout(sb.from('fs_documents').select('data').eq('path', path).maybeSingle(), 'doc.get: ' + path);
       if(error) throw error;
       return {
         exists: !!data,
@@ -1337,12 +1346,12 @@ function fsDocRef(path){
         const cur = await this.get();
         payload = Object.assign({}, cur.exists ? cur.data() : {}, obj);
       }
-      const { error } = await sb.from('fs_documents').upsert({ path, data: payload });
+      const { error } = await withTimeout(sb.from('fs_documents').upsert({ path, data: payload }), 'doc.set: ' + path);
       if(error) throw error;
     },
 
     async delete(){
-      const { error } = await sb.from('fs_documents').delete().eq('path', path);
+      const { error } = await withTimeout(sb.from('fs_documents').delete().eq('path', path), 'doc.delete: ' + path);
       if(error) throw error;
     },
 
@@ -1368,7 +1377,7 @@ function fsCollRef(path){
     doc(id){ return fsDocRef(id ? (path + '/' + id) : (path + '/' + (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)))); },
 
     async get(){
-      const { data, error } = await sb.from('fs_documents').select('path,data').like('path', prefix + '%');
+      const { data, error } = await withTimeout(sb.from('fs_documents').select('path,data').like('path', prefix + '%'), 'collection.get: ' + path);
       if(error) throw error;
       const rows = (data || []).filter(r => !r.path.slice(prefix.length).includes('/'));
       const docs = rows.map(r => ({ id: r.path.slice(prefix.length), data: () => r.data }));
