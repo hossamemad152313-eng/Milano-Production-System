@@ -4546,6 +4546,7 @@ let lastBulkCount = 15;
 
 const ENTRY_COLS = ['code','target','production','eslah','halak','ص','ف','ج','س','ظ','ع','ن'];
 function renderEntryTab(){
+  EDITING_RECORD_GROUP = null;
   pendingRowIds = [];
   for(let i=0;i<lastBulkCount;i++) pendingRowIds.push(rowIdCounter++);
   const main = document.getElementById('main-content');
@@ -4982,6 +4983,7 @@ function checkCodeDuplicates(){
   });
 }
 async function saveAllRows(){
+  if(EDITING_RECORD_GROUP) return saveEditedGroup();
   const date = document.getElementById('entry-date').value;
   const hall = document.getElementById('entry-hall').value;
   const line = document.getElementById('entry-line').value;
@@ -5790,12 +5792,12 @@ function recordsGroupedHtml(rows){
       html += `<div class="section-title" style="grid-column:1/-1;margin-top:10px;">🏭 ${recEsc(g.h)} <span class="count">(${cnt} ملف)</span></div>`;
     }
     html += `
-      <div class="file-card" onclick="openRecordGroup(${i})">
+      <div class="file-card" onclick="editRecordGroup(${i})">
         <div class="rtop">
           <div><div class="rname">${recEsc(g.d)} · خط ${recEsc(g.l)}</div>
           <div class="rmeta">${g.ids.length} عاملة · تارجت ${fmtNum(g.t)} · إنتاج ${fmtNum(g.p)}<br>${recEsc([...g.by].join('، ')) || '-'}</div></div>
           <div class="ractions">
-            <button class="op-btn" onclick="event.stopPropagation();openRecordGroup(${i})">✏️</button>
+            <button class="op-btn" onclick="event.stopPropagation();editRecordGroup(${i})">✏️</button>
             ${isAdmin ? `<button class="op-btn" onclick="event.stopPropagation();confirmDeleteRecordGroup(${i})">🗑️</button>` : ''}
           </div>
         </div>
@@ -5858,6 +5860,155 @@ async function doDeleteRecordGroup(i){
   closeModal();
   showToast(`🗑️ اتمسح ${ids.length} سجل`);
   applyRecordsFilter();
+}
+// ============ تعديل ملف سجلات = نفس صفحة التسجيل بس متعبّية بالبيانات (زي تعديل الجرد) ============
+let EDITING_RECORD_GROUP = null; // { ids, rowMap:{rowId:entryId}, filter }
+function editRecordGroup(i){
+  const g = REC_GROUPS[i];
+  if(!g) return;
+  const idSet = new Set(g.ids.map(String));
+  const rows = ENTRIES.filter(e => idSet.has(String(e.id))).sort((a,b)=> Number(a.c)-Number(b.c));
+  if(!rows.length){ showToast('⚠️ الملف ده مش موجود (يمكن اتمسح)'); return; }
+  const gv = id => document.getElementById(id);
+  const filter = { from: gv('rec-from')?.value, to: gv('rec-to')?.value, hall: gv('rec-hall')?.value, line: gv('rec-line')?.value };
+  switchTab('entry');
+  if(activeTab !== 'entry') return;
+  pendingRowIds = rows.map(() => rowIdCounter++);
+  renderRowsContainer();
+  const rowMap = {};
+  const setv = (id, v) => { const el = gv(id); if(el) el.value = v; };
+  rows.forEach((e, k) => {
+    const id = pendingRowIds[k];
+    rowMap[id] = e.id;
+    setv('code-'+id, e.c);
+    setv('target-'+id, e.t);
+    setv('production-'+id, e.p || '');
+    setv('eslah-'+id, e.es || '');
+    setv('halak-'+id, e.hk || '');
+    AATAL_KEYS.forEach(kk => setv('aatal-'+id+'-'+kk, (e.at && e.at[kk]) || ''));
+    onCodeInput(id);
+    const nameEl = gv('name-'+id);
+    if(nameEl && !nameEl.readOnly && !nameEl.value) nameEl.value = e.n || '';
+  });
+  gv('entry-date').value = g.d;
+  const hallSel = gv('entry-hall');
+  if(![...hallSel.options].some(o => o.value === g.h)) hallSel.insertAdjacentHTML('beforeend', `<option value="${recEsc(g.h)}">${recEsc(g.h)}</option>`);
+  hallSel.value = g.h;
+  onHallChange();
+  const lineSel = gv('entry-line');
+  if(![...lineSel.options].some(o => o.value === String(g.l))){
+    const opt = document.createElement('option');
+    opt.value = String(g.l); opt.textContent = 'خط ' + g.l;
+    lineSel.insertBefore(opt, lineSel.lastElementChild);
+  }
+  lineSel.value = String(g.l);
+  const eb = document.querySelector('.ehb-eyebrow');
+  if(eb) eb.textContent = `// بتعدّل ملف: ${g.d} · ${g.h} · خط ${g.l}`;
+  const sb = document.querySelector('#main-content .save-btn');
+  if(sb){
+    sb.textContent = '💾 حفظ التعديلات';
+    sb.insertAdjacentHTML('afterend', '<button class="apply-btn" style="background:#8891A4;margin-bottom:10px;" onclick="cancelEditRecordGroup()">↩️ إلغاء ورجوع للسجلات</button>');
+  }
+  EDITING_RECORD_GROUP = { ids: rows.map(e => e.id), rowMap, filter };
+  checkCodeDuplicates();
+  showToast('✏️ بتعدّل الملف ده — اعمل التغييرات ودوس حفظ التعديلات');
+  window.scrollTo(0,0);
+}
+function restoreRecordsFilter(f){
+  if(!f) return;
+  const gv = id => document.getElementById(id);
+  if(gv('rec-from') && f.from) gv('rec-from').value = f.from;
+  if(gv('rec-to') && f.to) gv('rec-to').value = f.to;
+  if(gv('rec-hall') && f.hall) gv('rec-hall').value = f.hall;
+  onRecHallChange();
+  if(gv('rec-line') && f.line) gv('rec-line').value = f.line;
+  applyRecordsFilter();
+}
+function cancelEditRecordGroup(){
+  const f = EDITING_RECORD_GROUP && EDITING_RECORD_GROUP.filter;
+  EDITING_RECORD_GROUP = null;
+  switchTab('records');
+  restoreRecordsFilter(f);
+}
+async function saveEditedGroup(){
+  const eg = EDITING_RECORD_GROUP;
+  if(!eg) return;
+  const date = document.getElementById('entry-date').value;
+  const hall = document.getElementById('entry-hall').value;
+  const line = document.getElementById('entry-line').value;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ showToast('⚠️ اكتب تاريخ صحيح'); return; }
+  if(!hall || !line || line === '__NEW__'){ showToast('⚠️ لازم تحدد الصالة والخط فوق الأول'); return; }
+  const rows = pendingRowIds.map(id => {
+    const code = document.getElementById('code-'+id).value;
+    const found = OPERATORS.find(o => String(o.c) === String(code));
+    const nameEl = document.getElementById('name-'+id);
+    const hireEl = document.getElementById('newhire-'+id);
+    const manualName = !found && nameEl ? nameEl.value.trim() : '';
+    const aatal = {}; AATAL_KEYS.forEach(k => aatal[k] = Number(document.getElementById('aatal-'+id+'-'+k).value) || 0);
+    return {
+      rowId: id, code, name: found ? found.n : manualName, knownCode: !!found || !!manualName,
+      isManual: !found && !!manualName, manualHireDate: hireEl ? hireEl.value : '',
+      target: document.getElementById('target-'+id).value,
+      production: document.getElementById('production-'+id).value,
+      halak: document.getElementById('halak-'+id).value,
+      eslah: document.getElementById('eslah-'+id).value,
+      aatal
+    };
+  });
+  const valid = rows.filter(r => r.code);
+  if(!valid.length){ showToast('⚠️ لازم تسيب كود على الأقل لصف واحد — ولو عايز تمسح الملف كله ارجع للسجلات وامسحه من هناك'); return; }
+  const unknownCodes = [...new Set(valid.filter(r => !r.knownCode).map(r => r.code))];
+  if(unknownCodes.length){ showToast(`⚠️ الكود (${unknownCodes.join('، ')}) مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم بتاعته عشان تسجله مؤقتًا، أو ضيفه في شئون الموظفين الأول.`, true); return; }
+  if(valid.some(r => r.target === '' || r.target == null)){ showToast('⚠️ لازم تحدد التارجت لكل عاملة'); return; }
+  const upserts = [], deleteIds = [], keptIds = new Set();
+  valid.forEach(r => {
+    const vals = { t: Number(r.target)||0, p: Number(r.production)||0, hk: Number(r.halak)||0, es: Number(r.eslah)||0 };
+    const origId = eg.rowMap[r.rowId];
+    const orig = origId ? ENTRIES.find(x => String(x.id) === String(origId)) : null;
+    if(orig){
+      keptIds.add(String(orig.id));
+      const edited = JSON.parse(JSON.stringify(orig));
+      Object.assign(edited, { d:date, h:hall, l:Number(line), c:Number(r.code), n:r.name }, vals);
+      edited.at = Object.assign({}, edited.at || {}, r.aatal);
+      upserts.push(edited);
+      if(entriesWeekIndex(orig.d) !== entriesWeekIndex(date)) deleteIds.push(orig.id);
+    } else {
+      upserts.push(Object.assign({ id:'e'+Date.now()+Math.random().toString(36).slice(2,6), d:date, h:hall, l:Number(line), c:Number(r.code), n:r.name, at:r.aatal, by:currentUser.user }, vals));
+    }
+  });
+  const removedIds = eg.ids.filter(id => !keptIds.has(String(id)));
+  if(removedIds.length){
+    if(!confirm(`⚠️ إنت شلت ${removedIds.length} صف من الملف ده — هيتمسحوا نهائيًا ومش هيرجعوا.\n\nمتأكد إنك عايز تكمل الحفظ؟`)) return;
+    removedIds.forEach(id => deleteIds.push(id));
+  }
+  const btn = document.querySelector('#main-content .save-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ بيحفظ...'; }
+  const ok = await saveEntries({ upsert: upserts, deleteIds });
+  if(!ok){
+    if(btn){ btn.disabled = false; btn.textContent = '💾 حفظ التعديلات'; }
+    showToast('❌ التعديل ما اتحفظش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (البيانات لسه قدامك، جرّب تاني)', true);
+    return;
+  }
+  applyLocalEntryChanges(upserts, deleteIds);
+  const seen = new Set();
+  for(const r of valid.filter(x => x.isManual)){
+    const codeNum = Number(r.code);
+    if(seen.has(codeNum)) continue;
+    seen.add(codeNum);
+    const emp = { code: codeNum, name: r.name, hire_date: r.manualHireDate || null, addedBy: currentUser.user, addedAt: new Date().toISOString() };
+    await saveManualEmployeeRecord(emp);
+    if(!OPERATORS.some(o => o.c === emp.code)){
+      MANUAL_OPERATORS = MANUAL_OPERATORS.filter(o => o.c !== emp.code).concat([{c:emp.code, n:emp.name, job:'', dept:'', s:'نشط', a:true, hd:emp.hire_date, manual:true}]);
+      OPERATORS = OPERATORS.filter(o => o.c !== emp.code).concat(MANUAL_OPERATORS.filter(o => o.c === emp.code));
+    }
+  }
+  const f = eg.filter || {};
+  if(f.from && date < f.from) f.from = date;
+  if(f.to && date > f.to) f.to = date;
+  EDITING_RECORD_GROUP = null;
+  showToast(`✅ اتحفظ التعديل — ${upserts.length} سجل${removedIds.length ? ` واتمسح ${removedIds.length}` : ''}`);
+  switchTab('records');
+  restoreRecordsFilter(f);
 }
 function toggleNoNameDetail(hall, code){
   const wrap = document.getElementById('nn-detail-'+hall+'-'+code);
