@@ -5717,6 +5717,8 @@ async function applyRecordsFilter(){
     return;
   }
   rows.sort((a,b)=> (b.d+String(b.l)).localeCompare(a.d+String(a.l)));
+  const searchQ = (document.getElementById('rec-search')?.value || '').trim();
+  if(!searchQ){ list.innerHTML = recordsGroupedHtml(rows); return; }
   list.innerHTML = rows.slice(0,300).map(recordRowHtml).join('') +
     (rows.length>300 ? `<div class="data-note">في ${rows.length-300} سجل تاني، ضيق البحث أكتر عشان تشوفهم</div>` : '');
 }
@@ -5766,6 +5768,96 @@ function renderNoNameGroupedHtml(rows){
   }).join('');
   const note = `<div class="data-note" style="margin-bottom:8px;">في ${totalCodes} كود بدون اسم إجمالاً في ${hallsSorted.length} صالة — دوس "📋 التفاصيل" عشان تشوف كل يوم اشتغل فيه وتقدر تعدل الاسم أو تحذف. لما تسجل الاسم لأي كود، هينزرع تلقائي على كل السجلات التانية لنفس الكود.</div>`;
   return note + sections;
+}
+// ============ السجلات كملفات (زي جلسات الجرد والتارجت): كارت لكل يوم + صالة + خط ============
+let REC_GROUPS = [];
+function recordsGroupedHtml(rows){
+  const map = {};
+  rows.forEach(e => {
+    const k = e.d + '|' + e.h + '|' + e.l;
+    const g = map[k] || (map[k] = {d:e.d, h:e.h, l:e.l, ids:[], t:0, p:0, by:new Set()});
+    g.ids.push(e.id); g.t += (e.t||0); g.p += (e.p||0);
+    if(e.by) g.by.add(e.by);
+  });
+  REC_GROUPS = Object.values(map).sort((a,b)=> String(a.h).localeCompare(String(b.h)) || String(b.d).localeCompare(String(a.d)) || Number(a.l)-Number(b.l));
+  const shown = REC_GROUPS.slice(0,200);
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  let html = '', lastHall = null;
+  shown.forEach((g,i) => {
+    if(g.h !== lastHall){
+      lastHall = g.h;
+      const cnt = REC_GROUPS.filter(x => x.h === g.h).length;
+      html += `<div class="section-title" style="grid-column:1/-1;margin-top:10px;">🏭 ${recEsc(g.h)} <span class="count">(${cnt} ملف)</span></div>`;
+    }
+    html += `
+      <div class="file-card" onclick="openRecordGroup(${i})">
+        <div class="rtop">
+          <div><div class="rname">${recEsc(g.d)} · خط ${recEsc(g.l)}</div>
+          <div class="rmeta">${g.ids.length} عاملة · تارجت ${fmtNum(g.t)} · إنتاج ${fmtNum(g.p)}<br>${recEsc([...g.by].join('، ')) || '-'}</div></div>
+          <div class="ractions">
+            <button class="op-btn" onclick="event.stopPropagation();openRecordGroup(${i})">✏️</button>
+            ${isAdmin ? `<button class="op-btn" onclick="event.stopPropagation();confirmDeleteRecordGroup(${i})">🗑️</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  });
+  if(REC_GROUPS.length > shown.length) html += `<div class="data-note" style="grid-column:1/-1;">في ${REC_GROUPS.length-shown.length} ملف تاني، ضيّق الفترة أو الصالة عشان تشوفهم</div>`;
+  return html;
+}
+function openRecordGroup(i){
+  const g = REC_GROUPS[i];
+  if(!g) return;
+  const set = new Set(g.ids.map(String));
+  const rows = ENTRIES.filter(e => set.has(String(e.id))).sort((a,b)=> Number(a.c)-Number(b.c));
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap" style="max-width:640px;">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>📁 ${recEsc(g.d)} · ${recEsc(g.h)} · خط ${recEsc(g.l)}</h3>
+        <div style="font-size:11.5px;color:#B9BFCF;margin-bottom:10px;">${rows.length} عاملة — دوس على أي سجل عشان تعدّله، أو 🗑️ عشان تحذفه (هيسألك تأكيد قبل الحذف).</div>
+        <div style="max-height:62vh;overflow:auto;">${rows.map(recordRowHtml).join('') || '<div class="empty-state">مفيش سجلات</div>'}</div>
+      </div>
+    </div>`;
+}
+function confirmDeleteRecordGroup(i){
+  const g = REC_GROUPS[i];
+  if(!g) return;
+  if(!currentUser || currentUser.role !== 'admin'){ showToast('🚫 حذف الملف كله متاح لحسام (admin) بس — تقدر تحذف كل سجل لوحده من جوه الملف'); return; }
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap" style="max-width:480px;">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>🗑️ تأكيد حذف الملف كله</h3>
+        <div style="font-size:12.5px;color:#FFB4A9;margin-bottom:12px;">⚠️ هتمسح ${g.ids.length} سجل مرة واحدة، والحذف نهائي ومش هيرجع تاني.</div>
+        <div style="background:#232A3D;border:1px solid #3A4257;border-radius:12px;padding:12px;font-size:12.5px;color:#fff;line-height:1.9;margin-bottom:6px;">
+          <div><b>${recEsc(g.d)}</b> · ${recEsc(g.h)} · خط ${recEsc(g.l)}</div>
+          <div style="color:#B9BFCF;">${g.ids.length} عاملة · تارجت ${fmtNum(g.t)} · إنتاج ${fmtNum(g.p)}</div>
+        </div>
+        <button id="rg-del-btn" class="apply-btn" style="background:#C62828;" onclick="doDeleteRecordGroup(${i})">🗑️ احذف الملف كله نهائيًا</button>
+        <button class="apply-btn" style="background:#8891A4;" onclick="closeModal()">إلغاء</button>
+      </div>
+    </div>`;
+}
+async function doDeleteRecordGroup(i){
+  const g = REC_GROUPS[i];
+  if(!g) return;
+  const btn = document.getElementById('rg-del-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ بيمسح...'; }
+  const ids = g.ids.slice();
+  const idSet = new Set(ids.map(String));
+  const backup = ENTRIES;
+  ENTRIES = ENTRIES.filter(e => !idSet.has(String(e.id)));
+  const saved = await saveEntries({deleteIds: ids});
+  if(!saved){
+    ENTRIES = backup;
+    showToast('❌ الحذف ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجلات لسه موجودة زي ما هي)', true);
+    if(btn){ btn.disabled = false; btn.textContent = '🗑️ احذف الملف كله نهائيًا'; }
+    return;
+  }
+  applyLocalEntryChanges([], ids);
+  closeModal();
+  showToast(`🗑️ اتمسح ${ids.length} سجل`);
+  applyRecordsFilter();
 }
 function toggleNoNameDetail(hall, code){
   const wrap = document.getElementById('nn-detail-'+hall+'-'+code);
