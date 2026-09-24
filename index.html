@@ -1407,6 +1407,64 @@ try{
 }catch(e){
   console.warn('فشل الاتصال بـ Firebase:', e);
 }
+// ============ عدّاد القراءات (تقديري، على الجهاز ده بس) — بيساعد نعرف أنهي جزء بيستهلك كوتة القراءة ============
+const readMeter = (function(){
+  const PREFIX = 'readMeter_';
+  const dayKey = () => PREFIX + new Date().toISOString().slice(0,10);
+  let curKey = dayKey();
+  const load = k => { try{ return JSON.parse(localStorage.getItem(k) || '{}') || {}; }catch(e){ return {}; } };
+  let data = load(curKey);
+  const session = {};
+  function add(label, n){
+    try{
+      n = Number(n) || 0; if(!n) return;
+      const k = dayKey();
+      if(k !== curKey){ curKey = k; data = load(k); }
+      data[label] = (data[label] || 0) + n;
+      session[label] = (session[label] || 0) + n;
+      localStorage.setItem(curKey, JSON.stringify(data));
+    }catch(e){}
+  }
+  // snapshot جاي من onSnapshot: بنعدّ بس اللي جه من السيرفر (مش الكاش ولا كتابة محلية) = عدد المستندات اللي اتغيّرت/اتضافت
+  function snap(label, sn){
+    try{
+      if(sn.metadata && (sn.metadata.fromCache || sn.metadata.hasPendingWrites)) return;
+      add(label, typeof sn.docChanges === 'function' ? sn.docChanges().length : 1);
+    }catch(e){}
+  }
+  function days(){
+    const out = [];
+    try{ for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf(PREFIX)===0) out.push(k.slice(PREFIX.length)); } }catch(e){}
+    return out.sort().reverse();
+  }
+  function dayTotal(day){ const d = load(PREFIX + day); return Object.values(d).reduce((a,b)=>a+(Number(b)||0),0); }
+  function today(){ return data; }
+  function reset(){ data = {}; Object.keys(session).forEach(k => delete session[k]); try{ localStorage.removeItem(curKey); }catch(e){} }
+  return { add, snap, days, dayTotal, today, session, reset };
+})();
+function openReadMeter(){
+  const row = (label, n, tot) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:5px 0;border-bottom:1px solid #2C344A;color:#fff;"><span>${label}</span><span style="font-family:'JetBrains Mono',monospace;">${n}${tot ? ' <span style="color:#8891A4;">(' + Math.round(n/tot*100) + '%)</span>' : ''}</span></div>`;
+  const t = readMeter.today();
+  const tTot = Object.values(t).reduce((a,b)=>a+b,0);
+  const sTot = Object.values(readMeter.session).reduce((a,b)=>a+b,0);
+  const sorted = obj => Object.entries(obj).sort((a,b)=>b[1]-a[1]);
+  const daysHtml = readMeter.days().slice(0,7).map(d => row(d, readMeter.dayTotal(d))).join('');
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap" style="max-width:520px;">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>📈 عدّاد القراءات (تقديري)</h3>
+        <div style="font-size:11.5px;color:#B9BFCF;margin-bottom:10px;">بيعدّ المستندات اللي جت من السيرفر على الجهاز ده بس. قارنه برقم Firebase → Usage عشان تعرف أنهي جزء هو الأكبر.</div>
+        <div style="font-weight:700;color:#E7A335;margin:8px 0 4px;">النهاردة على الجهاز ده — الإجمالي ${tTot}</div>
+        ${sorted(t).map(([k,v]) => row(k, v, tTot)).join('') || '<div style="color:#8891A4;font-size:12px;">لسه مفيش قراءات متسجلة.</div>'}
+        <div style="font-weight:700;color:#E7A335;margin:14px 0 4px;">من أول ما الصفحة اتفتحت (الفتحة دي فقط) — ${sTot}</div>
+        ${sorted(readMeter.session).map(([k,v]) => row(k, v, sTot)).join('') || '<div style="color:#8891A4;font-size:12px;">—</div>'}
+        <div style="font-weight:700;color:#E7A335;margin:14px 0 4px;">آخر أيام (إجمالي كل يوم)</div>
+        ${daysHtml || '<div style="color:#8891A4;font-size:12px;">—</div>'}
+        <button class="apply-btn" style="background:#8891A4;" onclick="readMeter.reset();openReadMeter()">🔄 صفّر عدّاد النهاردة</button>
+      </div>
+    </div>`;
+}
 const FS_COLLECTION = 'milano_production'; // كل بيانات النظام متخزنة هنا في مستندات منفصلة
 // سجلات تقييم الأداء (ENTRIES) بس ليها تخزين مختلف: كل سجل مستند مستقل في الكولكشن ده بدل ما تتكدس
 // كلها كنص JSON واحد جوه مستند واحد. العدد بيكبر يوميًا من كل الصالات، وأي مستند في Firestore
@@ -1899,6 +1957,7 @@ function watchCoreCollectionOnce(colRef, spec){
   return new Promise(resolve => {
     let settled = false;
     const unsub = colRef.onSnapshot(snap => {
+      readMeter.snap(spec.docId, snap);
       const data = snap.docs.map(d => d.data());
       if(!settled){
         settled = true;
@@ -1985,8 +2044,11 @@ async function getKnownEntriesWeeks(){
   ENTRIES_KNOWN_WEEKS_CACHE = snap.exists ? (snap.data().weeks || []) : [];
   return ENTRIES_KNOWN_WEEKS_CACHE;
 }
+const ENTRIES_REGISTERED_WEEKS = new Set(); // أسابيع اتأكدنا إنها مسجلة في الجلسة دي — عشان مانقراش مستند الـ meta تاني مع كل حفظة
 async function registerEntriesWeekKey(wk){
-  if(ENTRIES_KNOWN_WEEKS_CACHE && ENTRIES_KNOWN_WEEKS_CACHE.includes(wk)) return; // مسجل قبل كده، مفيش داعي نكتب تاني
+  if(ENTRIES_REGISTERED_WEEKS.has(wk)) return;
+  if(ENTRIES_KNOWN_WEEKS_CACHE && ENTRIES_KNOWN_WEEKS_CACHE.includes(wk)){ ENTRIES_REGISTERED_WEEKS.add(wk); return; } // مسجل قبل كده، مفيش داعي نكتب تاني
+  readMeter.add('save_tx_meta_read', 1);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(entriesWeeksMetaDoc());
     const known = snap.exists ? (snap.data().weeks || []) : [];
@@ -1995,6 +2057,7 @@ async function registerEntriesWeekKey(wk){
       tx.set(entriesWeeksMetaDoc(), { weeks: known });
     }
   });
+  ENTRIES_REGISTERED_WEEKS.add(wk);
   ENTRIES_KNOWN_WEEKS_CACHE = null; // خلي أول قراءة جاية تجيب النسخة المحدّثة
 }
 // set/delete آمنين على مستوى الأسبوع (transaction) — بياخدوا سجلات لحفظها و/أو
@@ -2016,6 +2079,7 @@ async function entriesApplyChanges(setRows, deleteIds){
   for(const wk of weekKeys){
     const {set, del} = byWeek[wk];
     const docRef = entriesWeekDoc(wk);
+    readMeter.add('save_tx_week_read', 1);
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(docRef);
       const arr = entriesParseChunk(snap);
@@ -2045,8 +2109,55 @@ async function entriesApplyChanges(setRows, deleteIds){
 // كذا مرة من غير ريفريش للصفحة مايكلفش قراءة الأسابيع دي تاني في كل مرة. الشرط
 // [...].includes(activeTab) بيمنع أي لمسة للشاشة قبل الدخول الفعلي (activeTab = null
 // قبل كده)، فآمن تمامًا نبدأها بدري.
+let entriesLiveUnsubs = [];
+let entriesLiveHiddenTimer = null;
+const ENTRIES_LIVE_PAUSE_AFTER_MS = 2 * 60 * 1000; // لو التاب/التطبيق فضل في الخلفية أكتر من دقيقتين نوقف المراقبة اللحظية
+function stopEntriesLiveWatch(){
+  entriesLiveUnsubs.forEach(u => { try{ u(); }catch(e){} });
+  entriesLiveUnsubs = [];
+}
+// كل حفظة من أي صالة بتغيّر مستند الأسبوع، وكل جهاز مفتوح عليه المراقبة بيتحسب عليه قراءة — حتى لو التاب في الخلفية.
+// فبنقفل المراقبة لما الصفحة تختفي، ونفتحها تاني أول ما ترجع (بتاخد آخر نسخة + أي تغيير حصل وأنت غايب).
+document.addEventListener('visibilitychange', () => {
+  if(!firebaseReady) return;
+  if(document.hidden){
+    if(entriesLiveHiddenTimer) clearTimeout(entriesLiveHiddenTimer);
+    entriesLiveHiddenTimer = setTimeout(() => { entriesLiveHiddenTimer = null; if(document.hidden) stopEntriesLiveWatch(); }, ENTRIES_LIVE_PAUSE_AFTER_MS);
+  } else {
+    if(entriesLiveHiddenTimer){ clearTimeout(entriesLiveHiddenTimer); entriesLiveHiddenTimer = null; }
+    if(entriesLiveUnsubs.length === 0) startEntriesLiveWatch();
+  }
+});
+// ===== قطع الاتصال بالسيرفر (كل المراقبات مش سجلات الإنتاج بس) لما التاب يفضل في الخلفية =====
+// كل حفظة من أي جهاز بتتحسب قراءة على كل جهاز فاتح، حتى لو التاب مش قدام حد. المراقبات الـ 11 التانية
+// (المستخدمين/الجرد/التارجت/القوة/الموظفين...) كانت بتفضل شغالة طول اليوم، فبنقفل الشبكة بعد 3 دقايق في الخلفية
+// ونفتحها أول ما التاب يرجع (Firestore بيكمّل من آخر نقطة من الكاش المحلي ومابيقراش غير اللي اتغيّر).
+// الكتابات المعلّقة بتفضل محفوظة محليًا وبتتبعت أول ما الشبكة ترجع، ومابنقفلش وفيه حفظة شغالة.
+const NET_PAUSE_AFTER_MS = 3 * 60 * 1000;
+let netPauseTimer = null, netPaused = false;
+function anySaveInFlight(){ try{ return Object.values(SAVE_IN_FLIGHT).some(n => n > 0); }catch(e){ return false; } }
+function scheduleNetPause(){
+  if(netPauseTimer) clearTimeout(netPauseTimer);
+  netPauseTimer = setTimeout(async () => {
+    netPauseTimer = null;
+    if(!document.hidden || netPaused || !firebaseReady) return;
+    if(anySaveInFlight()){ scheduleNetPause(); return; }
+    netPaused = true;
+    try{ await db.disableNetwork(); }catch(e){ console.warn('disableNetwork:', e); }
+  }, NET_PAUSE_AFTER_MS);
+}
+document.addEventListener('visibilitychange', async () => {
+  if(!firebaseReady) return;
+  if(document.hidden){ scheduleNetPause(); return; }
+  if(netPauseTimer){ clearTimeout(netPauseTimer); netPauseTimer = null; }
+  if(netPaused){
+    try{ await db.enableNetwork(); }catch(e){ console.warn('enableNetwork:', e); }
+    netPaused = false;
+  }
+});
 function startEntriesLiveWatch(){
   if(!firebaseReady) return;
+  stopEntriesLiveWatch();
   const weekKeys = entriesWeekKeysInRange(entriesCutoffStr(), todayStr());
   const chunkArrs = {};
   const rebuildLive = () => {
@@ -2063,11 +2174,12 @@ function startEntriesLiveWatch(){
   };
   weekKeys.forEach(k => {
     const unsub = entriesWeekDoc(k).onSnapshot(snap => {
+      readMeter.snap('entries_weeks_live', snap);
       chunkArrs[k] = entriesParseChunk(snap);
       rebuildLive();
       connReportOk('entries:' + k);
     }, err => connReportError('entries:' + k, err));
-    coreRealtimeUnsubs.push(unsub);
+    entriesLiveUnsubs.push(unsub);
   });
 }
 function startRealtimeSync(){
@@ -2088,7 +2200,10 @@ const HR_EMP_CHUNKS = 5;
 function hrEmpChunkDocMain(i){
   return db.collection(FS_COLLECTION).doc('hr_employees_chunks').collection('parts').doc(String(i));
 }
+let EMPLOYEE_WATCH_STARTED = false;
 function watchEmployeeChunksMain(){
+  if(EMPLOYEE_WATCH_STARTED) return; // بدأت قبل كده في الصفحة دي — مفيش داعي نعيد الاشتراك (وقراءة كل الموظفين) مع كل تسجيل دخول
+  EMPLOYEE_WATCH_STARTED = true;
   const chunkArrs = new Array(HR_EMP_CHUNKS).fill(null);
   let manualArr = [];
   // قائمة "التعيينات الأساسية" (تاب التعيينات/التصفية، mlp_operators_index) هي كمان مصدر
@@ -2110,25 +2225,28 @@ function watchEmployeeChunksMain(){
   for (let i = 0; i < HR_EMP_CHUNKS; i++){
     const idx = i;
     const unsub = hrEmpChunkDocMain(idx).onSnapshot(snap => {
+      readMeter.snap('hr_employee_chunks', snap);
       let arr = [];
       if (snap.exists){ try { arr = JSON.parse(snap.data().value || '[]'); } catch(e){ arr = []; } }
       chunkArrs[idx] = arr;
       rebuild();
     }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
-    realtimeUnsubs.push(unsub);
+    coreRealtimeUnsubs.push(unsub);
   }
   const unsubBaseOps = operatorsCol().onSnapshot(snap => {
+    readMeter.snap('operators_collection', snap);
     baseOpsArr = snap.docs.map(d => d.data());
     rebuild();
   }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
-  realtimeUnsubs.push(unsubBaseOps);
+  coreRealtimeUnsubs.push(unsubBaseOps);
   const unsubManual = manualEmployeesCol().onSnapshot(snap => {
+    readMeter.snap('manual_employees', snap);
     manualArr = snap.docs.map(d => d.data());
     MANUAL_OPERATORS = mapManualToOperators(manualArr);
     rebuild();
     if(activeTab === 'manualcodes' && document.getElementById('manualcodes-list')) renderManualCodesTab();
   }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
-  realtimeUnsubs.push(unsubManual);
+  coreRealtimeUnsubs.push(unsubManual);
 }
 function stopRealtimeSync(){
   realtimeUnsubs.forEach(u => { try{ u(); }catch(e){} });
@@ -2148,6 +2266,7 @@ async function ensureEntriesArchiveLoaded(){
       const liveWeeks = new Set(entriesWeekKeysInRange(entriesCutoffStr(), todayStr()));
       const archiveWeeks = allWeeks.filter(wk => !liveWeeks.has(wk));
       const snaps = await Promise.all(archiveWeeks.map(wk => entriesWeekDoc(wk).get()));
+      readMeter.add('entries_archive', snaps.length);
       const merged = [];
       snaps.forEach(snap => entriesParseChunk(snap).forEach(e => merged.push(e)));
       ENTRIES_ARCHIVE = merged;
@@ -2414,6 +2533,7 @@ function openNotifyModal(){
         </div>
         <button class="apply-btn" onclick="commitSendNotify()">📤 ابعت على الواتساب</button>
         <button class="op-btn" style="margin-top:8px;width:100%;" onclick="openHallManagersSettings()">⚙️ أرقام مديري الصالات</button>
+        <button class="op-btn" style="margin-top:8px;width:100%;" onclick="openReadMeter()">📈 عدّاد القراءات</button>
       </div>
     </div>`;
   fillNotifyMessage();
@@ -2998,6 +3118,7 @@ async function pfDbSet(key, value){
 async function pfDbGetAll(){
   if(!firebaseReady || !db) return {};
   const snap = await printFormsCol().get();
+  readMeter.add('print_forms', snap.size);
   const result = {};
   snap.forEach(doc => { result[doc.id] = doc.data(); });
   return result;
@@ -5327,7 +5448,7 @@ function renderRecordsTab(){
   const main = document.getElementById('main-content');
   main.innerHTML = `
     <div class="section-title">🗂️ السجلات المسجلة</div>
-    <div class="data-note" style="margin-bottom:8px;">دور بالتاريخ أو الصالة أو الخط على أي سجل قديم وعدله أو احذفه من هنا، أو شوف كل الأكواد اللي لسه بدون اسم مقسّمة بالصالات عشان تراجع الورق بسهولة.</div>
+    <div class="data-note" style="margin-bottom:8px;">دور بالتاريخ أو الصالة أو الخط على أي سجل قديم، ودوس عليه عشان يفتح في صفحة تعدّل فيها (التاريخ، الكود، التارجت، الإنتاج...) أو تحذفه من هنا، أو شوف كل الأكواد اللي لسه بدون اسم مقسّمة بالصالات عشان تراجع الورق بسهولة.</div>
     <div id="records-panel-wrap">${recordsPanelHtml()}</div>
 
     <div class="section-title" style="margin-top:22px;">📊 تقرير الاكتمال (الأيام والخطوط الناقصة)</div>
@@ -5653,134 +5774,230 @@ function toggleNoNameDetail(hall, code){
   const entries = (LAST_NONAME_GROUPS[hall+'|'+code] || []).slice().sort((a,b)=> a.d.localeCompare(b.d));
   wrap.innerHTML = entries.map(recordRowHtml).join('');
 }
+function recEsc(v){ return String(v==null?'':v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function recordRowHtml(e){
+  const sid = recEsc(e.id);
   return `
-    <div class="record-row" id="rec-${e.id}">
+    <div class="record-row" id="rec-${sid}" style="cursor:pointer;" onclick="openRecordEditor('${sid}')">
       <div class="rtop">
-        <div><div class="rname">${e.n || 'بدون اسم'} — كود ${e.c}</div><div class="rmeta">${e.d} · ${e.h} · خط ${e.l} · تسجيل: ${e.by||'-'}</div></div>
+        <div><div class="rname">${recEsc(e.n) || 'بدون اسم'} — كود ${recEsc(e.c)}</div><div class="rmeta">${recEsc(e.d)} · ${recEsc(e.h)} · خط ${recEsc(e.l)} · تسجيل: ${recEsc(e.by)||'-'}</div></div>
         <div class="ractions">
-          <button class="op-btn" onclick="startEditRecord('${e.id}')">✏️</button>
-          <button class="op-btn" onclick="deleteRecord('${e.id}')">🗑️</button>
+          <button class="op-btn" onclick="event.stopPropagation();openRecordEditor('${sid}')">✏️</button>
+          <button class="op-btn" onclick="event.stopPropagation();confirmDeleteRecord('${sid}')">🗑️</button>
         </div>
       </div>
       <div class="rmeta">تارجت ${fmtNum(e.t)} · إنتاج ${fmtNum(e.p)} · هالك ${fmtNum(e.hk)} · إصلاح ${fmtNum(e.es)}</div>
-      <div id="rec-edit-${e.id}"></div>
     </div>
   `;
 }
-function startEditRecord(id){
-  const e = ENTRIES.find(x=>x.id===id);
-  if(!e) return;
-  const hasName = !!(e.n && e.n.trim());
-  document.getElementById('rec-edit-'+id).innerHTML = `
-    ${!hasName ? `<div class="data-note" style="margin-bottom:6px;">⚠️ الكود ده لسه بدون اسم — صحّح الكود تحت لو اتكتب غلط، وهيتجاب الاسم تلقائي لو موجود في شئون الموظفين. لو الكود صح بس مش موجود هناك، اكتب الاسم يدويًا وهيتحفظ تلقائي للمرة الجاية.</div>` : ''}
-    <div class="record-edit-grid">
-      <div><label>الكود</label><input type="number" id="edit-c-${id}" value="${e.c}" placeholder="كود العاملة" oninput="onEditCodeInput('${id}')"></div>
-      <div><label>الاسم</label><input type="text" id="edit-n-${id}" class="ename${OPERATORS.find(o=>Number(o.c)===Number(e.c))?' found':''}" value="${e.n||''}" placeholder="اكتب الاسم هنا" ${OPERATORS.find(o=>Number(o.c)===Number(e.c))?'readonly':''}></div>
-      <div><label>تاريخ التعيين (اختياري لو الكود مؤقت)</label><input type="date" id="edit-hd-${id}" value="" ${OPERATORS.find(o=>Number(o.c)===Number(e.c))?'disabled':''}></div>
-      <div><label>تارجت</label><input type="number" id="edit-t-${id}" value="${e.t}"></div>
-      <div><label>إنتاج</label><input type="number" id="edit-p-${id}" value="${e.p}"></div>
-      <div><label>هالك</label><input type="number" id="edit-hk-${id}" value="${e.hk}"></div>
-      <div><label>إصلاح</label><input type="number" id="edit-es-${id}" value="${e.es}"></div>
-      ${AATAL_KEYS.map(k=>`<div><label>${AATAL_LABELS[k]}</label><input type="number" id="edit-at-${id}-${k}" value="${(e.at&&e.at[k])||0}"></div>`).join('')}
-    </div>
-    <button class="apply-btn" style="margin-top:8px;" onclick="commitEditRecord('${id}')">💾 حفظ التعديل</button>
-  `;
+// ============ صفحة تعديل السجل (نافذة منفصلة) + تأكيد الحذف ============
+let RECORD_EDITOR_ID = null;
+function startEditRecord(id){ openRecordEditor(id); }
+function recEdLineOptions(hall, selected){
+  const lines = (HALL_LINES[hall] || []).slice();
+  if(selected != null && !isNaN(Number(selected)) && !lines.includes(Number(selected))) lines.push(Number(selected));
+  return lines.map(l => `<option value="${l}" ${Number(l)===Number(selected)?'selected':''}>خط ${l}</option>`).join('');
 }
-function onEditCodeInput(id){
-  const codeEl = document.getElementById('edit-c-'+id);
-  const nameEl = document.getElementById('edit-n-'+id);
-  const hireEl = document.getElementById('edit-hd-'+id);
+function onRecEdHallChange(){
+  const hall = document.getElementById('re-hall').value;
+  const lineSel = document.getElementById('re-line');
+  const cur = lineSel.value;
+  lineSel.innerHTML = recEdLineOptions(hall, null);
+  if([...lineSel.options].some(o => o.value === cur)) lineSel.value = cur;
+}
+function onRecEdCodeInput(){
+  const codeEl = document.getElementById('re-code');
+  const nameEl = document.getElementById('re-name');
+  const hireEl = document.getElementById('re-hd');
   if(!codeEl || !nameEl) return;
   const code = codeEl.value;
   if(!code){
-    nameEl.readOnly = false; nameEl.className = 'ename'; nameEl.placeholder = 'اكتب الاسم هنا';
-    if(hireEl){ hireEl.disabled = false; }
+    nameEl.readOnly = false; nameEl.placeholder = 'اكتب الاسم هنا';
+    if(hireEl) hireEl.disabled = false;
     return;
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
   if(found){
-    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found' + (found.manual ? ' manual' : '');
+    nameEl.value = found.n; nameEl.readOnly = true;
     if(hireEl){ hireEl.disabled = true; hireEl.value = found.hd || ''; }
   } else {
-    // الكود مش موجود في شئون الموظفين ولا في الأكواد اليدوية — اسمحله يكتب الاسم يدويًا
-    nameEl.value = ''; nameEl.readOnly = false; nameEl.className = 'ename missing';
+    nameEl.value = ''; nameEl.readOnly = false;
     nameEl.placeholder = '⚠️ الكود مش موجود في شئون الموظفين — اكتب الاسم هنا (تسجيل مؤقت)';
     if(hireEl){ hireEl.disabled = false; hireEl.value = ''; }
   }
 }
-async function commitEditRecord(id){
-  const entriesBackup = JSON.parse(JSON.stringify(ENTRIES)); // نسخة كاملة من كل السجلات قبل أي تعديل، عشان لو الحفظ فشل نرجّع كل حاجة زي ما كانت بالظبط (حتى السجلات التانية اللي ممكن ينسحب عليها الاسم)
-  const e = ENTRIES.find(x=>x.id===id);
-  if(!e) return;
-  const hadNoName = !e.n || !e.n.trim();
-  const oldCode = e.c;
-  const codeInput = document.getElementById('edit-c-'+id);
-  let newCode = codeInput ? Number(codeInput.value) : oldCode;
+function openRecordEditor(id){
+  const e = ENTRIES.find(x => String(x.id) === String(id));
+  if(!e){ showToast('⚠️ السجل ده مش موجود (يمكن اتمسح)'); return; }
+  RECORD_EDITOR_ID = e.id;
+  const hallList = HALLS.includes(e.h) ? HALLS : HALLS.concat([e.h]);
+  const hallOpts = hallList.map(h => `<option value="${recEsc(h)}" ${h===e.h?'selected':''}>${recEsc(h)}</option>`).join('');
+  const op = OPERATORS.find(o => Number(o.c) === Number(e.c));
+  const hasName = !!(e.n && e.n.trim());
+  const anyAatal = AATAL_KEYS.some(k => e.at && Number(e.at[k]));
+  const aatalHtml = AATAL_KEYS.map(k => `
+    <div class="field"><label>${AATAL_LABELS[k]}</label><input type="number" id="re-at-${k}" value="${(e.at && e.at[k]) || 0}"></div>`).join('');
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap" style="max-width:560px;">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>✏️ تعديل سجل</h3>
+        <div style="font-size:11.5px;color:#B9BFCF;margin-bottom:12px;">السجل الحالي: ${recEsc(e.d)} · ${recEsc(e.h)} · خط ${recEsc(e.l)} · كود ${recEsc(e.c)} · تسجيل: ${recEsc(e.by)||'-'}</div>
+        ${!hasName ? `<div style="font-size:11.5px;color:#E7A335;margin-bottom:10px;">⚠️ الكود ده لسه بدون اسم — صحّح الكود لو اتكتب غلط، وهيتجاب الاسم تلقائي لو موجود في شئون الموظفين.</div>` : ''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="field"><label>التاريخ</label><input type="date" id="re-date" value="${recEsc(e.d)}"></div>
+          <div class="field"><label>الصالة</label><select id="re-hall" onchange="onRecEdHallChange()">${hallOpts}</select></div>
+          <div class="field"><label>الخط</label><select id="re-line">${recEdLineOptions(e.h, e.l)}</select></div>
+          <div class="field"><label>الكود</label><input type="number" id="re-code" value="${recEsc(e.c)}" oninput="onRecEdCodeInput()"></div>
+        </div>
+        <div class="field"><label>الاسم</label><input type="text" id="re-name" value="${recEsc(e.n||'')}" placeholder="اكتب الاسم هنا" ${op?'readonly':''}></div>
+        <div class="field"><label>تاريخ التعيين (اختياري لو الكود مؤقت)</label><input type="date" id="re-hd" value="" ${op?'disabled':''}></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="field"><label>تارجت</label><input type="number" id="re-t" value="${Number(e.t)||0}"></div>
+          <div class="field"><label>إنتاج</label><input type="number" id="re-p" value="${Number(e.p)||0}"></div>
+          <div class="field"><label>هالك</label><input type="number" id="re-hk" value="${Number(e.hk)||0}"></div>
+          <div class="field"><label>إصلاح</label><input type="number" id="re-es" value="${Number(e.es)||0}"></div>
+        </div>
+        <details ${anyAatal?'open':''} style="margin:4px 0 8px;">
+          <summary style="color:#B9BFCF;font-size:12px;cursor:pointer;margin-bottom:8px;">الأعطال (مش بتتخصم من الأداء)</summary>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${aatalHtml}</div>
+        </details>
+        <button id="re-save" class="apply-btn" onclick="commitRecordEditor()">💾 حفظ التعديل</button>
+        <button class="apply-btn" style="background:#8891A4;" onclick="closeModal()">إلغاء</button>
+        <button class="apply-btn" style="background:#C62828;margin-top:22px;" onclick="confirmDeleteRecord('${recEsc(e.id)}')">🗑️ حذف السجل</button>
+      </div>
+    </div>`;
+  // لو الكود موجود في شئون الموظفين نعرض تاريخ تعيينه (الخانة مقفولة)
+  const hireEl = document.getElementById('re-hd');
+  if(op && hireEl) hireEl.value = op.hd || '';
+}
+// بتطبّق التعديل/الحذف على النسخ المحلية (الحية + الأرشيف) بعد نجاح الحفظ — عشان لو السجل اتنقل لأسبوع
+// تاني (بعد تعديل التاريخ) أو اتمسح من الأرشيف يظهر/يختفي فورًا من غير ما ننتظر أي قراءة جديدة.
+function applyLocalEntryChanges(upserts, deleteIds){
+  const ids = new Set([...(deleteIds||[]), ...(upserts||[]).map(r => r.id)].map(String));
+  ENTRIES_LIVE = ENTRIES_LIVE.filter(x => !ids.has(String(x.id)));
+  ENTRIES_ARCHIVE = ENTRIES_ARCHIVE.filter(x => !ids.has(String(x.id)));
+  const liveWeeks = new Set(entriesWeekKeysInRange(entriesCutoffStr(), todayStr()));
+  (upserts||[]).forEach(r => {
+    (liveWeeks.has(String(entriesWeekIndex(r.d))) ? ENTRIES_LIVE : ENTRIES_ARCHIVE).push(r);
+  });
+  rebuildEntries();
+}
+async function commitRecordEditor(){
+  const id = RECORD_EDITOR_ID;
+  const orig = ENTRIES.find(x => String(x.id) === String(id));
+  if(!orig){ showToast('⚠️ السجل ده مش موجود (يمكن اتمسح)', true); closeModal(); return; }
+  const g = k => document.getElementById(k);
+  const date = g('re-date').value;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date + 'T00:00:00Z'))){ showToast('⚠️ اكتب تاريخ صحيح'); return; }
+  const hall = g('re-hall').value;
+  const line = Number(g('re-line').value);
+  if(!hall || !line){ showToast('⚠️ اختار الصالة والخط'); return; }
+  const newCode = Number(g('re-code').value);
   if(!newCode || isNaN(newCode)){ showToast('⚠️ لازم تكتب كود صحيح'); return; }
-  // الكود لازم يكون معروف — إما من شئون الموظفين، أو باسم يدوي اتكتب دلوقتي لكود مش موجود هناك
   const matchOp = OPERATORS.find(o => Number(o.c) === newCode);
-  const nameEl = document.getElementById('edit-n-'+id);
-  const manualName = !matchOp && nameEl ? nameEl.value.trim() : '';
-  if(!matchOp && !manualName){ showToast(`⚠️ الكود ${newCode} مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم عشان تسجله مؤقتًا، أو ضيفه هناك الأول.`, true); return; }
+  const manualName = !matchOp ? g('re-name').value.trim() : '';
+  if(!matchOp && !manualName){ showToast(`⚠️ الكود ${newCode} مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم عشان تسجله مؤقتًا، أو ضيفه هناك الأول.`); return; }
   const newName = matchOp ? (matchOp.n || '') : manualName;
-  let newManualEmployee = null;
-  if(!matchOp && manualName){
-    const hireEl = document.getElementById('edit-hd-'+id);
-    newManualEmployee = { code: newCode, name: manualName, hire_date: (hireEl && hireEl.value) || null, addedBy: currentUser.user, addedAt: new Date().toISOString() };
-  }
-  const codeChanged = newCode !== Number(oldCode);
-  e.c = newCode;
-  e.n = newName;
-  e.t = Number(document.getElementById('edit-t-'+id).value)||0;
-  e.p = Number(document.getElementById('edit-p-'+id).value)||0;
-  e.hk = Number(document.getElementById('edit-hk-'+id).value)||0;
-  e.es = Number(document.getElementById('edit-es-'+id).value)||0;
-  e.at = e.at || {};
-  AATAL_KEYS.forEach(k => e.at[k] = Number(document.getElementById('edit-at-'+id+'-'+k).value)||0);
+  const num = k => Number(g(k).value) || 0;
+  const vals = { t:num('re-t'), p:num('re-p'), hk:num('re-hk'), es:num('re-es') };
+  const at = {};
+  AATAL_KEYS.forEach(k => { at[k] = num('re-at-'+k); });
+  if(Object.values(vals).some(v => v < 0) || Object.values(at).some(v => v < 0)){ showToast('⚠️ الأرقام مينفعش تكون بالسالب'); return; }
+  // نفس الكود على نفس الخط في نفس اليوم ممكن يكون مقصود (أكتر من ماكينة) — بنسأل بس عشان ماتحصلش تكرار بالغلط
+  const dup = ENTRIES.find(x => String(x.id) !== String(id) && x.d === date && x.h === hall && Number(x.l) === line && Number(x.c) === newCode);
+  if(dup && !confirm(`⚠️ فيه سجل تاني بنفس (${date} · ${hall} · خط ${line} · كود ${newCode}). تكمل الحفظ برضه؟`)) return;
+
+  const edited = JSON.parse(JSON.stringify(orig));
+  Object.assign(edited, { d:date, h:hall, l:line, c:newCode, n:newName }, vals);
+  edited.at = Object.assign({}, edited.at || {}, at);
+  const hadNoName = !orig.n || !orig.n.trim();
+  const upserts = [edited];
   let propagatedCount = 0;
-  const changedEntries = [e];
-  // لو الكود كان من غير اسم، انزرع الاسم على كل سجلاته التانية اللي لسه من غير اسم (بنفس الكود الجديد)
   if(hadNoName && newName){
     ENTRIES.forEach(x => {
-      if(x.id !== id && Number(x.c) === newCode && (!x.n || !x.n.trim())){
-        x.n = newName;
+      if(String(x.id) !== String(id) && Number(x.c) === newCode && (!x.n || !x.n.trim())){
+        upserts.push(Object.assign(JSON.parse(JSON.stringify(x)), { n:newName }));
         propagatedCount++;
-        changedEntries.push(x);
       }
     });
   }
-  const entriesOk = await saveEntries({upsert: changedEntries});
-  if(!entriesOk){
-    ENTRIES = entriesBackup;
-    showToast('❌ التعديل ما اتحفظش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (رجّعنا السجل زي ما كان)', true);
-    applyRecordsFilter();
+  let newManualEmployee = null;
+  if(!matchOp && manualName){
+    newManualEmployee = { code:newCode, name:manualName, hire_date:(g('re-hd') && g('re-hd').value) || null, addedBy:currentUser.user, addedAt:new Date().toISOString() };
+  }
+  // لو التاريخ اتغيّر لأسبوع تاني، السجل بيتنقل (يتكتب في الأسبوع الجديد ويتمسح من القديم). لو نفس الأسبوع، تحديث بس.
+  const weekChanged = entriesWeekIndex(orig.d) !== entriesWeekIndex(date);
+  const btn = g('re-save');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ بيحفظ...'; }
+  const ok = await saveEntries(weekChanged ? { upsert: upserts, deleteIds: [id] } : { upsert: upserts });
+  if(!ok){
+    if(btn){ btn.disabled = false; btn.textContent = '💾 حفظ التعديل'; }
+    showToast('❌ التعديل ما اتحفظش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (البيانات لسه قدامك، جرّب تاني)', true);
     return;
   }
+  applyLocalEntryChanges(upserts, weekChanged ? [id] : []);
   if(newManualEmployee){
     await saveManualEmployeeRecord(newManualEmployee);
     if(!OPERATORS.some(o => o.c === newManualEmployee.code)){
       MANUAL_OPERATORS = MANUAL_OPERATORS.filter(o => o.c !== newManualEmployee.code).concat([{c:newManualEmployee.code, n:newManualEmployee.name, job:'', dept:'', s:'نشط', a:true, hd:newManualEmployee.hire_date, manual:true}]);
-      OPERATORS = OPERATORS.filter(o => o.c !== newManualEmployee.code).concat(MANUAL_OPERATORS.filter(o=>o.c===newManualEmployee.code));
+      OPERATORS = OPERATORS.filter(o => o.c !== newManualEmployee.code).concat(MANUAL_OPERATORS.filter(o => o.c === newManualEmployee.code));
     }
   }
-  const codeMsg = codeChanged ? `✅ اتصحّح الكود من ${oldCode} إلى ${newCode}` : '✅ اتعدّل السجل';
-  const manualMsg = newManualEmployee ? ` — 📝 اتحفظ اسم الكود ${newManualEmployee.code} كتسجيل مؤقت، هيظهر تلقائي المرة الجاية` : '';
-  showToast(propagatedCount ? `${codeMsg}، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود${manualMsg}` : codeMsg+manualMsg);
+  // لو التاريخ الجديد برة فلتر التاريخ المفتوح، نوسّع الفلتر عشان السجل يفضل ظاهر قدامه
+  const fromEl = document.getElementById('rec-from'), toEl = document.getElementById('rec-to');
+  if(fromEl && fromEl.value && date < fromEl.value) fromEl.value = date;
+  if(toEl && toEl.value && date > toEl.value) toEl.value = date;
+  const parts = [];
+  if(orig.d !== date) parts.push(`اتنقل التاريخ من ${orig.d} إلى ${date}`);
+  if(Number(orig.c) !== newCode) parts.push(`اتصحّح الكود من ${orig.c} إلى ${newCode}`);
+  let msg = '✅ ' + (parts.length ? parts.join('، ') : 'اتعدّل السجل');
+  if(propagatedCount) msg += `، وانسحب الاسم "${newName}" على ${propagatedCount} سجل تاني لنفس الكود`;
+  if(newManualEmployee) msg += ` — 📝 اتحفظ اسم الكود ${newManualEmployee.code} كتسجيل مؤقت`;
+  showToast(msg);
+  closeModal();
   applyRecordsFilter();
+}
+function confirmDeleteRecord(id){
+  const e = ENTRIES.find(x => String(x.id) === String(id));
+  if(!e){ showToast('⚠️ السجل ده مش موجود (يمكن اتمسح)'); return; }
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap" style="max-width:480px;">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>🗑️ تأكيد حذف السجل</h3>
+        <div style="font-size:12.5px;color:#FFB4A9;margin-bottom:12px;">⚠️ الحذف نهائي، والسجل مش هيرجع تاني بعد ما تأكد.</div>
+        <div style="background:#232A3D;border:1px solid #3A4257;border-radius:12px;padding:12px;font-size:12.5px;color:#fff;line-height:1.9;margin-bottom:6px;">
+          <div><b>${recEsc(e.n) || 'بدون اسم'}</b> — كود ${recEsc(e.c)}</div>
+          <div style="color:#B9BFCF;">${recEsc(e.d)} · ${recEsc(e.h)} · خط ${recEsc(e.l)}</div>
+          <div style="color:#B9BFCF;">تارجت ${fmtNum(e.t)} · إنتاج ${fmtNum(e.p)} · هالك ${fmtNum(e.hk)} · إصلاح ${fmtNum(e.es)}</div>
+        </div>
+        <button id="re-del-btn" class="apply-btn" style="background:#C62828;" onclick="doConfirmedDelete('${recEsc(e.id)}')">🗑️ احذف نهائيًا</button>
+        <button class="apply-btn" style="background:#8891A4;" onclick="closeModal()">إلغاء</button>
+      </div>
+    </div>`;
+}
+async function doConfirmedDelete(id){
+  const btn = document.getElementById('re-del-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ بيمسح...'; }
+  const ok = await deleteRecord(id);
+  if(ok) closeModal();
+  else if(btn){ btn.disabled = false; btn.textContent = '🗑️ احذف نهائيًا'; }
 }
 async function deleteRecord(id){
   const entriesBackup = ENTRIES;
-  ENTRIES = ENTRIES.filter(e => e.id !== id);
+  ENTRIES = ENTRIES.filter(e => String(e.id) !== String(id));
   const saved = await saveEntries({deleteIds: [id]});
   if(!saved){
     ENTRIES = entriesBackup;
     showToast('❌ الحذف ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (السجل لسه موجود)', true);
     applyRecordsFilter();
-    return;
+    return false;
   }
+  applyLocalEntryChanges([], [id]);
   showToast('🗑️ اتمسح السجل');
   applyRecordsFilter();
+  return true;
 }
 
 /* ---------------- تاب مستقل: الأكواد المسجلة مؤقتًا (أكواد اتضافت بأسماء يدوية لسه
