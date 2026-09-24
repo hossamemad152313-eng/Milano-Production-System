@@ -565,6 +565,8 @@
   .entry-table .ename.missing{ color:var(--red); background:#FBE9E5 !important; border-radius:6px; }
   .entry-table .ename.missing:not([readonly]){ color:#8a5a00; background:#FFF3D6 !important; border:1px solid #E8B84B; }
   .entry-table .ename.found.manual{ background:#FFF3D6 !important; color:#8a5a00; }
+  .entry-table .ename.found.term{ background:#FBE9E5 !important; color:var(--red); border:1px solid #E58F84; }
+  .entry-table .ename.found.termwarn{ background:#FFF3D6 !important; color:#8a5a00; border:1px solid #E8B84B; }
   #bonus-rows-container input.code-ok{ background:#E4F3EA !important; border-color:var(--green) !important; color:var(--green); font-weight:700; border-radius:6px; }
   #bonus-rows-container input.code-dup{ background:#FBE9E5 !important; border-color:var(--red) !important; color:var(--red); font-weight:700; border-radius:6px; animation:dupPulse 1s ease-in-out 2; }
   @keyframes dupPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(220,53,69,.5);} 50%{ box-shadow:0 0 0 4px rgba(220,53,69,.15);} }
@@ -1526,6 +1528,42 @@ function mapManualToOperators(list){
   return (list||[])
     .filter(e => e && e.code !== undefined && e.code !== null && String(e.code).trim() !== '')
     .map(e => ({ c:Number(e.code), n:e.name||'', job:'', dept:'', s:'نشط', a:true, hd:e.hire_date||null, manual:true }));
+}
+/* ---------------- التصفيات (من شئون الموظفين) ----------------
+   العامل يعتبر "مصفّى" لو حالته "غير نشط" (بعد تنفيذ التصفية) أو "تصفية ممسوحة" (اتشال من أرشيف
+   التصفيات بعد زر مسح الكل). لو رجع اتعيّن تاني بيبقى نشط وبالتالي مش مصفّى.
+   termInfoFor بتراعي تاريخ التسجيل: لو تاريخ التصفية معروف والتسجيل في نفس اليوم أو قبله فمسموح
+   (تسجيل أيام قديمة كان شغال فيها فعلاً)، غير كده بيتمنع. */
+const TERM_CLEARED_STATUS_MAIN = 'تصفية ممسوحة';
+function isTerminatedOp(o){ return !!o && !o.manual && (o.a === false || o.s === TERM_CLEARED_STATUS_MAIN); }
+function termInfoFor(op, dateStr){
+  if(!isTerminatedOp(op)) return null;
+  const fd = /^\d{4}-\d{2}-\d{2}/.test(String(op.fd || '')) ? String(op.fd).slice(0,10) : '';
+  const cleared = op.s === TERM_CLEARED_STATUS_MAIN;
+  const beforeExit = !!(fd && /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || '')) && String(dateStr) <= fd);
+  return { fd, cleared, blocked: !beforeExit };
+}
+function termLabel(ti){ return ti.fd ? ('مصفّى بتاريخ ' + ti.fd) : (ti.cleared ? 'مصفّى (اتمسح من أرشيف التصفيات)' : 'مصفّى'); }
+// بترجّع قايمة الأكواد المصفّية (اللي لازم تتمنع) من مجموعة أكواد لتاريخ تسجيل معيّن
+function termBlockedCodesFor(codes, dateStr){
+  const out = [];
+  [...new Set((codes || []).map(String))].forEach(c => {
+    const op = OPERATORS.find(o => String(o.c) === c);
+    const ti = op && termInfoFor(op, dateStr);
+    if(ti && ti.blocked) out.push(c + ' (' + termLabel(ti) + ')');
+  });
+  return out;
+}
+function termBlockedToast(list){
+  showToast('🚫 الكود (' + list.join('، ') + ') مصفّى في شئون الموظفين — شيله من التسجيل. لو رجع اشتغل، أعد تعيينه في شئون الموظفين الأول.', true);
+}
+// لما تاريخ التسجيل يتغيّر، بنعيد فحص الصفوف اللي أكوادها موجودة (عشان حالة "قبل التصفية/بعدها" تتحدّث)
+function refreshTermStatusAll(){
+  if(typeof pendingRowIds === 'undefined') return;
+  pendingRowIds.forEach(id => {
+    const el = document.getElementById('code-' + id);
+    if(el && el.value && OPERATORS.some(o => String(o.c) === String(el.value))) onCodeInput(id);
+  });
 }
 async function saveManualEmployeeRecord(emp){
   if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
@@ -4556,7 +4594,7 @@ function renderEntryTab(){
       <div class="grid3">
         <div>
           <label>التاريخ</label>
-          <input type="date" id="entry-date" value="${todayStr()}">
+          <input type="date" id="entry-date" value="${todayStr()}" onchange="refreshTermStatusAll()">
         </div>
         <div>
           <label>الصالة</label>
@@ -4937,6 +4975,7 @@ function onCodeInput(id){
   const nameEl = document.getElementById('name-'+id);
   const hireEl = document.getElementById('newhire-'+id);
   const targetInput = document.getElementById('target-'+id);
+  nameEl.title = '';
   if(!code){
     nameEl.value = ''; nameEl.readOnly = true; nameEl.className = 'ename'; nameEl.placeholder = 'هيظهر لما تكتب الكود';
     hireEl.disabled = true; hireEl.value = '';
@@ -4945,7 +4984,11 @@ function onCodeInput(id){
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
   if(found){
-    nameEl.value = found.n; nameEl.readOnly = true; nameEl.className = 'ename found' + (found.manual ? ' manual' : '');
+    const ti = termInfoFor(found, (document.getElementById('entry-date') || {}).value);
+    nameEl.value = (ti && ti.blocked) ? ('🚫 ' + termLabel(ti) + ' — ' + found.n) : found.n;
+    nameEl.readOnly = true;
+    nameEl.className = 'ename found' + (found.manual ? ' manual' : '') + (ti ? (ti.blocked ? ' term' : ' termwarn') : '');
+    if(ti) nameEl.title = ti.blocked ? 'الكود ده مصفّى في شئون الموظفين — متسجلوش' : (termLabel(ti) + ' — التسجيل بتاريخ قبل التصفية فمسموح');
     hireEl.disabled = true; hireEl.value = found.hd || '';
     hireEl.title = found.manual ? 'كود مؤقت (مش من شئون الموظفين) — الاسم والتاريخ اتكتبوا يدويًا قبل كده' : '';
     if(!targetInput.value){
@@ -5008,6 +5051,9 @@ async function saveAllRows(){
   });
   const valid = readRows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تكتب كود على الأقل لصف واحد'); return; }
+  // الأكواد المصفّية في شئون الموظفين ممنوعة (إلا لو تاريخ التسجيل في/قبل يوم التصفية)
+  const termBad = termBlockedCodesFor(valid.map(r => r.code), date);
+  if(termBad.length){ termBlockedToast(termBad); return; }
   // الكود لازم يكون معروف — إما من شئون الموظفين، أو باسم اتكتب يدويًا دلوقتي لكود مش موجود هناك
   const unknownCodes = [...new Set(valid.filter(r => !r.knownCode).map(r => r.code))];
   if(unknownCodes.length){
@@ -5957,6 +6003,8 @@ async function saveEditedGroup(){
   });
   const valid = rows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تسيب كود على الأقل لصف واحد — ولو عايز تمسح الملف كله ارجع للسجلات وامسحه من هناك'); return; }
+  const termBadEdit = termBlockedCodesFor(valid.map(r => r.code), date);
+  if(termBadEdit.length){ termBlockedToast(termBadEdit); return; }
   const unknownCodes = [...new Set(valid.filter(r => !r.knownCode).map(r => r.code))];
   if(unknownCodes.length){ showToast(`⚠️ الكود (${unknownCodes.join('، ')}) مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم بتاعته عشان تسجله مؤقتًا، أو ضيفه في شئون الموظفين الأول.`, true); return; }
   if(valid.some(r => r.target === '' || r.target == null)){ showToast('⚠️ لازم تحدد التارجت لكل عاملة'); return; }
@@ -6061,7 +6109,8 @@ function onRecEdCodeInput(){
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
   if(found){
-    nameEl.value = found.n; nameEl.readOnly = true;
+    const ti = termInfoFor(found, (document.getElementById('re-date') || {}).value);
+    nameEl.value = (ti && ti.blocked) ? ('🚫 ' + termLabel(ti) + ' — ' + found.n) : found.n; nameEl.readOnly = true;
     if(hireEl){ hireEl.disabled = true; hireEl.value = found.hd || ''; }
   } else {
     nameEl.value = ''; nameEl.readOnly = false;
@@ -6139,6 +6188,8 @@ async function commitRecordEditor(){
   const newCode = Number(g('re-code').value);
   if(!newCode || isNaN(newCode)){ showToast('⚠️ لازم تكتب كود صحيح'); return; }
   const matchOp = OPERATORS.find(o => Number(o.c) === newCode);
+  const termI = matchOp && termInfoFor(matchOp, date);
+  if(termI && termI.blocked){ termBlockedToast([newCode + ' (' + termLabel(termI) + ')']); return; }
   const manualName = !matchOp ? g('re-name').value.trim() : '';
   if(!matchOp && !manualName){ showToast(`⚠️ الكود ${newCode} مش موجود في شئون الموظفين. اكتب اسم في خانة الاسم عشان تسجله مؤقتًا، أو ضيفه هناك الأول.`); return; }
   const newName = matchOp ? (matchOp.n || '') : manualName;
@@ -6254,16 +6305,33 @@ function renderManualCodesTab(){
     <div id="manualcodes-list">${manualCodesListHtml()}</div>
   `;
 }
+// لو الكود المؤقت ده موجود في شئون الموظفين كـ "مصفّى" بترجّع تفاصيل التصفية، غير كده null
+function manualTermInfo(code){
+  const hrOp = OPERATORS.find(x => String(x.c) === String(code) && !x.manual);
+  return isTerminatedOp(hrOp) ? termInfoFor(hrOp, '') : null;
+}
 function manualCodesListHtml(){
-  const rows = MANUAL_OPERATORS.slice().sort((a,b)=> Number(a.c)-Number(b.c));
+  const rows = MANUAL_OPERATORS.map(o => ({ o, ti: manualTermInfo(o.c) }))
+    .sort((a,b) => (b.ti ? 1 : 0) - (a.ti ? 1 : 0) || Number(a.o.c) - Number(b.o.c));
   if(!rows.length) return `<div class="empty-state">🎉 مفيش أي أكواد مسجلة مؤقتًا دلوقتي.</div>`;
-  return rows.map(o => `
-    <div class="record-row" id="mc-${o.c}">
+  const termCount = rows.filter(r => r.ti).length;
+  const isAdmin = currentUser.role === 'admin';
+  const summary = termCount ? `
+    <div class="data-note" style="margin-bottom:10px;border-right:4px solid #C62828;color:#C62828;font-weight:700;">
+      🚫 ${termCount} كود من الأكواد المؤقتة طلعوا <b>مصفّين</b> في شئون الموظفين (فوق ومتعلّم عليهم بالأحمر).
+      ${isAdmin ? 'دوس "🗑️ + سجلاته" عشان تمسح الكود وكل سجلات أدائه فمايطلعوش في تقرير التقييم.' : 'الحذف متاح لحسام (admin).'}
+    </div>` : '';
+  return summary + rows.map(({o, ti}) => `
+    <div class="record-row" id="mc-${o.c}" ${ti ? 'style="border-right:4px solid #C62828;"' : ''}>
       <div class="rtop">
-        <div><div class="rname">👤 ${o.n || '—'} — كود ${o.c}</div><div class="rmeta">تاريخ التعيين: ${o.hd || '—'}</div></div>
+        <div>
+          <div class="rname">👤 ${o.n || '—'} — كود ${o.c}${ti ? ` <span style="color:#C62828;font-size:12px;">🚫 ${termLabel(ti)}</span>` : ''}</div>
+          <div class="rmeta">تاريخ التعيين: ${o.hd || '—'}</div>
+        </div>
         <div class="ractions">
           <button class="op-btn" onclick="startEditManualCode('${o.c}')">✏️</button>
-          <button class="op-btn" onclick="deleteManualCode('${o.c}')">🗑️</button>
+          <button class="op-btn" title="مسح الكود المؤقت بس" onclick="deleteManualCode('${o.c}')">🗑️</button>
+          ${ti && isAdmin ? `<button class="op-btn" style="background:#C62828;color:#fff;" title="مسح الكود وكل سجلات أدائه" onclick="deleteManualCodeWithRecords('${o.c}')">🗑️ + سجلاته</button>` : ''}
         </div>
       </div>
       <div id="mc-edit-${o.c}"></div>
@@ -6310,6 +6378,50 @@ async function deleteManualCode(code){
   if(!ok) return;
   MANUAL_OPERATORS = MANUAL_OPERATORS.filter(o => String(o.c) !== String(code));
   showToast('🗑️ اتمسح الكود المؤقت');
+  renderManualCodesTab();
+}
+/* بتمسح كود مؤقت طلع مصفّى في شئون الموظفين + كل سجلات الأداء المتسجلة بيه (عشان مايطلعش في تقرير التقييم).
+   شغّالة على الأكواد المصفّية بس (حماية من مسح سجلات عاملة شغّالة بالغلط). بتمسح السجلات الأول،
+   ولو الحذف ما اتأكدش على السيرفر بتوقف من غير ما تلمس الكود. */
+async function deleteManualCodeWithRecords(code){
+  if(currentUser.role !== 'admin'){ showToast('🚫 حذف الأكواد المؤقتة وسجلاتها متاح لحسام (admin) بس'); return; }
+  const ti = manualTermInfo(code);
+  if(!ti){ showToast('⚠️ الكود ده مش مصفّى في شئون الموظفين — استخدم زر 🗑️ العادي'); return; }
+  if(!firebaseReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
+  const btnRow = document.getElementById('mc-' + code);
+  if(btnRow) btnRow.style.opacity = '.5';
+  // سجلات أقدم من النافذة الحية ممكن تكون لسه مش متحمّلة — بنحمّلها مرة واحدة قبل العدّ
+  await ensureEntriesArchiveLoaded();
+  if(!ENTRIES_ARCHIVE_LOADED){ if(btnRow) btnRow.style.opacity = ''; showToast('❌ مقدرتش أحمّل السجلات القديمة — جرّب تاني بعد شوية', true); return; }
+  const codeNum = Number(code);
+  const recs = ENTRIES.filter(e => Number(e.c) === codeNum);
+  const o = MANUAL_OPERATORS.find(x => String(x.c) === String(code));
+  const dates = recs.map(e => e.d).filter(Boolean).sort();
+  const msg = `الكود ${code} (${(o && o.n) || '—'}) — ${termLabel(ti)} في شئون الموظفين.\n\n` +
+    (recs.length ? `هتمسح الكود المؤقت + ${recs.length} سجل أداء متسجل بيه (من ${dates[0]} لـ ${dates[dates.length-1]}).` : `هتمسح الكود المؤقت (مفيش سجلات أداء متسجلة بيه).`) +
+    `\n\nالخطوة دي مالهاش رجوع. متأكد؟`;
+  if(!confirm(msg)){ if(btnRow) btnRow.style.opacity = ''; return; }
+  if(recs.length){
+    const ids = recs.map(e => e.id);
+    const entriesBackup = ENTRIES;
+    ENTRIES = ENTRIES.filter(e => Number(e.c) !== codeNum);
+    const saved = await saveEntries({ deleteIds: ids });
+    if(!saved){
+      ENTRIES = entriesBackup;
+      if(btnRow) btnRow.style.opacity = '';
+      showToast('❌ مسح السجلات ما اتأكدش على السيرفر — السبب: ' + (LAST_SAVE_ERROR || 'غير معروف') + ' (الكود والسجلات لسه موجودين)', true);
+      return;
+    }
+    applyLocalEntryChanges([], ids);
+  }
+  let ok = true;
+  await queueSave('manual_employees_' + code, async () => {
+    try{ await manualEmployeesCol().doc(String(code)).delete(); }
+    catch(e){ ok = false; showToast('❌ السجلات اتمسحت لكن فشل حذف الكود المؤقت — جرّب 🗑️ العادي — ' + saveErrorDetail(e), true); }
+  });
+  if(!ok){ renderManualCodesTab(); return; }
+  MANUAL_OPERATORS = MANUAL_OPERATORS.filter(x => String(x.c) !== String(code));
+  showToast(`🗑️ اتمسح الكود ${code}${recs.length ? ' و' + recs.length + ' سجل أداء' : ''}`);
   renderManualCodesTab();
 }
 /* ---------------- USERS TAB (admin only: تغيير اليوزر/الباسورد بتاع أي حد) ---------------- */
