@@ -1438,10 +1438,29 @@ function fsCollRef(path){
     doc(id){ return fsDocRef(id ? (path + '/' + id) : (path + '/' + (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)))); },
 
     async get(){
-      const { data, error } = await withTimeout(sb.from('fs_documents').select('path,data').like('path', prefix + '%'), 'collection.get: ' + path);
-      if(error) throw error;
+      // مهم جدًا: Supabase/PostgREST بيرجّع 1000 صف بالظبط كحد أقصى افتراضي لأي SELECT عادي
+      // (زي حد Firestore بس من غير أي تحذير أو خطأ — بيقطع بصمت). أي كولكشن فيه أكتر من 1000
+      // مستند (زي التعيينات أو شئون الموظفين بعد ما تكبر) كان بيترجع منه بس أول 1000 (بترتيب
+      // مش مضمون لإن مفيش ORDER BY)، فباقي السجلات كانت بتختفي من واجهة التطبيق فورًا بعد أي
+      // قفل وفتح للموقع — رغم إنها لسه موجودة فعليًا على السيرفر. ده كان السبب الحقيقي وراء
+      // اختفاء بيانات التعيينات المستوردة من إكسل (والسبب في إن SEED_OPERATORS القديمة كانت
+      // بالظبط 1000 صف). الحل: نجيب كل الصفوف على دفعات (pagination) باستخدام .range() لحد
+      // ما نوصل لصفحة أقل من الحجم الكامل (يعني خلصنا كل البيانات).
+      const PAGE_SIZE = 1000;
+      let allRows = [];
+      let from = 0;
+      while(true){
+        const { data, error } = await withTimeout(
+          sb.from('fs_documents').select('path,data').like('path', prefix + '%').range(from, from + PAGE_SIZE - 1),
+          'collection.get: ' + path + ' (from ' + from + ')'
+        );
+        if(error) throw error;
+        allRows = allRows.concat(data || []);
+        if(!data || data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
       // بس المستندات المباشرة تحت الكولكشن دي (مش اللي جوه sub-collection تانية بعيدة)
-      const rows = (data || []).filter(r => !r.path.slice(prefix.length).includes('/'));
+      const rows = allRows.filter(r => !r.path.slice(prefix.length).includes('/'));
       const docs = rows.map(r => ({ id: r.path.slice(prefix.length), data: () => r.data }));
       return {
         empty: docs.length === 0,
@@ -2012,7 +2031,10 @@ async function loadRestOfData(){
     try{ showDataLoadWarning(); }catch(e){}
     // نسجّل "الأساس المرجعي" لكل قسم بعد ما يخلص تحميله (تفاصيل الفكرة فوق transactionalArraySave).
     setBaseline('mlp_entries', ENTRIES, 'id');
-    setBaseline('mlp_operators', OPERATORS, 'c');
+    // ملحوظة: baseline التعيينات (mlp_operators) بقى بيتحدّث بشكل مستمر ومباشر من البيانات
+    // الخام الحقيقية لكولكشن mlp_operators_index جوه watchEmployeeChunksMain (مش هنا)، لإن
+    // OPERATORS هنا لسه فاضية/مدموجة وغير صحيحة كـ"أساس مرجعي" وقت تسجيل الدخول — كان ده سبب
+    // اختفاء التعيينات المستوردة بعد قفل وفتح الموقع (شوف شرح BASE_OPERATORS_RAW فوق).
     setBaseline('mlp_users', USERS, 'user');
     setBaseline('mlp_jard', JARD, 'id');
     setBaseline('mlp_targets', TARGET_PLANS, 'id');
@@ -2438,7 +2460,7 @@ function scheduleNetPause(){
     if(!document.hidden || netPaused || !sbReady) return;
     if(anySaveInFlight()){ scheduleNetPause(); return; }
     netPaused = true;
-    try{ await db.disableNetwork(); }catch(e){ console.warn('disableNetwork:', e); }
+    // ملحوظة: Supabase مالوش مفهوم "قفل شبكة SDK" زي Firestore، فبنكتفي بالعلم فوق
   }, NET_PAUSE_AFTER_MS);
 }
 document.addEventListener('visibilitychange', async () => {
@@ -2446,7 +2468,7 @@ document.addEventListener('visibilitychange', async () => {
   if(document.hidden){ scheduleNetPause(); return; }
   if(netPauseTimer){ clearTimeout(netPauseTimer); netPauseTimer = null; }
   if(netPaused){
-    try{ await db.enableNetwork(); }catch(e){ console.warn('enableNetwork:', e); }
+    // ملحوظة: مفيش حاجة نعملها هنا فعليًا مع Supabase — بس بنشيل العلم
     netPaused = false;
   }
 });
@@ -2502,6 +2524,13 @@ function startRealtimeSync(){
 // مباشرة على hrEmployeesColMain نفسها (نفس المسار الحقيقي)، فأي تعيين أو تصفية
 // تتسجل في شؤون الموظفين تنعكس هنا فورًا من غير أي خطوة إضافية.
 let EMPLOYEE_WATCH_STARTED = false;
+// أكواد شئون الموظفين الحالية (محدّثة لحظيًا) — بنستخدمها في saveOperators() عشان نمنع كتابة
+// نفس سجلات شئون الموظفين تاني جوه كولكشن التعيينات (mlp_operators_index)، لإن ده كان بيلوّث
+// الـbaseline المستخدم في مقارنة/حذف السجلات (collectionArraySave) ويخلي حفظ التعيينات غير موثوق.
+let HR_CODES_MAIN = new Set();
+// آخر نسخة "خام" فعلية من كولكشن mlp_operators_index زي ما هي من السيرفر (قبل أي دمج مع شئون
+// الموظفين) — دي اللي المفروض تتقارن بيها أي حفظة جديدة، مش المصفوفة المدموجة OPERATORS.
+let BASE_OPERATORS_RAW = [];
 function watchEmployeeChunksMain(){
   if(EMPLOYEE_WATCH_STARTED) return; // بدأت قبل كده في الصفحة دي — مفيش داعي نعيد الاشتراك (وقراءة كل الموظفين) مع كل تسجيل دخول
   EMPLOYEE_WATCH_STARTED = true;
@@ -2516,6 +2545,7 @@ function watchEmployeeChunksMain(){
   const rebuild = () => {
     const hrOps = mapHrEmployeesToOperators(hrEmpArr);
     const hrCodes = new Set(hrOps.map(o => o.c));
+    HR_CODES_MAIN = hrCodes;
     const baseOnly = baseOpsArr.filter(o => o && Number.isFinite(o.c) && !hrCodes.has(o.c));
     const baseCodes = new Set(baseOnly.map(o => o.c));
     const manualOnly = MANUAL_OPERATORS.filter(o => !hrCodes.has(o.c) && !baseCodes.has(o.c));
@@ -2530,6 +2560,11 @@ function watchEmployeeChunksMain(){
   const unsubBaseOps = operatorsCol().onSnapshot(snap => {
     readMeter.snap('operators_collection', snap);
     baseOpsArr = snap.docs.map(d => d.data());
+    // بنحدّث الـbaseline الحقيقي بأحدث نسخة فعلية من السيرفر (مش من مصفوفة OPERATORS المدموجة
+    // ومش وقت تسجيل الدخول بس) — ده اللي بيضمن إن أي حفظة جديدة لاحقًا تقارن صح وماتمسحش
+    // بيانات موجودة فعلاً على السيرفر لسه ماوصلتش هنا وقت الحفظ.
+    BASE_OPERATORS_RAW = baseOpsArr;
+    setBaseline('mlp_operators', baseOpsArr, 'c');
     rebuild();
   }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
   coreRealtimeUnsubs.push(unsubBaseOps);
@@ -2597,7 +2632,17 @@ async function saveOperators(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_operators', async () => {
-    try{ await collectionArraySave('mlp_operators', operatorsCol, OPERATORS, 'c'); }
+    try{
+      // مهم جدًا: OPERATORS مصفوفة مدموجة من 3 مصادر (شئون الموظفين + التعيينات الأساسية +
+      // الأكواد اليدوية) — شئون الموظفين مش المفروض تتكتب تاني جوه كولكشن mlp_operators_index
+      // (ده مصدرها الحقيقي hr_employees_index، وكولكشن تاني تمامًا). كتابتها هنا كانت بتلوّث
+      // الـbaseline المستخدم في collectionArraySave (كل التعيينات المستوردة كانت بتتحسب "جديدة"
+      // كل مرة، وأي مزامنة لاحقة كانت ممكن تمسح سجلات لسه ماوصلتش من السيرفر). دلوقتي بنستبعد
+      // أي كود موجود فعليًا في شئون الموظفين قبل الحفظ، ونحفظ بس اللي فعلاً بيخص الكولكشن ده.
+      const toSave = OPERATORS.filter(o => o && Number.isFinite(o.c) && !HR_CODES_MAIN.has(o.c));
+      await collectionArraySave('mlp_operators', operatorsCol, toSave, 'c');
+      BASE_OPERATORS_RAW = toSave;
+    }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات العاملين — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -5506,13 +5551,22 @@ function onOperatorImportCodeInput(i){
  set('hire',old.hd||'');
  set('fire',old.fd||'');
  renderOperatorsList(OPERATORS.filter(o=>o.a!==false));
- saveOperators().then(()=>showToast(`🔄 ${old.n} عاد للتعيينات فورًا — تم إخراجه من التصفيات مع الاحتفاظ بتاريخ التصفية ${old.fd||''}`)).catch(()=>showToast('⚠️ تم التحديث محليًا لكن تعذر الحفظ على Supabase',true));
+ // ملحوظة: saveOperators() بتمسك أخطائها جوه وبترجع false بدل ما ترفض الـPromise،
+ // فلازم نتأكد من القيمة الراجعة صراحة بدل ما نعتمد على .then/.catch (اللي كان دايمًا بينفذ .then).
+ saveOperators().then(ok=>{ if(ok) showToast(`🔄 ${old.n} عاد للتعيينات فورًا — تم إخراجه من التصفيات مع الاحتفاظ بتاريخ التصفية ${old.fd||''}`); else showToast('⚠️ تم التحديث محليًا لكن تعذر حفظه في قاعدة البيانات — ' + (LAST_SAVE_ERROR||''), true); });
 }
 async function importOperatorsExcelFile(input){const f=input.files?.[0];if(!f)return;try{const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});let n=0,u=0,rehired=0;for(const rr of rows){const r=rr.map(v=>v instanceof Date?v.toISOString().slice(0,10):String(v??'').trim());if(!/^\d+(?:\.0+)?$/.test(r[0]))continue;const c=Number(String(r[0]).replace(/\.0+$/,''));const old=OPERATORS.find(o=>o.c===c);const wasInactive=!!old && old.a===false;
    // ترتيب أعمدة ملف الإكسل الفعلي: الكود | الاسم | القسم | تاريخ التعيين | تاريخ التصفية | الوظيفة | القسم/الخط
    const rec={c,n:r[1]||'',dept:r[2]||'',hd:r[3]||null,job:r[5]||'',khat:r[6]||'',s:'نشط',a:true,fd:wasInactive?(old.fd||null):(r[4]||null)};
-   if(old){Object.assign(old,rec);u++;if(wasInactive)rehired++}else{OPERATORS.push(rec);n++}}await saveOperators();reRenderKeepScroll(renderOperatorsTab);showToast(`✅ تم استيراد التعيينات: ${n} جديد و${u} تحديث${rehired?` — 🔄 ${rehired} موظف رجع نشط تلقائيًا`:''}`)}catch(e){showToast('❌ فشل استيراد Excel: '+e.message,true)}input.value='';}
-async function importOperatorsBulk(){let n=0,u=0,rehired=0;for(let i=0;i<OP_IMPORT_ROWS;i++){const g=k=>document.getElementById('opimp-'+k+'-'+i)?.value.trim();if(!g('code'))continue;const c=Number(g('code'));if(!Number.isFinite(c))continue;const old=OPERATORS.find(o=>o.c===c);const wasInactive=!!old && old.a===false;if(wasInactive){old.a=true;old.s='نشط';old.n=g('name')||old.n;old.job=g('job')||old.job;old.dept=g('dept')||old.dept;old.khat=g('khat')||old.khat;old.hd=g('hire')||old.hd;/* تاريخ التصفية القديم يظل محفوظًا */u++;rehired++;continue;}if(!g('name'))continue;const rec={c,n:g('name'),job:g('job'),dept:g('dept'),khat:g('khat'),s:'نشط',a:true,hd:g('hire')||null,fd:g('fire')||null};if(old){Object.assign(old,rec);u++}else{OPERATORS.push(rec);n++}}if(n||u){await saveOperators();reRenderKeepScroll(renderOperatorsTab);showToast(`✅ تم الحفظ: ${n} جديد و${u} تحديث${rehired?` — 🔄 ${rehired} موظف رجع نشط تلقائيًا من التصفيات`:''}`)}else showToast('⚠️ مفيش صفوف صحيحة')}
+   if(old){Object.assign(old,rec);u++;if(wasInactive)rehired++}else{OPERATORS.push(rec);n++}}
+   const savedOk=await saveOperators();
+   reRenderKeepScroll(renderOperatorsTab);
+   // مهم: منعرضش رسالة نجاح المزامنة إلا لو الحفظ في Supabase نجح فعليًا (مش بس اتحدّث محليًا في المتصفح)،
+   // عشان المستخدم يعرف فورًا لو البيانات مش هتتحفظ فعلاً (مشكلة نت/صلاحيات) بدل ما يفتكرها اتزامنت غلط.
+   if(savedOk) showToast(`✅ تم استيراد التعيينات وحفظها في قاعدة البيانات: ${n} جديد و${u} تحديث${rehired?` — 🔄 ${rehired} موظف رجع نشط تلقائيًا`:''}`);
+   else showToast(`⚠️ اتقرا الملف واتحدّثت الشاشة (${n} جديد و${u} تحديث) لكن الحفظ الدائم في قاعدة البيانات فشل — ${LAST_SAVE_ERROR||'راجع رسالة الخطأ اللي فوق'}. جرب تاني.`,true);
+  }catch(e){showToast('❌ فشل استيراد Excel: '+e.message,true)}input.value='';}
+async function importOperatorsBulk(){let n=0,u=0,rehired=0;for(let i=0;i<OP_IMPORT_ROWS;i++){const g=k=>document.getElementById('opimp-'+k+'-'+i)?.value.trim();if(!g('code'))continue;const c=Number(g('code'));if(!Number.isFinite(c))continue;const old=OPERATORS.find(o=>o.c===c);const wasInactive=!!old && old.a===false;if(wasInactive){old.a=true;old.s='نشط';old.n=g('name')||old.n;old.job=g('job')||old.job;old.dept=g('dept')||old.dept;old.khat=g('khat')||old.khat;old.hd=g('hire')||old.hd;/* تاريخ التصفية القديم يظل محفوظًا */u++;rehired++;continue;}if(!g('name'))continue;const rec={c,n:g('name'),job:g('job'),dept:g('dept'),khat:g('khat'),s:'نشط',a:true,hd:g('hire')||null,fd:g('fire')||null};if(old){Object.assign(old,rec);u++}else{OPERATORS.push(rec);n++}}if(n||u){const savedOk=await saveOperators();reRenderKeepScroll(renderOperatorsTab);if(savedOk)showToast(`✅ تم الحفظ في قاعدة البيانات: ${n} جديد و${u} تحديث${rehired?` — 🔄 ${rehired} موظف رجع نشط تلقائيًا من التصفيات`:''}`);else showToast(`⚠️ اتحدّثت الشاشة لكن الحفظ الدائم فشل — ${LAST_SAVE_ERROR||'راجع رسالة الخطأ'}. جرب تاني.`,true);}else showToast('⚠️ مفيش صفوف صحيحة')}
 function renderOperatorsList(list){list=list.filter(o=>o.a!==false);document.getElementById('op-list').innerHTML=list.slice(0,200).map(o=>`<div class="op-row"><span class="op-code">${recEsc(o.c)}</span><span class="op-name">${recEsc(o.n)}</span><span style="margin-right:auto;font-size:11px;color:var(--muted)">${recEsc(o.job)||''} ${o.dept?'• '+recEsc(o.dept):''} ${o.khat?'• خط '+recEsc(o.khat):''}</span><button class="op-btn" onclick="editOperator(${o.c})">✏️</button><button class="op-btn" onclick="deleteOperator(${o.c})">🗑️</button></div><div id="opedit-${o.c}"></div>`).join('')||'<div class="empty-state">مفيش عاملين نشطين</div>';}
 function reRenderKeepScroll(renderFn){const y=window.scrollY;renderFn();window.scrollTo(0,y);}
 function editOperator(code){
@@ -5562,15 +5616,15 @@ function deleteOperator(code){
   if(!o)return;
   if(!confirm(`متأكد إنك عايز تمسح ${o.n} نهائي؟`))return;
   OPERATORS=OPERATORS.filter(x=>x.c!==code);
-  saveOperators().then(()=>{
-    showToast('🗑️ اتمسح');
+  saveOperators().then(ok=>{
     renderOperatorsList(getHrFilteredOperators('op',false));
+    if(ok) showToast('🗑️ اتمسح'); else showToast('⚠️ اتمسح من الشاشة بس تعذر حفظ الحذف في قاعدة البيانات — ' + (LAST_SAVE_ERROR||''), true);
   });
 }
 function filterOperators(q){q=q.trim();renderOperatorsList(OPERATORS.filter(o=>o.a!==false&&(!q||o.n.includes(q)||String(o.c).includes(q))));}
 function renderTermImportTable(){let rows='';for(let i=0;i<OP_IMPORT_ROWS;i++)rows+=`<tr>${['code','name','dept','hire','fire','job','khat'].map((k,j)=>`<td><input type="text" id="termimp-${k}-${i}" onpaste="handleGenericPaste(event,${i},${j},'termimp-',['code','name','dept','hire','fire','job','khat'],${OP_IMPORT_ROWS})"></td>`).join('')}</tr>`;document.getElementById('term-import-body').innerHTML=rows}
 function renderTerminationsList(list){const el=document.getElementById('terminations-list');if(!el)return;list=list.filter(o=>o.a===false);el.innerHTML=list.slice(0,300).map(o=>`<div class="op-row inactive"><span class="op-code">${recEsc(o.c)}</span><span class="op-name">${recEsc(o.n)}</span><span style="margin-right:auto;font-size:11px;color:var(--muted)">${recEsc(o.job)||''} ${o.dept?'• '+recEsc(o.dept):''} ${o.khat?'• خط '+recEsc(o.khat):''}</span><label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">تاريخ التصفية <input class="op-date" type="date" value="${escAttr(o.fd||'')}" onchange="updateTerminationDate(${o.c},this.value)"></label></div>`).join('')||'<div class="empty-state">مفيش عاملين تمت تصفيتهم</div>'}
-async function updateTerminationDate(code,date){const o=OPERATORS.find(x=>x.c===code);if(!o)return;o.fd=date||null;await saveOperators();showToast('✅ تم تعديل تاريخ التصفية')}
+async function updateTerminationDate(code,date){const o=OPERATORS.find(x=>x.c===code);if(!o)return;o.fd=date||null;const ok=await saveOperators();if(ok)showToast('✅ تم تعديل تاريخ التصفية');else showToast('⚠️ تعذر حفظ تاريخ التصفية في قاعدة البيانات — ' + (LAST_SAVE_ERROR||''), true);}
 function filterTerminations(q){const e=document.getElementById('term-q');if(e)e.value=q||'';applyTerminationsFilters();}
 function clearTerminationsFilter(){clearTerminationsFilters();}
 
