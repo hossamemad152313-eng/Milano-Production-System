@@ -2488,18 +2488,24 @@ function startRealtimeSync(){
   // (قراءة كاملة وقت الدخول + قراءة كاملة تانية هنا بعد كل دخول/خروج).
   watchEmployeeChunksMain();
 }
-// نظام الموظفين المُجمّع: نفس الـ 5 مستندات اللي بتكتب فيها بوابة شؤون الموظفين
-// (hr_portal.html) — لازم القراءة هنا متوافقة معاها تمامًا وإلا ربط العمال بالإنتاج
-// (OPERATORS) هيفضل شغال ببيانات قديمة من غير ما حد يلاحظ. لسه real-time بالكامل.
-const HR_EMP_CHUNKS = 5;
-function hrEmpChunkDocMain(i){
-  return db.collection(FS_COLLECTION).doc('hr_employees_chunks').collection('parts').doc(String(i));
-}
+// نظام الموظفين المُجمّع: بيقرأ live مباشرة من نفس الكولكشن اللي بوابة شؤون الموظفين
+// (hr_portal.html) بتكتب فيه فعليًا (hr_employees_index)، عن طريق hrEmployeesColMain
+// المعرّفة فوق. لسه real-time بالكامل عن طريق onSnapshot.
+//
+// ملحوظة إصلاح مهمة (26 سبتمبر 2026 — مراجعة أمان وتزامن): كان هنا قبل كده اشتراك
+// على مسار مختلف تمامًا (hr_employees_chunks/parts/0..4) على افتراض إن شؤون
+// الموظفين بيخزّن بياناته في 5 "chunks" مجمّعة كنص JSON. بالفحص المباشر لكود بوابة
+// شؤون الموظفين لقينا إنها بتكتب فعليًا مستند مستقل لكل موظف تحت hr_employees_index
+// (مش أي شكل chunks خالص)، فالمسار القديم مكانش بيوصله أي بيانات أبدًا — ده بالظبط
+// سبب ظهور "الكود مش موجود" في تسجيل الأداء لأي كود اتضاف أو اتصفّى من شؤون
+// الموظفين، وسبب الاعتماد على الأكواد المؤقتة كحل بديل. الإصلاح: الاشتراك بقى
+// مباشرة على hrEmployeesColMain نفسها (نفس المسار الحقيقي)، فأي تعيين أو تصفية
+// تتسجل في شؤون الموظفين تنعكس هنا فورًا من غير أي خطوة إضافية.
 let EMPLOYEE_WATCH_STARTED = false;
 function watchEmployeeChunksMain(){
   if(EMPLOYEE_WATCH_STARTED) return; // بدأت قبل كده في الصفحة دي — مفيش داعي نعيد الاشتراك (وقراءة كل الموظفين) مع كل تسجيل دخول
   EMPLOYEE_WATCH_STARTED = true;
-  const chunkArrs = new Array(HR_EMP_CHUNKS).fill(null);
+  let hrEmpArr = [];
   let manualArr = [];
   // قائمة "التعيينات الأساسية" (تاب التعيينات/التصفية، mlp_operators_index) هي كمان مصدر
   // معتمد للأكواد — أي كود اتضاف هناك (يدويًا أو استيراد إكسل) لازم يفضل معروف في سجل الأداء
@@ -2508,26 +2514,19 @@ function watchEmployeeChunksMain(){
   // شئون الموظفين كسبانة دايمًا: أي كود موجود هناك بيلغي أي نسخة يدوية أو أساسية بنفس الكود،
   // فلو حد ضاف الكود ده رسميًا بعدين، البيانات الرسمية هي اللي هتظهر من غير أي تعديل تاني.
   const rebuild = () => {
-    const merged = [];
-    chunkArrs.forEach(a => { if (a) a.forEach(r => merged.push(r)); });
-    const hrOps = mapHrEmployeesToOperators(merged);
+    const hrOps = mapHrEmployeesToOperators(hrEmpArr);
     const hrCodes = new Set(hrOps.map(o => o.c));
     const baseOnly = baseOpsArr.filter(o => o && Number.isFinite(o.c) && !hrCodes.has(o.c));
     const baseCodes = new Set(baseOnly.map(o => o.c));
     const manualOnly = MANUAL_OPERATORS.filter(o => !hrCodes.has(o.c) && !baseCodes.has(o.c));
     OPERATORS = hrOps.concat(baseOnly).concat(manualOnly);
   };
-  for (let i = 0; i < HR_EMP_CHUNKS; i++){
-    const idx = i;
-    const unsub = hrEmpChunkDocMain(idx).onSnapshot(snap => {
-      readMeter.snap('hr_employee_chunks', snap);
-      let arr = [];
-      if (snap.exists){ try { arr = JSON.parse(snap.data().value || '[]'); } catch(e){ arr = []; } }
-      chunkArrs[idx] = arr;
-      rebuild();
-    }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
-    coreRealtimeUnsubs.push(unsub);
-  }
+  const unsubHrEmp = hrEmployeesColMain().onSnapshot(snap => {
+    readMeter.snap('hr_employees_index', snap);
+    hrEmpArr = snap.docs.map(d => d.data());
+    rebuild();
+  }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
+  coreRealtimeUnsubs.push(unsubHrEmp);
   const unsubBaseOps = operatorsCol().onSnapshot(snap => {
     readMeter.snap('operators_collection', snap);
     baseOpsArr = snap.docs.map(d => d.data());
