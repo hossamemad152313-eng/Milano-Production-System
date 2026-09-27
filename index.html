@@ -2531,6 +2531,7 @@ let HR_CODES_MAIN = new Set();
 // آخر نسخة "خام" فعلية من كولكشن mlp_operators_index زي ما هي من السيرفر (قبل أي دمج مع شئون
 // الموظفين) — دي اللي المفروض تتقارن بيها أي حفظة جديدة، مش المصفوفة المدموجة OPERATORS.
 let BASE_OPERATORS_RAW = [];
+let PENDING_BASE_OPS_SNAP = null;
 function watchEmployeeChunksMain(){
   if(EMPLOYEE_WATCH_STARTED) return; // بدأت قبل كده في الصفحة دي — مفيش داعي نعيد الاشتراك (وقراءة كل الموظفين) مع كل تسجيل دخول
   EMPLOYEE_WATCH_STARTED = true;
@@ -2557,15 +2558,22 @@ function watchEmployeeChunksMain(){
     rebuild();
   }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
   coreRealtimeUnsubs.push(unsubHrEmp);
-  const unsubBaseOps = operatorsCol().onSnapshot(snap => {
-    readMeter.snap('operators_collection', snap);
+  const applyBaseOpsSnapshot = (snap) => {
     baseOpsArr = snap.docs.map(d => d.data());
-    // بنحدّث الـbaseline الحقيقي بأحدث نسخة فعلية من السيرفر (مش من مصفوفة OPERATORS المدموجة
-    // ومش وقت تسجيل الدخول بس) — ده اللي بيضمن إن أي حفظة جديدة لاحقًا تقارن صح وماتمسحش
-    // بيانات موجودة فعلاً على السيرفر لسه ماوصلتش هنا وقت الحفظ.
-    BASE_OPERATORS_RAW = baseOpsArr;
+    BASE_OPERATORS_RAW = baseOpsArr.slice();
     setBaseline('mlp_operators', baseOpsArr, 'c');
     rebuild();
+  };
+  const unsubBaseOps = operatorsCol().onSnapshot(snap => {
+    readMeter.snap('operators_collection', snap);
+    // أثناء الحفظ، ممكن Supabase Realtime يبعت قراءة قديمة قبل ما تأكيد الكتابة
+    // يوصل. لو طبقناها فورًا هتستبدل النسخة المحلية الجديدة بالقديمة، وقد يبدو
+    // للمستخدم إن التعيينات اختفت. نأجل آخر snapshot لحد انتهاء الحفظ.
+    if((SAVE_IN_FLIGHT['mlp_operators']||0) > 0){
+      PENDING_BASE_OPS_SNAP = snap;
+      return;
+    }
+    applyBaseOpsSnapshot(snap);
   }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
   coreRealtimeUnsubs.push(unsubBaseOps);
   const unsubManual = manualEmployeesCol().onSnapshot(snap => {
@@ -2645,6 +2653,11 @@ async function saveOperators(){
     }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات العاملين — ' + saveErrorDetail(e), true); }
   });
+  if(PENDING_BASE_OPS_SNAP && !(SAVE_IN_FLIGHT['mlp_operators']||0)){
+    // snapshot اللي وصل أثناء الحفظ ممكن يكون أقدم من نتيجة الـupsert، لذلك ما نطبّقوش
+    // ولا نستخدمه كـbaseline. نرميه ونسيب Realtime يجيب النسخة المؤكدة من السيرفر.
+    PENDING_BASE_OPS_SNAP = null;
+  }
   return ok;
 }
 async function saveUsers(){
