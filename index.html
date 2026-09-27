@@ -2630,6 +2630,18 @@ async function saveEntries(opts){
 }
 async function saveOperators(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
+  // إصلاح مهم (سبتمبر 2026 — اختفاء التعيينات المستوردة بعد قفل وفتح الموقع رغم ظهور
+  // العدد الصح فورًا بعد الاستيراد): saveOperators() بتتنفذ عن طريق queueSave، يعني الكود
+  // الفعلي اللي بيقرأ OPERATORS بيتأجل لحد ما يجي دوره في الطابور (مش بينفّذ فورًا وقت
+  // النداء). في نفس الوقت، أي تحديث لحظي (onSnapshot) من شئون الموظفين أو mlp_operators_index
+  // أو الأكواد اليدوية بيعمل rebuild() اللي بيستبدل مصفوفة OPERATORS بالكامل بمصفوفة جديدة.
+  // لو الاستبدال ده حصل في اللحظة بين الاستيراد (اللي بيضيف للمصفوفة القديمة) ووصول دور
+  // الحفظ الفعلي في الطابور، السجلات المستوردة كانت بتختفي من المصفوفة الجديدة (لإنها لسه
+  // معملتلهاش حفظ في السيرفر) قبل ما saveOperators تقرأها أصلًا — يعني بتضيع نهائيًا من
+  // غير ما تتحفظ، رغم إن الشاشة كانت عرضت العدد الصح لحظيًا بعد الاستيراد مباشرة. الحل:
+  // ناخد نسخة (snapshot) من OPERATORS دلوقتي فورًا وقت النداء، ونحفظ منها هي بالظبط —
+  // مش من المتغيّر العام اللي ممكن يتستبدل بعد كده وقبل ما دور الحفظ ييجي.
+  const opsSnapshot = OPERATORS.slice();
   let ok = true;
   await queueSave('mlp_operators', async () => {
     try{
@@ -2639,7 +2651,7 @@ async function saveOperators(){
       // الـbaseline المستخدم في collectionArraySave (كل التعيينات المستوردة كانت بتتحسب "جديدة"
       // كل مرة، وأي مزامنة لاحقة كانت ممكن تمسح سجلات لسه ماوصلتش من السيرفر). دلوقتي بنستبعد
       // أي كود موجود فعليًا في شئون الموظفين قبل الحفظ، ونحفظ بس اللي فعلاً بيخص الكولكشن ده.
-      const toSave = OPERATORS.filter(o => o && Number.isFinite(o.c) && !HR_CODES_MAIN.has(o.c));
+      const toSave = opsSnapshot.filter(o => o && Number.isFinite(o.c) && !HR_CODES_MAIN.has(o.c));
       await collectionArraySave('mlp_operators', operatorsCol, toSave, 'c');
       BASE_OPERATORS_RAW = toSave;
     }
