@@ -2574,7 +2574,10 @@ function watchEmployeeChunksMain(){
       return;
     }
     applyBaseOpsSnapshot(snap);
-  }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
+  }, err => {
+    console.error('فشل تحميل تعيينات mlp_operators_index من Supabase:', err);
+    connReportError('operators_collection', err);
+  });
   coreRealtimeUnsubs.push(unsubBaseOps);
   const unsubManual = manualEmployeesCol().onSnapshot(snap => {
     readMeter.snap('manual_employees', snap);
@@ -2648,8 +2651,18 @@ async function saveOperators(){
       // كل مرة، وأي مزامنة لاحقة كانت ممكن تمسح سجلات لسه ماوصلتش من السيرفر). دلوقتي بنستبعد
       // أي كود موجود فعليًا في شئون الموظفين قبل الحفظ، ونحفظ بس اللي فعلاً بيخص الكولكشن ده.
       const toSave = OPERATORS.filter(o => o && Number.isFinite(o.c) && !HR_CODES_MAIN.has(o.c));
-      await collectionArraySave('mlp_operators', operatorsCol, toSave, 'c');
-      BASE_OPERATORS_RAW = toSave;
+      // التعيينات لا تُحذف من قاعدة البيانات لمجرد أن نسخة الجهاز الحالية ناقصة
+      // أو أن Realtime لم يكتمل تحميله بعد. الحذف/التصفية هنا حالة صريحة داخل السجل
+      // (a=false)، لذلك نحفظ Upsert للسجلات فقط ولا ننفذ Delete جماعيًا.
+      const col = operatorsCol();
+      const batchSize = 400;
+      for(let i=0;i<toSave.length;i+=batchSize){
+        const batch = db.batch();
+        toSave.slice(i,i+batchSize).forEach(item => batch.set(col.doc(String(item.c)), item));
+        await batch.commit();
+      }
+      BASE_OPERATORS_RAW = toSave.map(o => ({...o}));
+      setBaseline('mlp_operators', BASE_OPERATORS_RAW, 'c');
     }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات العاملين — ' + saveErrorDetail(e), true); }
   });
