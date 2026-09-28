@@ -4786,12 +4786,12 @@ function printBestPerfDeficit(){
   if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const deficitRows = computeLineDeficitPerformance(from, to);
   if(!deficitRows.length){ showToast('⚠️ مفيش بيانات لنسبة العجز للطباعة'); return; }
-  const deficitRanks = computeTieRankLabels(deficitRows, r => r.successPct);
+  const deficitRanks = computeTieRankLabels(deficitRows, r => r.successPct, null, true);
   const totalTargetMinutes = deficitRows.reduce((sum,r)=>sum+r.targetMinutes,0);
   const totalDeficitMinutes = deficitRows.reduce((sum,r)=>sum+r.deficitMinutes,0);
   const overallSuccessPct = totalTargetMinutes ? 1 - (totalDeficitMinutes/totalTargetMinutes) : 0;
   const deficitRowsHtml = deficitRows.map((row, idx) => `
-      <tr>
+      <tr${String(deficitRanks[idx]).includes('استثنائي') ? ' class="exceptional-row"' : ''}>
         <td>${deficitRanks[idx]}</td>
         <td>${row.line}</td>
         <td>${row.supervisor || '-'}</td>
@@ -4982,7 +4982,7 @@ function applyBestPerfFilter(){
     `;
   }).join('');
   const deficitRows = computeLineDeficitPerformance(document.getElementById('bf-from').value, document.getElementById('bf-to').value);
-  const deficitRanks = computeTieRankLabels(deficitRows, r => r.successPct);
+  const deficitRanks = computeTieRankLabels(deficitRows, r => r.successPct, null, true);
   const deficitRankRows = deficitRows.map((row, idx) => {
     const cls = row.successPct >= 0.95 ? 'good' : row.successPct >= 0.85 ? 'mid' : 'bad';
     return `
