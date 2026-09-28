@@ -1557,13 +1557,27 @@ function makeBatch(){
     async commit(){
       const sets = ops.filter(o => o.type === 'set').map(o => ({ path: o.path, data: o.data }));
       const dels = ops.filter(o => o.type === 'delete').map(o => o.path);
+      // تقسيم الطلبات لدفعات صغيرة: الحذف بـ .in() بيتحوّل لرابط GET/DELETE، ولو فيه مئات المسارات
+      // الرابط بيعدّي الحد المسموح ويرجع 400 (ده كان سبب تعطّل "مسح الكل" وفشل الحفظ).
+      const runChunks = async (arr, size, fn, conc = 4) => {
+        const chunks = [];
+        for(let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+        let idx = 0;
+        await Promise.all(Array.from({ length: Math.min(conc, chunks.length) }, async () => {
+          while(idx < chunks.length){ const c = chunks[idx++]; await fn(c); }
+        }));
+      };
       if(sets.length){
-        const { error } = await sb.from('fs_documents').upsert(sets);
-        if(error) throw error;
+        await runChunks(sets, 100, async c => {
+          const { error } = await sb.from('fs_documents').upsert(c);
+          if(error){ console.error('Supabase upsert فشل:', error.message, error.details, error.hint, error.code); throw error; }
+        });
       }
       if(dels.length){
-        const { error } = await sb.from('fs_documents').delete().in('path', dels);
-        if(error) throw error;
+        await runChunks(dels, 60, async c => {
+          const { error } = await sb.from('fs_documents').delete().in('path', c);
+          if(error){ console.error('Supabase delete فشل:', error.message, error.details, error.hint, error.code); throw error; }
+        });
       }
     }
   };
