@@ -476,6 +476,7 @@
   .tdup-item b{ direction:ltr; unicode-bidi:embed; }
   .tdup-row{ color:var(--muted); font-size:11px; }
   .tdup-note{ font-size:11.5px; color:var(--red-dark); font-weight:700; margin-top:6px; }
+  .twork-grid input.tdup-flag{ background:#FFF1CC; box-shadow:inset 0 0 0 2px var(--amber); font-weight:800; }
   /* ---------- جدول تنفيذ التارجت (خط أوضح وأكبر، مع مسافات معقولة من غير ما نحتاج سحب/swipe) ---------- */
   .ttab-exec-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; }
   .ttab-exec{ border-collapse:collapse; width:100%; min-width:760px; table-layout:fixed; }
@@ -8361,7 +8362,7 @@ const LINE_WEEKLY_CAPACITY_MIN = 57*60; // سعة الخط الأسبوعية = 
    في جلسات الجرد (JARD) اللي فترتها بدأت قبل بداية فترة التارجت. لو لقيناه:
    (1) الصف بيتعلّم بـ ⚠️ ولون، (2) صندوق تنبيه تحت جدول الخط فيه صالة وفترة الجرد، (3) رسالة فورية،
    (4) عند الحفظ بنوقف التسجيل ونطلب تأكيد صريح من المستخدم قبل ما الخطة تتسجّل.
-   الفحص على جدول التارجت الأساسي بس (مش شغل الأرض/شغل الخط لأنهم شغل شغّال مش تارجت جديد).
+   الفحص بيشتغل على جدول التارجت وكمان على شغل الأرض وشغل الخط (وقت الكتابة والحفظ)، وكل تنبيه بيوضّح الأرتيكل ده في أنهي قسم.
    وفي وضع تعديل خطة محفوظة: الأرتيكلات اللي كانت في الخطة أصلًا ما بتتعلّمش، بس الأرتيكلات الجديدة اللي بتضيفها. */
 const TARGET_DUP_LOOKBACK_PERIODS = 0; // 0 = كل فترات الجرد السابقة | 1 = آخر فترة جرد بس | 2 = آخر فترتين ... وهكذا
 let __tdupTimer = null, __tdupSeen = new Set(), __tdupResolver = null;
@@ -8414,13 +8415,17 @@ function tdupBaselineSet(){
   const set = new Set();
   if(editingTargetPlanId){
     const p = TARGET_PLANS.find(x => x.id === editingTargetPlanId);
-    ((p && p.lines) || []).forEach(l => (l.rows || []).forEach(r => { const k = normArticleCode(r.article); if(k) set.add(k); }));
+    ((p && p.lines) || []).forEach(l => {
+      (l.rows || []).forEach(r => { const k = normArticleCode(r.article); if(k) set.add(k); });
+      (l.floorWork || []).forEach(r => { const k = normArticleCode(r.article); if(k) set.add(k); });
+      (l.lineWork || []).forEach(r => { const k = normArticleCode(r.article); if(k) set.add(k); });
+    });
   }
   return set;
 }
 function tdupLineBoxHtml(hits){
   return `<div class="tdup-box"><div class="tdup-title">⚠️ هذا الـ Article موجود ضمن التسليمات السابقة</div>` +
-    hits.map(h => `<div class="tdup-item"><b>${tdupEsc(h.code)}</b> <span class="tdup-row">(صف ${h.row})</span> — ${tdupEsc(tdupPeriodsText(h.periods))}</div>`).join('') +
+    hits.map(h => `<div class="tdup-item"><b>${tdupEsc(h.code)}</b> <span class="tdup-row">(${h.section ? tdupEsc(h.section) + " — " : ""}صف ${h.row})</span> — ${tdupEsc(tdupPeriodsText(h.periods))}</div>`).join('') +
     `<div class="tdup-note">مش هتقدر تسجّله كتارجت جديد غير بعد ما تأكد وقت الحفظ.</div></div>`;
 }
 function scheduleTargetDupScan(){ clearTimeout(__tdupTimer); __tdupTimer = setTimeout(runTargetDupScan, 600); }
@@ -8451,6 +8456,25 @@ function runTargetDupScan(){
         if(numCell){ numCell.textContent = String(i+1); numCell.classList.remove('tdup-num'); numCell.removeAttribute('title'); }
       }
     }
+    // شغل الأرض وشغل الخط: نفس الفحص بالظبط (بيعلّم خانة الأرتيكل ويدخل في الصندوق والتأكيد وقت الحفظ)
+    [['floor','شغل الأرض'],['line','شغل الخط']].forEach(([kind, label]) => {
+      for(let i=0;i<TARGET_WORK_ROWS;i++){
+        const inp = document.getElementById('target-'+kind+'-article-'+id+'-'+i);
+        if(!inp) continue;
+        const key = normArticleCode(inp.value);
+        const periods = (key && !baseline.has(key)) ? idx.get(key) : null;
+        if(periods){
+          const tip = '⚠️ هذا الـ Article موجود ضمن التسليمات السابقة — ' + tdupPeriodsText(periods);
+          inp.classList.add('tdup-flag'); inp.title = tip;
+          hits.push({row:i+1, code:inp.value.trim(), key, periods, section:label});
+          const sk = id + '|' + kind + '|' + key;
+          flaggedNow.add(sk);
+          if(!__tdupSeen.has(sk) && !fresh.some(f => f.sk === sk)) fresh.push({sk, code:inp.value.trim(), periods});
+        } else if(inp.classList.contains('tdup-flag')){
+          inp.classList.remove('tdup-flag'); inp.removeAttribute('title');
+        }
+      }
+    });
     const box = document.getElementById('target-line-dup-'+id);
     if(box) box.innerHTML = hits.length ? tdupLineBoxHtml(hits) : '';
   });
@@ -8470,6 +8494,13 @@ function findTargetDupHits(lines, from){
     const periods = idx.get(key);
     if(periods) hits.push({line:l.line, code:String(r.article).trim(), key, periods});
   }));
+  // شغل الأرض وشغل الخط
+  (lines || []).forEach(l => [['floorWork','شغل الأرض'],['lineWork','شغل الخط']].forEach(([f, label]) => (l[f] || []).forEach(r => {
+    const key = normArticleCode(r.article);
+    if(!key || baseline.has(key)) return;
+    const periods = idx.get(key);
+    if(periods) hits.push({line:l.line, code:String(r.article).trim(), key, periods, section:label});
+  })));
   return hits;
 }
 function tdupResolve(v){ const r = __tdupResolver; __tdupResolver = null; closeModal(); if(r) r(v); }
@@ -8481,7 +8512,7 @@ function confirmTargetDuplicates(hits, from){
     const cards = hits.map(h => {
       const shown = h.periods.slice(0, 4), more = h.periods.length - shown.length;
       return `<div style="background:rgba(231,163,53,.12);border:1px solid rgba(231,163,53,.5);border-radius:12px;padding:10px 12px;margin-bottom:8px;text-align:right;">
-        <div style="font-weight:800;color:#F5C26B;font-size:14px;"><span style="direction:ltr;unicode-bidi:embed;">${tdupEsc(h.code)}</span> <span style="font-size:11px;color:#B9BFCF;font-weight:600;">— خط ${tdupEsc(h.line)}</span></div>
+        <div style="font-weight:800;color:#F5C26B;font-size:14px;"><span style="direction:ltr;unicode-bidi:embed;">${tdupEsc(h.code)}</span> <span style="font-size:11px;color:#B9BFCF;font-weight:600;">— خط ${tdupEsc(h.line)}${h.section ? " — " + tdupEsc(h.section) : ""}</span></div>
         ${shown.map(p => `<div style="font-size:12px;color:#E8EAF0;margin-top:4px;line-height:1.7;">📦 ${tdupEsc(p.hall)} — فترة الجرد من <b>${tdupEsc(p.from)}</b> إلى <b>${tdupEsc(p.to)}</b> — تسليم ${fmtNum(p.qty)}</div>`).join('')}
         ${more > 0 ? `<div style="font-size:11px;color:#B9BFCF;margin-top:4px;">+ ${more} فترة جرد تانية</div>` : ''}
       </div>`;
@@ -9097,6 +9128,65 @@ function handleGenericPaste(e, startRow, startCol, idPrefix, cols, maxRows, onDo
 function handleTargetRowPaste(e, startRow, startCol, idPrefix, cols, maxRows, onDone){
   handleGenericPaste(e, startRow, startCol, idPrefix, cols, maxRows, onDone);
 }
+/* ===== بعد تعديل خطة تارجت قديمة: تحديث تنفيذ التارجت وأرقام تارجت الإنتاج في الجرد في نفس لحظة الحفظ =====
+   (1) تنفيذ التارجت: الأرتيكلات اللي لسه ما اتعلّمش عليها بتتحدّث بقيم الخطة الجديدة، والجديدة بتتضاف،
+       والأرتيكلات اللي اتشالت من الخطة (ولسه ما اتعلّمتش) بتتشال. اللي اتعلّم عليه فعلًا (done) والأرتيكلات اليدوية بنسيبها زي ما هي.
+   (2) الجرد: لكل جلسة جرد لنفس الصالة وفترتها بتتقاطع مع الخطة، ولو الخطة دي هي "الأحدث" ليها (نفس منطق
+       getLineTargetProduction)، بنحدّث تارجت الإنتاج لكل خط بقيمة إجمالي تارجت الخط في الخطة، بس لو الرقم في الجرد لسه زي القديم في الخطة أو فاضي (الرقم اللي اتعدّل يدوي بيفضل). الإنتاج الفعلي مش بيتلمس.
+   الحفظ بيكتب بس المستندات اللي اتغيّرت فعلًا. بيرجّع نص قصير يتضاف على رسالة النجاح. */
+async function syncTargetEditDownstream(plan, oldPlan){
+  const notes = [];
+  try{
+    const pe = TARGET_EXEC.find(x => x.planId === plan.id);
+    if(pe){
+      const snap = JSON.stringify(pe);
+      getOrInitPlanExec(plan);
+      (pe.lines || []).forEach(le => {
+        const pl = (plan.lines || []).find(l => l.line === le.line);
+        le.items = (le.items || []).filter(it => {
+          if(it.done || it.origIdx == null) return true;
+          const r = pl && (pl.rows || [])[it.origIdx];
+          return !!(r && (r.article || r.qty || r.h || r.m));
+        });
+      });
+      if(JSON.stringify(pe) !== snap){
+        EXEC_DIRTY_IDS.add(plan.id);
+        await saveTargetExec();
+        notes.push('تنفيذ التارجت');
+      }
+    }
+    const changed = [];
+    (JARD || []).forEach(sess => {
+      if(!sess || sess.hall !== plan.hall || !sess.from || !sess.to) return;
+      const cands = TARGET_PLANS.filter(x => x.hall === sess.hall && x.from <= sess.to && x.to >= sess.from);
+      if(!cands.length) return;
+      const latest = cands.reduce((a, b) => (b.from > a.from ? b : a));
+      if(latest.id !== plan.id) return;
+      let ch = false;
+      (sess.lines || []).forEach(l => {
+        const pl = (plan.lines || []).find(x => x.line === l.line);
+        if(!pl) return;
+        const t = Number(pl.lineTarget) || 0;
+        const cur = Number(l.targetProduction) || 0;
+        // بنغيّر بس لو الرقم في الجرد لسه زي القديم في الخطة (أو فاضي) — أي رقم اتعدّل يدويًا في الجرد بيفضل زي ما هو
+        const oldPl = oldPlan && (oldPlan.lines || []).find(x => x.line === l.line);
+        const oldT = oldPl ? (Number(oldPl.lineTarget) || 0) : null;
+        const untouched = cur === 0 || (oldT !== null && cur === oldT);
+        if(untouched && cur !== t){ l.targetProduction = t; ch = true; }
+      });
+      if(ch) changed.push(sess);
+    });
+    if(changed.length){
+      await saveJard();
+      notes.push('تارجت الإنتاج في ' + changed.length + ' جرد');
+    }
+  }catch(e){
+    console.error('syncTargetEditDownstream', e);
+    showToast('⚠️ الخطة اتحفظت بس تحديث التنفيذ/الجرد فشل — افتح تنفيذ التارجت وجرب تاني', true);
+    return '';
+  }
+  return notes.length ? ' — واتحدّث: ' + notes.join(' + ') : '';
+}
 async function saveTargetPlan(){
   const from = document.getElementById('target-from').value;
   const to = document.getElementById('target-to').value;
@@ -9138,11 +9228,13 @@ async function saveTargetPlan(){
 
   if(editingTargetPlanId){
     const idx = TARGET_PLANS.findIndex(p=>p.id===editingTargetPlanId);
+    const __oldPlan = idx>-1 ? JSON.parse(JSON.stringify(TARGET_PLANS[idx])) : null;
     if(idx>-1) TARGET_PLANS[idx] = {...TARGET_PLANS[idx], hall, from, to, hallManager, hallTargetDeliveries, lines};
     editingTargetPlanId = null;
     await saveTargetPlanRecord(TARGET_PLANS[idx]);
     targetFormDirty = false; // اتحفظ فعليًا دلوقتي، مفيش داعي نمنع أي تحديث لحظي جاي بعد كده
-    showToast('✅ اتحفظ التعديل على خطة التارجت');
+    const __syncNote = idx > -1 ? await syncTargetEditDownstream(TARGET_PLANS[idx], __oldPlan) : '';
+    showToast('✅ اتحفظ التعديل على خطة التارجت' + __syncNote);
   } else {
     const newPlan = {
       id: 't'+Date.now()+Math.random().toString(36).slice(2,6),
