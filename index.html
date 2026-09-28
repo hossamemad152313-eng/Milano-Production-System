@@ -266,6 +266,12 @@
     transition:background .2s ease; white-space:nowrap;
   }
   .notify-btn:hover{ background:rgba(37,211,102,.12); }
+  .hrfb-btn{
+    background:none; border:1px solid #3A4257; color:#B9BFCF; font-family:'Cairo',sans-serif; font-size:12px; padding:5px 9px; border-radius:20px; cursor:pointer; line-height:1.2;
+    transition:border-color .2s ease, color .2s ease; white-space:nowrap;
+  }
+  .hrfb-btn:hover{ border-color:var(--amber); color:var(--amber); }
+  @media print{ .hrfb-btn, #hrfb-chip{ display:none !important; } }
   .modal-overlay{
     position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:9999;
     display:flex; align-items:flex-end; justify-content:center;
@@ -1148,6 +1154,7 @@ input[type="number"], input[type="text"], input[type="date"], select{
           <div class="hall-sub" id="hall-sub">--</div>
         </div>
         <div class="row1-left">
+          <button class="hrfb-btn" id="hrfb-btn" onclick="hrFbRefresh(true, 0, true)" title="تحديث بيانات شئون الموظفين">👥</button>
           <button class="notify-btn" id="notify-btn" style="display:none;" onclick="openNotifyModal()">📤 واتساب</button>
           <button class="logout-btn" onclick="doLogout()">خروج</button>
         </div>
@@ -2622,22 +2629,54 @@ function hrFbLoadCache(){
   }catch(e){}
   return false;
 }
-function hrFbChip(){
-  let el = document.getElementById('hrfb-chip');
-  if(!el){
-    el = document.createElement('div'); el.id = 'hrfb-chip';
-    el.style.cssText = 'position:fixed; bottom:10px; left:10px; z-index:9000; background:#fff; border:1px solid #d8d8de; border-radius:999px; padding:5px 11px; font:700 11px Cairo,sans-serif; color:#555; box-shadow:0 2px 8px rgba(0,0,0,.15); cursor:pointer; direction:rtl;';
-    el.onclick = () => hrFbRefresh(true, 0, true);
-    document.body.appendChild(el);
-  }
-  return el;
-}
 function hrFbChipUpdate(busy){
-  if(!document.body) return;
-  const el = hrFbChip();
-  if(busy){ el.textContent = '🔄 بيحدّث شئون الموظفين...'; return; }
+  const el = document.getElementById('hrfb-btn');
+  if(!el) return;
+  if(busy){ el.textContent = '⏳'; return; }
+  el.textContent = '👥';
   const t = HR_FB_AT ? new Date(HR_FB_AT).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '—';
-  el.textContent = '👥 شئون الموظفين: ' + HR_FB_EMP.length + ' • ' + t + ' 🔄';
+  el.title = 'شئون الموظفين: ' + HR_FB_EMP.length + ' تعيين • ' + HR_FB_TERM.length + ' تصفية • آخر تحديث ' + t + ' — اضغط للتحديث';
+}
+
+// فحص سريع قبل الحفظ: بيقرا من Firebase مستندات الأكواد اللي هتتحفظ بس (تعيين + تصفية) بدل قراءة كل الموظفين.
+// القراءات = عدد الأكواد تقريبًا (مش آلاف). لو فشل بيكمّل بآخر كاش من غير ما يوقف الحفظ.
+async function hrFbQueryByCodes(docName, codes){
+  const vals = []; codes.forEach(c => { vals.push({stringValue: String(c)}); if(/^\d+$/.test(String(c))) vals.push({integerValue: String(c)}); });
+  const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/' + docName + ':runQuery?key=' + HR_FB_KEY;
+  const body = { structuredQuery: { from: [{collectionId: 'items'}], where: { fieldFilter: { field: {fieldPath: 'code'}, op: 'IN', value: { arrayValue: { values: vals } } } } } };
+  const res = await withTimeout(fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }), 'فحص أكواد ' + docName);
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  const arr = await res.json(); const out = [];
+  (arr || []).forEach(r => {
+    if(!r.document) return;
+    const row = {}; const f = r.document.fields || {};
+    Object.keys(f).forEach(k => row[k] = hrFbVal(f[k]));
+    if(!row._id) row._id = String(r.document.name || '').split('/').pop();
+    out.push(row);
+  });
+  return out;
+}
+function hrFbMergeRows(list, fresh){
+  const map = new Map(list.map(r => [String(r._id), r]));
+  fresh.forEach(r => map.set(String(r._id), r));
+  return Array.from(map.values());
+}
+async function hrFbRefreshCodes(codes){
+  const uniq = [...new Set((codes || []).map(c => String(c).trim()).filter(Boolean))];
+  if(!uniq.length) return false;
+  try{
+    for(let i = 0; i < uniq.length; i += 12){
+      const part = uniq.slice(i, i + 12);
+      const [emp, term] = await Promise.all([hrFbQueryByCodes('hr_employees_index', part), hrFbQueryByCodes('hr_termination_index', part)]);
+      HR_FB_EMP = hrFbMergeRows(HR_FB_EMP, emp); HR_FB_TERM = hrFbMergeRows(HR_FB_TERM, term);
+    }
+    try{ localStorage.setItem(HR_FB_CACHE_KEY, JSON.stringify({ at: HR_FB_AT, emp: HR_FB_EMP, term: HR_FB_TERM })); }catch(e){}
+    if(typeof HR_FB_ON_UPDATE === 'function') HR_FB_ON_UPDATE();
+    return true;
+  }catch(e){
+    console.warn('فشل فحص أكواد التسجيل من Firebase (شغال بالكاش):', e);
+    return false;
+  }
 }
 // maxAge: أقصى عمر مسموح للكاش (بالمللي ثانية). force = تجاهل الكاش. بترجّع true لو اتحدّث فعلاً.
 async function hrFbRefresh(force, maxAge, verbose){
@@ -2668,6 +2707,129 @@ function hrFbStart(onUpdate){
   if(hrFbLoadCache()) onUpdate();
   hrFbChipUpdate(false);
   hrFbRefresh(false);
+}
+
+/* =====================================================================
+   استرجاع سجلات الأداء القديمة من Firebase → Supabase (أدمن بس، يدوي، مرة عند الحاجة).
+   بيقرا 3 أماكن ممكن السجلات القديمة تكون فيها على Firebase:
+     1) mlp_entries_weeks/parts  (مستند لكل أسبوع)   2) mlp_entries_index/items (مستند لكل سجل)
+     3) mlp_entries (المستند القديم الواحد)
+   وبيقارن بالـ id مع اللي موجود فعلاً في Supabase، وبيضيف الناقص بس — مفيش أي سجل موجود بيتعدّل أو بيتمسح.
+   ===================================================================== */
+let FBR_PENDING = [];
+async function fbrListDocs(relPath){
+  const out = []; let token = '';
+  do{
+    const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/' + relPath + '?pageSize=300&key=' + HR_FB_KEY + (token ? '&pageToken=' + encodeURIComponent(token) : '');
+    const res = await withTimeout(fetch(url), 'قراءة ' + relPath);
+    if(res.status === 404) return out;
+    if(!res.ok) throw new Error(relPath + ' → HTTP ' + res.status);
+    const j = await res.json();
+    (j.documents || []).forEach(doc => out.push(doc));
+    token = j.nextPageToken || '';
+  } while(token);
+  return out;
+}
+function fbrDocToObj(doc){
+  const o = {}; const f = doc.fields || {};
+  Object.keys(f).forEach(k => o[k] = hrFbVal(f[k]));
+  return o;
+}
+function fbrParseValueArr(obj){
+  try{ const a = JSON.parse(obj.value || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function fbrStatus(msg){ const el = document.getElementById('fbr-status'); if(el) el.innerHTML = msg; }
+function openFbEntriesRestore(){
+  if(!currentUser || currentUser.role !== 'admin') return;
+  const cf = (document.getElementById('cov-from') || {}).value || '';
+  const ct = (document.getElementById('cov-to') || {}).value || '';
+  document.getElementById('modal-root').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-box modal-box-wrap">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <h3>🔄 استرجاع سجلات من Firebase</h3>
+        <div class="empty-state" style="text-align:right;font-size:12px;">بيقرا سجلات الأداء القديمة من Firebase ويقارنها بـ Supabase، ويضيف الناقص بس. حدد فترة لو عايز (سيبها فاضية = كل الفترات). الفحص بيعمل قراءة لمرة واحدة من Firebase.</div>
+        <div class="grid2">
+          <div class="field"><label>من تاريخ</label><input type="date" id="fbr-from" value="${cf}"></div>
+          <div class="field"><label>إلى تاريخ</label><input type="date" id="fbr-to" value="${ct}"></div>
+        </div>
+        <button class="apply-btn" id="fbr-scan-btn" onclick="fbrScan()">🔍 افحص Firebase</button>
+        <div id="fbr-status" style="margin-top:10px;font-size:13px;line-height:1.8;"></div>
+      </div>
+    </div>`;
+}
+async function fbrScan(){
+  const from = document.getElementById('fbr-from').value, to = document.getElementById('fbr-to').value;
+  const btn = document.getElementById('fbr-scan-btn'); btn.disabled = true;
+  FBR_PENDING = [];
+  try{
+    fbrStatus('⏳ بيقرا من Firebase (أسابيع)...');
+    const weeks = await fbrListDocs('mlp_entries_weeks/parts');
+    let all = [];
+    weeks.forEach(w => { all = all.concat(fbrParseValueArr(fbrDocToObj(w))); });
+    const nWeeks = all.length;
+    fbrStatus('⏳ بيقرا من Firebase (سجل لكل مستند)... ممكن ياخد شوية');
+    const singles = await fbrListDocs('mlp_entries_index/items');
+    const nSingles = singles.length;
+    singles.forEach(s => all.push(fbrDocToObj(s)));
+    fbrStatus('⏳ بيقرا المستند القديم...');
+    let legacy = [];
+    try{
+      const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/mlp_entries?key=' + HR_FB_KEY;
+      const res = await withTimeout(fetch(url), 'المستند القديم');
+      if(res.ok) legacy = fbrParseValueArr(fbrDocToObj(await res.json()));
+    }catch(e){}
+    all = all.concat(legacy);
+    fbrStatus('⏳ بيقارن بالموجود في Supabase...');
+    await ensureEntriesArchiveLoaded();
+    const have = new Set(ENTRIES.map(e => String(e.id)));
+    const seen = new Set(); const pending = []; let outOfRange = 0, invalid = 0, already = 0;
+    all.forEach(e => {
+      if(!e || e.id === undefined || e.id === null || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.d || '')) || !e.h){ invalid++; return; }
+      const id = String(e.id);
+      if(seen.has(id)) return; seen.add(id);
+      if((from && e.d < from) || (to && e.d > to)){ outOfRange++; return; }
+      if(have.has(id)){ already++; return; }
+      pending.push(e);
+    });
+    FBR_PENDING = pending;
+    const byHall = {}; pending.forEach(e => { byHall[e.h] = (byHall[e.h] || 0) + 1; });
+    const dates = [...new Set(pending.map(e => e.d))].sort();
+    const hallTxt = Object.keys(byHall).sort().map(h => 'صالة ' + h + ': ' + byHall[h]).join(' • ') || '—';
+    fbrStatus(`
+      📥 اتقرا من Firebase: <b>${seen.size}</b> سجل (أسابيع ${nWeeks} • مفردة ${nSingles} • قديم ${legacy.length})<br>
+      ✅ موجود أصلاً في Supabase: <b>${already}</b>${outOfRange ? ' • خارج الفترة: ' + outOfRange : ''}${invalid ? ' • غير صالح: ' + invalid : ''}<br>
+      ➕ <b style="color:var(--green);">ناقص وهيتضاف: ${pending.length}</b><br>
+      ${pending.length ? '📅 ' + dates[0] + ' ← ' + dates[dates.length-1] + ' (' + dates.length + ' يوم)<br>🏭 ' + hallTxt + '<br>' : ''}
+      ${pending.length ? `<button class="apply-btn" style="margin-top:10px;" onclick="fbrImport()">✅ استورد ${pending.length} سجل لـ Supabase</button>
+      <button class="op-btn" style="margin-top:8px;width:100%;" onclick="fbrDownload()">💾 نزّل نسخة احتياطية (JSON) الأول</button>
+      <div class="empty-state" style="text-align:right;font-size:11px;margin-top:8px;">تنبيه: لو كنت مسحت سجلات من Supabase بعد النقل وهي لسه موجودة على Firebase، هترجع. حدد الفترة لو عايز تتفادى ده.</div>` : '<span style="color:var(--green);">مفيش حاجة ناقصة في الفترة دي 👌 — يعني الأيام الناقصة مش متسجلة على Firebase كمان.</span>'}
+    `);
+  }catch(e){
+    console.warn(e);
+    fbrStatus('❌ فشل الفحص: ' + (e && e.message || e) + '<br><span style="font-size:11px;">لو HTTP 403 يبقى قواعد Firestore مش سامحة بالقراءة من هنا.</span>');
+  }finally{ btn.disabled = false; }
+}
+function fbrDownload(){
+  const blob = new Blob([JSON.stringify(FBR_PENDING)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'firebase_entries_backup_' + todayStr() + '.json'; document.body.appendChild(a); a.click(); a.remove();
+}
+async function fbrImport(){
+  if(!FBR_PENDING.length) return;
+  if(!confirm('هيتضاف ' + FBR_PENDING.length + ' سجل ناقص لـ Supabase. متأكد؟')) return;
+  const list = FBR_PENDING.slice();
+  fbrStatus('⏳ بيكتب في Supabase... متقفلش الصفحة');
+  const ok = await saveEntries({upsert: list});
+  if(!ok){ fbrStatus('❌ الاستيراد فشل — راجع رسالة الخطأ فوق. مفيش حاجة اتمسحت.'); return; }
+  const cutoff = entriesCutoffStr();
+  ENTRIES_ARCHIVE = ENTRIES_ARCHIVE.concat(list.filter(e => e.d < cutoff));
+  ENTRIES_LIVE = ENTRIES_LIVE.filter(e => !list.some(x => String(x.id) === String(e.id))).concat(list.filter(e => e.d >= cutoff));
+  rebuildEntries();
+  FBR_PENDING = [];
+  fbrStatus('✅ اتضاف ' + list.length + ' سجل لـ Supabase.');
+  showToast('✅ اتسترجع ' + list.length + ' سجل من Firebase');
+  if(document.getElementById('coverage-report-results')) applyCoverageReport();
 }
 let EMPLOYEE_WATCH_STARTED = false;
 function watchEmployeeChunksMain(){
@@ -5474,7 +5636,7 @@ async function saveAllRows(){
   });
   const valid = readRows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تكتب كود على الأقل لصف واحد'); return; }
-  await hrFbRefresh(false, HR_FB_PRESAVE_TTL); // نتأكد إن التصفيات محدّثة قبل ما نحفظ
+  await hrFbRefreshCodes(valid.map(r => r.code)); // نتأكد من حالة الأكواد دي بس قبل ما نحفظ
   // الأكواد المصفّية في شئون الموظفين ممنوعة (إلا لو تاريخ التسجيل في/قبل يوم التصفية)
   const termBad = termBlockedCodesFor(valid.map(r => r.code), date);
   if(termBad.length){ termBlockedToast(termBad); return; }
@@ -6001,6 +6163,7 @@ function coveragePanelHtml(){
       <div style="margin-top:8px;"><label>الصالة</label><select id="cov-hall"><option value="__ALL__">كل الصالات</option>${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select></div>
       <button class="apply-btn" onclick="applyCoverageReport()">بحث</button>
     </div>
+    ${currentUser && currentUser.role==='admin' ? `<button class="op-btn" style="margin:10px 0;width:100%;" onclick="openFbEntriesRestore()">🔄 استرجاع سجلات قديمة من Firebase</button>` : ''}
     <div id="coverage-report-results"></div>
   `;
 }
@@ -6427,7 +6590,7 @@ async function saveEditedGroup(){
   });
   const valid = rows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تسيب كود على الأقل لصف واحد — ولو عايز تمسح الملف كله ارجع للسجلات وامسحه من هناك'); return; }
-  await hrFbRefresh(false, HR_FB_PRESAVE_TTL);
+  await hrFbRefreshCodes(valid.map(r => r.code));
   const termBadEdit = termBlockedCodesFor(valid.map(r => r.code), date);
   if(termBadEdit.length){ termBlockedToast(termBadEdit); return; }
   const unknownCodes = [...new Set(valid.filter(r => !r.knownCode).map(r => r.code))];
