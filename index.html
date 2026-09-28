@@ -940,6 +940,21 @@ input[type="number"], input[type="text"], input[type="date"], select{
 #print-rank-output table.target-print-table td .hall-mgr{ font-size:11.5px; font-weight:600; margin-top:2px; }
 #print-rank-output table.target-print-table td.maint-td .maint-extra{ font-size:12px; font-weight:700; margin-top:2px; }
 </style>
+<style id="exceptionalRowPrintStyle">
+/* صف "استثنائي" في طباعة أفضل أداء للتسليمات: تظليل دهبي + خط أسود عريض + إطار عشان يبقى متميز على الورق (حتى لو الطباعة أبيض وأسود) */
+@media print{
+  #print-rank-output table tr.exceptional-row td{
+    background:#FBE7A1 !important;
+    color:#000 !important;
+    font-weight:900 !important;
+    border-top:2.5px solid #B8860B !important;
+    border-bottom:2.5px solid #B8860B !important;
+    -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;
+  }
+  #print-rank-output table tr.exceptional-row td:first-child{ border-right:2.5px solid #B8860B !important; }
+  #print-rank-output table tr.exceptional-row td:last-child{ border-left:2.5px solid #B8860B !important; }
+}
+</style>
 <style id="printNoBlankPageStyle">
 /* منع الصفحة التانية الفاضية في كل الطباعات (الجرد والتارجت وطباعة النماذج): عنصر #modal-root الفاضي (آخر عنصر في الـ body) كان بيتسبب في صفحة زيادة */
 @media print{
@@ -4707,7 +4722,7 @@ function printBestPerf(){
   const totalEslah = rows.reduce((sum,r)=>sum+r.totalEslah,0);
   const totalQualityPct = totalActual ? 1 - (totalHalak/totalActual) - (totalEslah/totalActual) : 0;
   const deliveryRows = rankedDelivery.map((row, idx) => `
-      <tr>
+      <tr${String(deliveryRanks[idx]).includes('استثنائي') ? ' class="exceptional-row"' : ''}>
         <td>${deliveryRanks[idx]}</td>
         <td>${row.hall}</td>
         <td>${fmtNum(row.targetDeliveries)}</td>
