@@ -1681,10 +1681,35 @@ async function logActivity(action, target, details){
     await sb.from('activity_log').insert({
       username: currentUser ? currentUser.user : null,
       user_label: currentUser ? currentUser.label : null,
-      action, target: target || null, details: details || null,
+      action, target: target || null, details: details ? String(details).slice(0, 600) : null,
       source: actSource()
     });
   }catch(e){ /* تجاهل — التسجيل ثانوي ومش لازم يوقف الشغل */ }
+}
+// ---- مساعدات وصف النشاط: بتحوّل أي حفظ/حذف لجملة مفهومة (إيه اتسجل، لأنهي صالة، وكام واحد) بدل اسم المستند ----
+function actEsc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function actList(arr, fn, max){
+  max = max || 5;
+  const names = arr.map(fn).filter(Boolean);
+  const shown = names.slice(0, max).join('، ');
+  return names.length > max ? shown + ' و' + (names.length - max) + ' آخرين' : shown;
+}
+function actGroupCount(arr, keyFn){
+  const m = new Map();
+  arr.forEach(x => { const k = keyFn(x); m.set(k, (m.get(k)||0) + 1); });
+  return Array.from(m.entries());
+}
+function actDiffText(diff, label){
+  const parts = [];
+  if(diff.added.length)   parts.push('إضافة ' + diff.added.length + ': ' + actList(diff.added, label));
+  if(diff.updated.length) parts.push('تعديل ' + diff.updated.length + ': ' + actList(diff.updated, label));
+  if(diff.deleted.length) parts.push('حذف ' + diff.deleted.length + ': ' + actList(diff.deleted, label));
+  return parts.join(' • ');
+}
+function logDiff(target, diff, label){
+  if(!diff || !(diff.added.length + diff.updated.length + diff.deleted.length)) return;
+  const onlyDel = !diff.added.length && !diff.updated.length;
+  logActivity(onlyDel ? 'حذف' : 'حفظ', target, actDiffText(diff, label));
 }
 let ACTLOG_ROWS = [];
 async function renderActivityLogTab(){
@@ -1692,16 +1717,16 @@ async function renderActivityLogTab(){
   main.innerHTML = `
     <div class="card-box">
       <div class="section-title">🕵️ سجل النشاط (مراقبة)</div>
-      <div style="font-size:11.5px;color:#B9BFCF;margin-bottom:10px;">بيسجّل كل دخول وخروج وكل عملية حفظ في النظام كله: مين، إمتى، من الويب ولا التطبيق، وعمل إيه.</div>
+      <div style="font-size:12.5px;font-weight:700;color:#000;margin-bottom:10px;">بيسجّل كل دخول وخروج وكل عملية حفظ في النظام كله: مين، إمتى، من الويب ولا التطبيق، وعمل إيه.</div>
       <div class="grid2 full" style="margin-bottom:8px;">
         <select id="actlog-user"><option value="">كل المستخدمين</option>${USERS.map(u=>`<option value="${u.user}">${u.label}</option>`).join('')}</select>
-        <select id="actlog-action"><option value="">كل العمليات</option><option value="دخول">دخول</option><option value="خروج">خروج</option><option value="حفظ">حفظ</option></select>
+        <select id="actlog-action"><option value="">كل العمليات</option><option value="دخول">دخول</option><option value="خروج">خروج</option><option value="حفظ">حفظ</option><option value="حذف">حذف</option></select>
       </div>
       <div class="grid2 full" style="margin-bottom:8px;">
         <input type="date" id="actlog-from"><input type="date" id="actlog-to">
       </div>
       <button class="apply-btn" onclick="loadActivityLog()">🔍 عرض</button>
-      <div id="actlog-status" style="font-size:11.5px;color:#8891A4;margin:8px 0;"></div>
+      <div id="actlog-status" style="font-size:12.5px;font-weight:800;color:#000;margin:8px 0;"></div>
       <div id="actlog-list"></div>
     </div>`;
   const today = new Date().toISOString().slice(0,10);
@@ -1728,13 +1753,14 @@ async function loadActivityLog(){
     ACTLOG_ROWS = data || [];
     status.textContent = `📋 ${ACTLOG_ROWS.length} عملية${ACTLOG_ROWS.length===500?' (أول 500 بس — ضيّق الفلتر لو محتاج أكتر)':''}`;
     list.innerHTML = ACTLOG_ROWS.map(r => `
-      <div style="border-bottom:1px solid #2C344A;padding:8px 0;font-size:12.5px;color:#fff;display:flex;justify-content:space-between;gap:8px;">
-        <div>
-          <div style="font-weight:700;">${r.user_label || r.username || '—'} <span style="color:#8891A4;font-weight:400;">(${r.source==='app'?'📱 تطبيق':'🌐 ويب'})</span></div>
-          <div style="color:#B9BFCF;">${r.action}${r.target ? ' — ' + r.target : ''}${r.details ? ' — ' + r.details : ''}</div>
+      <div style="border-bottom:1px solid #9AA1B2;padding:10px 0;font-size:13px;font-weight:700;color:#000;display:flex;justify-content:space-between;gap:8px;">
+        <div style="min-width:0;">
+          <div style="font-weight:800;color:#000;">${actEsc(r.user_label || r.username || '—')} <span style="color:#000;font-weight:700;">(${r.source==='app'?'📱 تطبيق':'🌐 ويب'})</span></div>
+          <div style="color:#000;font-weight:800;">${actEsc(r.action)}${r.target ? ' — ' + actEsc(r.target) : ''}</div>
+          ${r.details ? `<div style="color:#000;font-weight:700;line-height:1.7;margin-top:2px;word-break:break-word;">${actEsc(r.details)}</div>` : ''}
         </div>
-        <div style="color:#8891A4;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11px;">${new Date(r.created_at).toLocaleString('ar-EG',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</div>
-      </div>`).join('') || '<div style="color:#8891A4;font-size:12px;padding:12px 0;">مفيش عمليات في الفترة دي.</div>';
+        <div style="color:#000;font-weight:700;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;">${new Date(r.created_at).toLocaleString('ar-EG',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</div>
+      </div>`).join('') || '<div style="color:#000;font-weight:700;font-size:13px;padding:12px 0;">مفيش عمليات في الفترة دي.</div>';
   }catch(e){
     status.textContent = '⚠️ فشل تحميل السجل: ' + (e.message||e) + ' — لو أول مرة، اتأكد إنك عملت جدول activity_log في Supabase.';
   }
@@ -1745,10 +1771,10 @@ async function renderUsageTab(){
   main.innerHTML = `
     <div class="card-box">
       <div class="section-title">📊 استهلاك Supabase (تقديري ومجمّع من كل الأجهزة)</div>
-      <div style="font-size:11.5px;color:#B9BFCF;margin-bottom:10px;">الأرقام هنا مبنية على عدد عمليات الدخول والحفظ المسجّلة من التطبيق نفسه من كل الأجهزة — مش نفس الرقم الرسمي 100% اللي في Supabase Dashboard ← Settings ← Usage، بس بتوريك الاتجاه العام وحجم الاستخدام الحقيقي.</div>
+      <div style="font-size:12.5px;font-weight:700;color:#000;margin-bottom:10px;">الأرقام هنا مبنية على عدد عمليات الدخول والحفظ المسجّلة من التطبيق نفسه من كل الأجهزة — مش نفس الرقم الرسمي 100% اللي في Supabase Dashboard ← Settings ← Usage، بس بتوريك الاتجاه العام وحجم الاستخدام الحقيقي.</div>
       <div id="usage-summary">⏳ بيحسب...</div>
       <div class="grid2 full" style="margin:14px 0 8px;align-items:center;">
-        <label style="font-size:12.5px;color:#B9BFCF;">الحد الشهري اللي حاطّه لنفسك (عدد عمليات)</label>
+        <label style="font-size:13px;font-weight:800;color:#000;">الحد الشهري اللي حاطّه لنفسك (عدد عمليات)</label>
         <input type="number" id="usage-limit-input" placeholder="مثلاً 50000">
       </div>
       <button class="apply-btn" onclick="saveUsageLimit()">💾 حفظ الحد الشهري</button>
@@ -1818,7 +1844,7 @@ async function loadUsageTab(){
       </div>` : `<div style="color:#8891A4;font-size:12px;margin-top:8px;">حط الحد الشهري تحت عشان تشوف نسبة الاستهلاك والمتبقي.</div>`}`;
 
     const sortedDays = Object.keys(byDay).sort().reverse();
-    daysBox.innerHTML = sortedDays.map(d => `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:#fff;padding:5px 0;border-bottom:1px solid #2C344A;"><span>${d}</span><span style="font-family:'JetBrains Mono',monospace;">${byDay[d]}</span></div>`).join('') || '<div style="color:#8891A4;font-size:12px;">لسه مفيش بيانات.</div>';
+    daysBox.innerHTML = sortedDays.map(d => `<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;color:#000;padding:6px 0;border-bottom:1px solid #9AA1B2;"><span>${d}</span><span style="font-family:'JetBrains Mono',monospace;">${byDay[d]}</span></div>`).join('') || '<div style="color:#000;font-weight:700;font-size:13px;">لسه مفيش بيانات.</div>';
   }catch(e){
     summary.innerHTML = `<div style="color:#F3A9A0;font-size:12.5px;">⚠️ فشل تحميل الاستهلاك: ${e.message||e} — لو أول مرة، اتأكد إنك عملت جدول activity_log في Supabase.</div>`;
   }
@@ -1933,7 +1959,7 @@ async function saveManualEmployeeRecord(emp){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('manual_employees_'+emp.code, async () => {
-    try{ await manualEmployeesCol().doc(String(emp.code)).set(emp); }
+    try{ await manualEmployeesCol().doc(String(emp.code)).set(emp); logActivity('حفظ', 'كود مؤقت', 'كود ' + emp.code + ((emp.name || emp.n) ? ' — ' + (emp.name || emp.n) : '')); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات الكود اليدوي — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -2162,13 +2188,14 @@ async function collectionArraySave(docId, colFn, localArr, idKey){
   const localIds = new Set();
   const toSet = [];
   const toDeleteIds = [];
+  const diff = { added: [], updated: [], deleted: [] };
   localArr.forEach(item => {
     const id = String(item[idKey]);
     localIds.add(id);
     const json = JSON.stringify(item);
-    if(baseline.get(id) !== json) toSet.push(item);
+    if(baseline.get(id) !== json){ toSet.push(item); (baseline.has(id) ? diff.updated : diff.added).push(item); }
   });
-  baseline.forEach((_, id) => { if(!localIds.has(id)) toDeleteIds.push(id); });
+  baseline.forEach((json, id) => { if(!localIds.has(id)){ toDeleteIds.push(id); try{ diff.deleted.push(JSON.parse(json)); }catch(_){ diff.deleted.push({[idKey]: id}); } } });
   const ops = [...toSet.map(item=>({type:'set', item})), ...toDeleteIds.map(id=>({type:'delete', id}))];
   const batchSize = 400; // حد أقصى ~500 عملية لكل batch في Firestore
   for(let i=0;i<ops.length;i+=batchSize){
@@ -2180,6 +2207,7 @@ async function collectionArraySave(docId, colFn, localArr, idKey){
     await batch.commit();
   }
   setBaseline(docId, localArr, idKey);
+  return diff;
 }
 // طابور حفظ لكل مستند: لو المستخدم علّم على أكتر من أرتيكل (أو عمل أكتر من تعديل) بسرعة ورا
 // بعض، كل نداء لدالة الحفظ كان بيبدأ transaction خاصة بيه فورًا من غير ما ينتظر اللي قبله يخلص،
@@ -2234,9 +2262,6 @@ function updateSavingIndicator(){
   }
 }
 function queueSave(docId, taskFn){
-  const __actLabel = (typeof VERIFY_DOC_SPECS !== 'undefined' && VERIFY_DOC_SPECS[docId] && VERIFY_DOC_SPECS[docId].label)
-    || (docId.startsWith('manual_employees_') ? 'عامل مؤقت: ' + docId.replace('manual_employees_','') : docId);
-  logActivity('حفظ', __actLabel);
   SAVE_IN_FLIGHT[docId] = (SAVE_IN_FLIGHT[docId]||0) + 1;
   GLOBAL_SAVE_COUNT++;
   updateSavingIndicator();
@@ -2626,49 +2651,8 @@ const HR_EMP_CHUNKS = 5;
 function hrEmpChunkDocMain(i){
   return db.collection(FS_COLLECTION).doc('hr_employees_chunks').collection('parts').doc(String(i));
 }
-/* =====================================================================
-   مصدر التعيينات والتصفيات = بوابة شئون الموظفين (Base64) على Firebase — قراءة فقط.
-   الباقي كله (تقييم الأداء/الجرد/التارجت/...) فاضل على Supabase زي ما هو.
-   من غير Firebase SDK: بنستخدم Firestore REST مباشرة، وبنخزّن النتيجة محليًا (localStorage)
-   عشان نوفّر القراءات: الفتح العادي بيستخدم الكاش، والقراءة الفعلية من Firebase بتحصل بس
-   لو الكاش أقدم من HR_FB_TTL (عند فتح الصفحة فقط، من غير مؤقّت خلفي)، أو قبل الحفظ بـ HR_FB_PRESAVE_TTL، أو بزرار التحديث اليدوي.
-   ===================================================================== */
-const HR_FB_PROJECT = 'milano-production';
-const HR_FB_KEY = 'AIzaSyAnZNlqGlNQ1S59u-lA4L6_nBk5yJH5N3s'; // نفس مفتاح الويب العام بتاع بوابة شئون الموظفين
-const HR_FB_ROOT = 'milano_production';
-const HR_FB_TTL = 2 * 60 * 60 * 1000;   // كاش عادي: ساعتين — بيتحدّث عند فتح الصفحة لو أقدم من كده (غيّرها لو عايز قراءات أقل/بيانات أطزج)
-const HR_FB_PRESAVE_TTL = 10 * 60 * 1000; // قبل حفظ التسجيل: لو الكاش أقدم من 10 دقايق نحدّث
-const HR_FB_CACHE_KEY = 'hr_fb_cache_v1';
-let HR_FB_EMP = [], HR_FB_TERM = [], HR_FB_AT = 0, HR_FB_BUSY = null, HR_FB_ON_UPDATE = null, HR_FB_ERR_SHOWN = false;
-function hrFbVal(v){
-  if(!v || typeof v !== 'object') return null;
-  if('stringValue' in v) return v.stringValue;
-  if('integerValue' in v) return Number(v.integerValue);
-  if('doubleValue' in v) return Number(v.doubleValue);
-  if('booleanValue' in v) return v.booleanValue;
-  if('timestampValue' in v) return v.timestampValue;
-  if('nullValue' in v) return null;
-  if('arrayValue' in v) return (v.arrayValue.values || []).map(hrFbVal);
-  if('mapValue' in v){ const o = {}; const f = v.mapValue.fields || {}; Object.keys(f).forEach(k => o[k] = hrFbVal(f[k])); return o; }
-  return null;
-}
-async function hrFbFetchItems(docName){
-  const out = []; let token = '';
-  do{
-    const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/' + docName + '/items?pageSize=300&key=' + HR_FB_KEY + (token ? '&pageToken=' + encodeURIComponent(token) : '');
-    const res = await withTimeout(fetch(url), 'قراءة ' + docName);
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const j = await res.json();
-    (j.documents || []).forEach(doc => {
-      const row = {}; const f = doc.fields || {};
-      Object.keys(f).forEach(k => row[k] = hrFbVal(f[k]));
-      if(!row._id) row._id = String(doc.name || '').split('/').pop();
-      out.push(row);
-    });
-    token = j.nextPageToken || '';
-  } while(token);
-  return out;
-}
+// التعيينات والتصفيات بتتقرا لحظيًا من Supabase (شوف watchEmployeeChunksMain تحت)
+let HR_FB_EMP = [], HR_FB_TERM = [];
 // بيدمج التعيينات (الحالة/تاريخ الخروج) مع أرشيف التصفيات → صفوف بنفس شكل mapHrEmployeesToOperators
 function hrFbEmployeeRows(){
   const rows = HR_FB_EMP.map(e => Object.assign({}, e));
@@ -2686,222 +2670,6 @@ function hrFbEmployeeRows(){
     }
   });
   return rows;
-}
-/* =====================================================================
-   استرجاع سجلات الأداء القديمة من Firebase → Supabase (أدمن بس، يدوي، مرة عند الحاجة).
-   بيقرا 3 أماكن ممكن السجلات القديمة تكون فيها على Firebase:
-     1) mlp_entries_weeks/parts  (مستند لكل أسبوع)   2) mlp_entries_index/items (مستند لكل سجل)
-     3) mlp_entries (المستند القديم الواحد)
-   وبيقارن بالـ id مع اللي موجود فعلاً في Supabase، وبيضيف الناقص بس — مفيش أي سجل موجود بيتعدّل أو بيتمسح.
-   ===================================================================== */
-let FBR_PENDING = [];
-async function fbrListDocs(relPath){
-  const out = []; let token = '';
-  do{
-    const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/' + relPath + '?pageSize=300&key=' + HR_FB_KEY + (token ? '&pageToken=' + encodeURIComponent(token) : '');
-    const res = await withTimeout(fetch(url), 'قراءة ' + relPath);
-    if(res.status === 404) return out;
-    if(!res.ok) throw new Error(relPath + ' → HTTP ' + res.status);
-    const j = await res.json();
-    (j.documents || []).forEach(doc => out.push(doc));
-    token = j.nextPageToken || '';
-  } while(token);
-  return out;
-}
-async function fbrGetDoc(relPath){
-  const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/' + relPath + '?key=' + HR_FB_KEY;
-  const res = await withTimeout(fetch(url), 'قراءة ' + relPath);
-  if(res.status === 404) return null;
-  if(!res.ok) throw new Error(relPath + ' → HTTP ' + res.status);
-  return await res.json();
-}
-// السجلات المفردة (مستند لكل سجل): استعلام بالتاريخ — بيقرا المستندات اللي جوه الفترة بس بدل الكولكشن كله
-async function fbrQuerySingles(from, to){
-  const filters = [];
-  if(from) filters.push({fieldFilter: {field: {fieldPath: 'd'}, op: 'GREATER_THAN_OR_EQUAL', value: {stringValue: from}}});
-  if(to) filters.push({fieldFilter: {field: {fieldPath: 'd'}, op: 'LESS_THAN_OR_EQUAL', value: {stringValue: to}}});
-  const sq = {from: [{collectionId: 'items'}]};
-  if(filters.length) sq.where = filters.length === 1 ? filters[0] : {compositeFilter: {op: 'AND', filters}};
-  const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/mlp_entries_index:runQuery?key=' + HR_FB_KEY;
-  const res = await withTimeout(fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({structuredQuery: sq})}), 'استعلام السجلات المفردة');
-  if(!res.ok) throw new Error('mlp_entries_index → HTTP ' + res.status);
-  return ((await res.json()) || []).filter(r => r.document).map(r => r.document);
-}
-function fbrDocToObj(doc){
-  const o = {}; const f = doc.fields || {};
-  Object.keys(f).forEach(k => o[k] = hrFbVal(f[k]));
-  return o;
-}
-function fbrParseValueArr(obj){
-  try{ const a = JSON.parse(obj.value || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
-}
-function fbrStatus(msg){ const el = document.getElementById('fbr-status'); if(el) el.innerHTML = msg; }
-function openFbEntriesRestore(){
-  if(!currentUser || currentUser.role !== 'admin') return;
-  const cf = (document.getElementById('cov-from') || {}).value || '';
-  const ct = (document.getElementById('cov-to') || {}).value || '';
-  document.getElementById('modal-root').innerHTML = `
-    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
-      <div class="modal-box modal-box-wrap">
-        <button class="close-btn" onclick="closeModal()">✕</button>
-        <h3>🔄 استرجاع سجلات من Firebase</h3>
-        <div class="empty-state" style="text-align:right;font-size:12px;">بيقرا سجلات الأداء القديمة من Firebase ويقارنها بـ Supabase، ويضيف الناقص بس. حدد فترة لو عايز (سيبها فاضية = كل الفترات). الفحص بيعمل قراءة لمرة واحدة من Firebase.</div>
-        <div class="grid2">
-          <div class="field"><label>من تاريخ</label><input type="date" id="fbr-from" value="${cf}"></div>
-          <div class="field"><label>إلى تاريخ</label><input type="date" id="fbr-to" value="${ct}"></div>
-        </div>
-        <button class="apply-btn" id="fbr-scan-btn" onclick="fbrScan()">🔍 افحص Firebase</button>
-        <div id="fbr-status" style="margin-top:10px;font-size:13px;line-height:1.8;"></div>
-      </div>
-    </div>`;
-}
-async function fbrScan(){
-  const from = document.getElementById('fbr-from').value, to = document.getElementById('fbr-to').value;
-  if(!from && !to && !confirm('من غير فترة هيقرا كل السجلات من Firebase — ممكن يبقوا آلاف القراءات ويستهلكوا كوتة اليوم. تكمّل؟')) return;
-  const btn = document.getElementById('fbr-scan-btn'); btn.disabled = true;
-  FBR_PENDING = [];
-  const warnings = []; let quotaHit = false, all = [], nWeeks = 0, nSingles = 0, nLegacy = 0;
-  const note = (label, e) => { const m = String((e && e.message) || e); if(/429/.test(m)) quotaHit = true; warnings.push(label + ' → ' + m); };
-  try{
-    fbrStatus('⏳ 1/3 بيقرا مستندات الأسابيع من Firebase...');
-    try{
-      const wDocs = [];
-      const keys = (from && to) ? entriesWeekKeysInRange(from, to) : [];
-      if(from && to && keys.length <= 60){
-        for(let i = 0; i < keys.length; i += 6){
-          const g = await Promise.all(keys.slice(i, i + 6).map(k => fbrGetDoc('mlp_entries_weeks/parts/' + k)));
-          g.forEach(x => { if(x) wDocs.push(x); });
-        }
-      } else {
-        (await fbrListDocs('mlp_entries_weeks/parts')).forEach(x => wDocs.push(x));
-      }
-      wDocs.forEach(w => { all = all.concat(fbrParseValueArr(fbrDocToObj(w))); });
-      nWeeks = all.length;
-    }catch(e){ note('الأسابيع', e); }
-    fbrStatus('⏳ 2/3 بيقرا السجلات المفردة (بالفترة)...');
-    try{
-      const singles = (from || to) ? await fbrQuerySingles(from, to) : await fbrListDocs('mlp_entries_index/items');
-      nSingles = singles.length; singles.forEach(s => all.push(fbrDocToObj(s)));
-    }catch(e){ note('السجلات المفردة', e); }
-    fbrStatus('⏳ 3/3 بيقرا المستند القديم...');
-    try{
-      const lg = await fbrGetDoc('mlp_entries');
-      if(lg){ const arr = fbrParseValueArr(fbrDocToObj(lg)); nLegacy = arr.length; all = all.concat(arr); }
-    }catch(e){ note('المستند القديم', e); }
-    if(!all.length && warnings.length){
-      fbrStatus('❌ ما قدرتش أقرا حاجة من Firebase.<br>' + warnings.join('<br>') + (quotaHit ? '<br><br>🚫 <b>HTTP 429 = كوتة قراءة Firebase اليومية خلصت.</b> جرّب تاني بعد ما تتجدد (غالبًا حوالي 10 الصبح بتوقيت القاهرة)، ومتدوسش على زر 👥 قبلها.' : ''));
-      return;
-    }
-    fbrStatus('⏳ بيقارن بالموجود في Supabase...');
-    await ensureEntriesArchiveLoaded();
-    const have = new Set(ENTRIES.map(e => String(e.id)));
-    const seen = new Set(); const pending = []; let outOfRange = 0, invalid = 0, already = 0;
-    all.forEach(e => {
-      if(!e || e.id === undefined || e.id === null || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.d || '')) || !e.h){ invalid++; return; }
-      const id = String(e.id);
-      if(seen.has(id)) return; seen.add(id);
-      if((from && e.d < from) || (to && e.d > to)){ outOfRange++; return; }
-      if(have.has(id)){ already++; return; }
-      pending.push(e);
-    });
-    FBR_PENDING = pending;
-    const byHall = {}; pending.forEach(e => { byHall[e.h] = (byHall[e.h] || 0) + 1; });
-    const dates = [...new Set(pending.map(e => e.d))].sort();
-    const hallTxt = Object.keys(byHall).sort().map(h => 'صالة ' + h + ': ' + byHall[h]).join(' • ') || '—';
-    fbrStatus(`
-      ${warnings.length ? '<div style="color:var(--red);font-size:12px;margin-bottom:6px;">⚠️ النتيجة ناقصة — مصدر فشل:<br>' + warnings.join('<br>') + (quotaHit ? '<br>(429 = كوتة القراءة اليومية خلصت، كمّل الفحص بعد ما تتجدد)' : '') + '</div>' : ''}
-      📥 اتقرا من Firebase: <b>${seen.size}</b> سجل (أسابيع ${nWeeks} • مفردة ${nSingles} • قديم ${nLegacy})<br>
-      ✅ موجود أصلاً في Supabase: <b>${already}</b>${outOfRange ? ' • خارج الفترة: ' + outOfRange : ''}${invalid ? ' • غير صالح: ' + invalid : ''}<br>
-      ➕ <b style="color:var(--green);">ناقص وهيتضاف: ${pending.length}</b><br>
-      ${pending.length ? '📅 ' + dates[0] + ' ← ' + dates[dates.length-1] + ' (' + dates.length + ' يوم)<br>🏭 ' + hallTxt + '<br>' : ''}
-      ${pending.length ? `<button class="apply-btn" style="margin-top:10px;" onclick="fbrImport()">✅ استورد ${pending.length} سجل لـ Supabase</button>
-      <button class="op-btn" style="margin-top:8px;width:100%;" onclick="fbrDownload()">💾 نزّل نسخة احتياطية (JSON) الأول</button>
-      <div class="empty-state" style="text-align:right;font-size:11px;margin-top:8px;">تنبيه: لو كنت مسحت سجلات من Supabase بعد النقل وهي لسه موجودة على Firebase، هترجع. حدد الفترة لو عايز تتفادى ده.</div>` : (warnings.length ? '' : '<span style="color:var(--green);">مفيش حاجة ناقصة في الفترة دي 👌 — يعني الأيام الناقصة مش متسجلة على Firebase كمان.</span>')}
-    `);
-  }catch(e){
-    console.warn(e);
-    fbrStatus('❌ فشل الفحص: ' + (e && e.message || e));
-  }finally{ btn.disabled = false; }
-}
-function fbrDownload(){
-  const blob = new Blob([JSON.stringify(FBR_PENDING)], {type:'application/json'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'firebase_entries_backup_' + todayStr() + '.json'; document.body.appendChild(a); a.click(); a.remove();
-}
-async function fbrImport(){
-  if(!FBR_PENDING.length) return;
-  if(!confirm('هيتضاف ' + FBR_PENDING.length + ' سجل ناقص لـ Supabase. متأكد؟')) return;
-  const list = FBR_PENDING.slice();
-  fbrStatus('⏳ بيكتب في Supabase... متقفلش الصفحة');
-  const ok = await saveEntries({upsert: list});
-  if(!ok){ fbrStatus('❌ الاستيراد فشل — راجع رسالة الخطأ فوق. مفيش حاجة اتمسحت.'); return; }
-  const cutoff = entriesCutoffStr();
-  ENTRIES_ARCHIVE = ENTRIES_ARCHIVE.concat(list.filter(e => e.d < cutoff));
-  ENTRIES_LIVE = ENTRIES_LIVE.filter(e => !list.some(x => String(x.id) === String(e.id))).concat(list.filter(e => e.d >= cutoff));
-  rebuildEntries();
-  FBR_PENDING = [];
-  fbrStatus('✅ اتضاف ' + list.length + ' سجل لـ Supabase.');
-  showToast('✅ اتسترجع ' + list.length + ' سجل من Firebase');
-  if(document.getElementById('coverage-report-results')) applyCoverageReport();
-}
-/* =====================================================================
-   نقل بيانات شئون الموظفين (تعيينات + تصفيات + غياب شهري) من Firebase → Supabase — مرة واحدة، أدمن بس.
-   بيعمل upsert بنفس الـ id، ومابيمسحش حاجة إلا لو اخترت تنضيف الزيادة بنفسك.
-   ===================================================================== */
-const HR_MIG_SETS = [['hr_employees_index','تعيينات'], ['hr_termination_index','تصفيات'], ['hr_monthly_index','غياب شهري']];
-function openHrMigrate(){
-  if(!currentUser || currentUser.role !== 'admin') return;
-  document.getElementById('modal-root').innerHTML = `
-    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
-      <div class="modal-box modal-box-wrap">
-        <button class="close-btn" onclick="closeModal()">✕</button>
-        <h3>📦 نقل شئون الموظفين لـ Supabase</h3>
-        <div class="empty-state" style="text-align:right;font-size:12px;">بينقل التعيينات والتصفيات والغياب الشهري من Firebase لـ Supabase مرة واحدة (قراءة كاملة من Firebase). بعده بوابة شئون الموظفين والنظام كله بيشتغلوا على Supabase بس من غير أي قراءة من Firebase.</div>
-        <label style="display:flex;gap:8px;align-items:center;margin:10px 0;font-size:12px;"><input type="checkbox" id="hrmig-clean"> تنضيف: امسح من Supabase أي مستند مش موجود في Firebase (لو فيه نسخة قديمة/ناقصة)</label>
-        <button class="apply-btn" id="hrmig-btn" onclick="hrMigRun()">▶️ ابدأ النقل</button>
-        <div id="hrmig-status" style="margin-top:10px;font-size:13px;line-height:1.8;"></div>
-      </div>
-    </div>`;
-}
-async function hrMigRun(){
-  const st = m => { const el = document.getElementById('hrmig-status'); if(el) el.innerHTML = m; };
-  const clean = !!(document.getElementById('hrmig-clean') || {}).checked;
-  const btn = document.getElementById('hrmig-btn'); btn.disabled = true;
-  const report = [];
-  try{
-    for(const [name, label] of HR_MIG_SETS){
-      st('⏳ بيقرا ' + label + ' من Firebase... ' + report.join(' • '));
-      const docs = await fbrListDocs(name + '/items');
-      const rows = docs.map(dc => ({ id: String(dc.name || '').split('/').pop(), data: fbrDocToObj(dc) }));
-      rows.forEach(r => { if(!r.data._id) r.data._id = r.id; });
-      st('⏳ بيكتب ' + label + ' (' + rows.length + ') في Supabase...');
-      const base = FS_COLLECTION + '/' + name + '/items/';
-      for(let i = 0; i < rows.length; i += 400){
-        const chunk = rows.slice(i, i + 400).map(r => ({ path: base + r.id, data: r.data }));
-        const { error } = await withTimeout(sb.from('fs_documents').upsert(chunk), 'نقل ' + label);
-        if(error) throw error;
-      }
-      const have = (await sbFetchAllByPrefix(base)).filter(r => !r.path.slice(base.length).includes('/')).map(r => r.path.slice(base.length));
-      const ids = new Set(rows.map(r => r.id));
-      const extra = have.filter(id => !ids.has(id));
-      let msg = label + ': ' + rows.length + ' اتنقل';
-      if(extra.length){
-        if(clean){
-          for(let i = 0; i < extra.length; i += 200){
-            const { error } = await sb.from('fs_documents').delete().in('path', extra.slice(i, i + 200).map(id => base + id));
-            if(error) throw error;
-          }
-          msg += ' (اتمسح ' + extra.length + ' زيادة)';
-        } else msg += ' (فيه ' + extra.length + ' زيادة في Supabase مش موجودة في Firebase)';
-      }
-      report.push(msg);
-    }
-    st('✅ خلص النقل:<br>' + report.join('<br>') + '<br><br>افتح شئون الموظفين وراجع الأعداد.');
-  }catch(e){
-    console.warn(e);
-    const m = String((e && e.message) || e);
-    st('❌ وقف النقل: ' + m + (/429/.test(m) ? '<br>🚫 كوتة قراءة Firebase اليومية خلصت — جرّب بعد ما تتجدد (حوالي 10 الصبح بتوقيت القاهرة). اللي اتنقل قبل كده فاضل زي ما هو.' : '') + (report.length ? '<br>' + report.join('<br>') : ''));
-  }finally{ btn.disabled = false; }
 }
 let EMPLOYEE_WATCH_STARTED = false;
 function watchEmployeeChunksMain(){
@@ -2987,10 +2755,17 @@ async function saveEntries(opts){
   const upsert = (opts && opts.upsert) || [];
   const deleteIds = (opts && opts.deleteIds) || [];
   let ok = true;
+  // وصف العملية قبل الحفظ (السجلات المحذوفة لسه موجودة في ENTRIES دلوقتي)
+  const __delRecs = deleteIds.map(id => (typeof ENTRIES !== 'undefined' ? ENTRIES : []).find(e => String(e.id) === String(id))).filter(Boolean);
+  const __grp = (arr) => actGroupCount(arr, e => 'صالة ' + (e.h || '؟') + (e.l ? ' خط ' + e.l : '')).map(([k, n]) => k + ': ' + n + ' عامل').join(' • ');
+  const __days = (arr) => { const d = Array.from(new Set(arr.map(e => e.d).filter(Boolean))).sort(); return d.length ? (d.length === 1 ? ' — يوم ' + d[0] : ' — من ' + d[0] + ' إلى ' + d[d.length-1]) : ''; };
   await queueSave('mlp_entries', async () => {
     try{
       if(!upsert.length && !deleteIds.length) return;
       await entriesApplyChanges(upsert, deleteIds);
+      if(upsert.length) logActivity('حفظ', 'تقييم أداء', 'تسجيل ' + upsert.length + ' سجل — ' + __grp(upsert) + __days(upsert)
+        + (deleteIds.length ? ' • مع حذف ' + deleteIds.length + ' سجل' : ''));
+      else logActivity('حذف', 'تقييم أداء', 'حذف ' + deleteIds.length + ' سجل' + (__delRecs.length ? ' — ' + __grp(__delRecs) + __days(__delRecs) : ''));
     }
     catch(e){ ok = false; showToast('❌ فشل حفظ السجلات — ' + saveErrorDetail(e), true); }
   });
@@ -3000,7 +2775,7 @@ async function saveOperators(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_operators', async () => {
-    try{ await collectionArraySave('mlp_operators', operatorsCol, OPERATORS, 'c'); }
+    try{ const __d = await collectionArraySave('mlp_operators', operatorsCol, OPERATORS, 'c'); logDiff('بيانات العاملين', __d, o => (o.n || 'بدون اسم') + ' (كود ' + o.c + ')'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات العاملين — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -3009,7 +2784,7 @@ async function saveUsers(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_users', async () => {
-    try{ await collectionArraySave('mlp_users', usersCol, USERS, 'user'); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); ok = false; }
+    try{ const __d = await collectionArraySave('mlp_users', usersCol, USERS, 'user'); logDiff('المستخدمين', __d, u => u.label || u.user); }catch(e){ showToast('⚠️ فشل الحفظ، حاول تاني'); ok = false; }
   });
   return ok;
 }
@@ -3019,7 +2794,7 @@ async function saveJard(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_jard', async () => {
-    try{ await collectionArraySave('mlp_jard', jardCol, JARD, 'id'); }
+    try{ const __d = await collectionArraySave('mlp_jard', jardCol, JARD, 'id'); logDiff('الجرد', __d, j => 'جرد صالة ' + (j.hall || '؟') + ' من ' + (j.from || '؟') + ' إلى ' + (j.to || '؟') + ' (' + ((j.lines || []).length) + ' سطر)'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات الجرد — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -3030,16 +2805,16 @@ async function saveTargetPlanRecord(plan){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_targets', async () => {
-    try{ await targetPlansCol().doc(String(plan.id)).set(plan); }
+    try{ await targetPlansCol().doc(String(plan.id)).set(plan); logActivity('حفظ', 'خطة تارجت', 'صالة ' + (plan.hall || '؟') + ' — من ' + (plan.from || '؟') + ' إلى ' + (plan.to || '؟') + ' (' + ((plan.lines || []).length) + ' خط)'); }
     catch(e){ ok = false; showToast('❌ فشل حفظ التارجت — ' + saveErrorDetail(e), true); }
   });
   return ok;
 }
-async function deleteTargetPlanRecord(id){
+async function deleteTargetPlanRecord(id, planInfo){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_targets', async () => {
-    try{ await targetPlansCol().doc(String(id)).delete(); }
+    try{ await targetPlansCol().doc(String(id)).delete(); logActivity('حذف', 'خطة تارجت', planInfo ? 'صالة ' + (planInfo.hall || '؟') + ' — من ' + (planInfo.from || '؟') + ' إلى ' + (planInfo.to || '؟') : 'حذف خطة تارجت'); }
     catch(e){ ok = false; showToast('❌ فشل حذف خطة التارجت — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -3061,6 +2836,7 @@ async function saveTargetExec(){
         if(pe) batch.set(col.doc(String(pid)), pe);
       });
       await batch.commit();
+      logActivity('حفظ', 'تنفيذ تارجت', idsToSave.length + ' خطة — ' + actList(idsToSave.map(pid => TARGET_PLANS.find(x => x.id === pid)).filter(Boolean), pl => 'صالة ' + (pl.hall || '؟') + ' من ' + (pl.from || '؟') + ' إلى ' + (pl.to || '؟')));
       idsToSave.forEach(pid => EXEC_DIRTY_IDS.delete(pid));
     }
     catch(e){ ok = false; showToast('❌ فشل حفظ تنفيذ التارجت — ' + saveErrorDetail(e), true); }
@@ -3071,7 +2847,7 @@ async function saveHallPowerToDb(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_hallpower', async () => {
-    try{ await collectionArraySave('mlp_hallpower', hallPowerCol, HALL_POWER, 'id'); }
+    try{ const __d = await collectionArraySave('mlp_hallpower', hallPowerCol, HALL_POWER, 'id'); logDiff('قوة الصالة', __d, r => 'قوة الصالات يوم ' + (r.date || '؟')); }
     catch(e){ ok = false; showToast('❌ فشل حفظ قوة الصالة — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -3080,7 +2856,7 @@ async function saveNightPowerToDb(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_nightpower', async () => {
-    try{ await collectionArraySave('mlp_nightpower', nightPowerCol, NIGHT_POWER, 'id'); }
+    try{ const __d = await collectionArraySave('mlp_nightpower', nightPowerCol, NIGHT_POWER, 'id'); logDiff('قوة السهر', __d, r => 'قوة السهر يوم ' + (r.date || '؟')); }
     catch(e){ ok = false; showToast('❌ فشل حفظ قوة السهر — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -3089,7 +2865,7 @@ async function saveHallManagersToDb(){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return false; }
   let ok = true;
   await queueSave('mlp_hallmanagers', async () => {
-    try{ await collectionArraySave('mlp_hallmanagers', hallManagersCol, HALL_MANAGERS, 'hall'); }
+    try{ const __d = await collectionArraySave('mlp_hallmanagers', hallManagersCol, HALL_MANAGERS, 'hall'); logDiff('مديري الصالات', __d, m => 'صالة ' + (m.hall || '؟')); }
     catch(e){ ok = false; showToast('❌ فشل حفظ بيانات مديري الصالات — ' + saveErrorDetail(e), true); }
   });
   return ok;
@@ -6239,7 +6015,6 @@ function coveragePanelHtml(){
       <div style="margin-top:8px;"><label>الصالة</label><select id="cov-hall"><option value="__ALL__">كل الصالات</option>${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select></div>
       <button class="apply-btn" onclick="applyCoverageReport()">بحث</button>
     </div>
-    ${currentUser && currentUser.role==='admin' ? `<button class="op-btn" style="margin:10px 0;width:100%;" onclick="openFbEntriesRestore()">🔄 استرجاع سجلات قديمة من Firebase</button><button class="op-btn" style="margin:0 0 10px;width:100%;" onclick="openHrMigrate()">📦 نقل شئون الموظفين لـ Supabase</button>` : ''}
     <div id="coverage-report-results"></div>
   `;
 }
@@ -7049,7 +6824,7 @@ async function deleteManualCode(code){
   if(!sbReady){ showToast('⚠️ الحفظ الدائم مش شغال هنا (إنت في معاينة Claude). افتح الرابط المنشور في متصفح مستقل.'); return; }
   let ok = true;
   await queueSave('manual_employees_'+code, async () => {
-    try{ await manualEmployeesCol().doc(String(code)).delete(); }
+    try{ await manualEmployeesCol().doc(String(code)).delete(); logActivity('حذف', 'كود مؤقت', 'كود ' + code); }
     catch(e){ ok = false; showToast('❌ فشل حذف الكود المؤقت — ' + saveErrorDetail(e), true); }
   });
   if(!ok) return;
@@ -7093,7 +6868,7 @@ async function deleteManualCodeWithRecords(code){
   }
   let ok = true;
   await queueSave('manual_employees_' + code, async () => {
-    try{ await manualEmployeesCol().doc(String(code)).delete(); }
+    try{ await manualEmployeesCol().doc(String(code)).delete(); logActivity('حذف', 'كود مؤقت', 'كود ' + code + ' مع سجلات الأداء بتاعته'); }
     catch(e){ ok = false; showToast('❌ السجلات اتمسحت لكن فشل حذف الكود المؤقت — جرّب 🗑️ العادي — ' + saveErrorDetail(e), true); }
   });
   if(!ok){ renderManualCodesTab(); return; }
@@ -9485,7 +9260,7 @@ async function deleteTargetPlan(id){
   const info = p ? `صالة ${p.hall} — من ${p.from} إلى ${p.to} (${(p.lines||[]).length} خط)` : 'الخطة دي';
   if(!confirm(`⚠️ متأكد إنك عايز تمسح خطة التارجت دي؟\n${info}\n\nمينفعش تتراجع بعد الحذف، وده هيمسح معاها أي تنفيذ تارجت اتسجل عليها.`)) return;
   TARGET_PLANS = TARGET_PLANS.filter(p=>p.id!==id);
-  await deleteTargetPlanRecord(id);
+  await deleteTargetPlanRecord(id, p);
   showToast('🗑️ اتمسحت خطة التارجت');
   renderTargetPlansList();
 }
