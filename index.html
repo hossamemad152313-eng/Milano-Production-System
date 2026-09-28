@@ -2554,6 +2554,121 @@ const HR_EMP_CHUNKS = 5;
 function hrEmpChunkDocMain(i){
   return db.collection(FS_COLLECTION).doc('hr_employees_chunks').collection('parts').doc(String(i));
 }
+/* =====================================================================
+   مصدر التعيينات والتصفيات = بوابة شئون الموظفين (Base64) على Firebase — قراءة فقط.
+   الباقي كله (تقييم الأداء/الجرد/التارجت/...) فاضل على Supabase زي ما هو.
+   من غير Firebase SDK: بنستخدم Firestore REST مباشرة، وبنخزّن النتيجة محليًا (localStorage)
+   عشان نوفّر القراءات: الفتح العادي بيستخدم الكاش، والقراءة الفعلية من Firebase بتحصل بس
+   لو الكاش أقدم من HR_FB_TTL (عند فتح الصفحة فقط، من غير مؤقّت خلفي)، أو قبل الحفظ بـ HR_FB_PRESAVE_TTL، أو بزرار التحديث اليدوي.
+   ===================================================================== */
+const HR_FB_PROJECT = 'milano-production';
+const HR_FB_KEY = 'AIzaSyAnZNlqGlNQ1S59u-lA4L6_nBk5yJH5N3s'; // نفس مفتاح الويب العام بتاع بوابة شئون الموظفين
+const HR_FB_ROOT = 'milano_production';
+const HR_FB_TTL = 2 * 60 * 60 * 1000;   // كاش عادي: ساعتين — بيتحدّث عند فتح الصفحة لو أقدم من كده (غيّرها لو عايز قراءات أقل/بيانات أطزج)
+const HR_FB_PRESAVE_TTL = 10 * 60 * 1000; // قبل حفظ التسجيل: لو الكاش أقدم من 10 دقايق نحدّث
+const HR_FB_CACHE_KEY = 'hr_fb_cache_v1';
+let HR_FB_EMP = [], HR_FB_TERM = [], HR_FB_AT = 0, HR_FB_BUSY = null, HR_FB_ON_UPDATE = null, HR_FB_ERR_SHOWN = false;
+function hrFbVal(v){
+  if(!v || typeof v !== 'object') return null;
+  if('stringValue' in v) return v.stringValue;
+  if('integerValue' in v) return Number(v.integerValue);
+  if('doubleValue' in v) return Number(v.doubleValue);
+  if('booleanValue' in v) return v.booleanValue;
+  if('timestampValue' in v) return v.timestampValue;
+  if('nullValue' in v) return null;
+  if('arrayValue' in v) return (v.arrayValue.values || []).map(hrFbVal);
+  if('mapValue' in v){ const o = {}; const f = v.mapValue.fields || {}; Object.keys(f).forEach(k => o[k] = hrFbVal(f[k])); return o; }
+  return null;
+}
+async function hrFbFetchItems(docName){
+  const out = []; let token = '';
+  do{
+    const url = 'https://firestore.googleapis.com/v1/projects/' + HR_FB_PROJECT + '/databases/(default)/documents/' + HR_FB_ROOT + '/' + docName + '/items?pageSize=300&key=' + HR_FB_KEY + (token ? '&pageToken=' + encodeURIComponent(token) : '');
+    const res = await withTimeout(fetch(url), 'قراءة ' + docName);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    (j.documents || []).forEach(doc => {
+      const row = {}; const f = doc.fields || {};
+      Object.keys(f).forEach(k => row[k] = hrFbVal(f[k]));
+      if(!row._id) row._id = String(doc.name || '').split('/').pop();
+      out.push(row);
+    });
+    token = j.nextPageToken || '';
+  } while(token);
+  return out;
+}
+// بيدمج التعيينات (الحالة/تاريخ الخروج) مع أرشيف التصفيات → صفوف بنفس شكل mapHrEmployeesToOperators
+function hrFbEmployeeRows(){
+  const rows = HR_FB_EMP.map(e => Object.assign({}, e));
+  const byCode = new Map();
+  rows.forEach(r => { if(r && r.code !== undefined && r.code !== null && String(r.code).trim() !== '') byCode.set(String(r.code).trim(), r); });
+  HR_FB_TERM.forEach(t => {
+    if(!t || t.code === undefined || t.code === null || String(t.code).trim() === '') return;
+    const k = String(t.code).trim(), r = byCode.get(k);
+    if(r){
+      const isOut = r.status === 'غير نشط' || r.status === TERM_CLEARED_STATUS_MAIN;
+      if(isOut && !r.exit_date && t.exit_date) r.exit_date = t.exit_date;
+    } else {
+      const nr = { code: t.code, name: t.name || '', job: t.job || '', dept: t.dept || '', status: 'غير نشط', hire_date: t.hire_date || null, exit_date: t.exit_date || null };
+      rows.push(nr); byCode.set(k, nr);
+    }
+  });
+  return rows;
+}
+function hrFbLoadCache(){
+  try{
+    const c = JSON.parse(localStorage.getItem(HR_FB_CACHE_KEY) || 'null');
+    if(c && Array.isArray(c.emp) && Array.isArray(c.term)){ HR_FB_EMP = c.emp; HR_FB_TERM = c.term; HR_FB_AT = Number(c.at) || 0; return true; }
+  }catch(e){}
+  return false;
+}
+function hrFbChip(){
+  let el = document.getElementById('hrfb-chip');
+  if(!el){
+    el = document.createElement('div'); el.id = 'hrfb-chip';
+    el.style.cssText = 'position:fixed; bottom:10px; left:10px; z-index:9000; background:#fff; border:1px solid #d8d8de; border-radius:999px; padding:5px 11px; font:700 11px Cairo,sans-serif; color:#555; box-shadow:0 2px 8px rgba(0,0,0,.15); cursor:pointer; direction:rtl;';
+    el.onclick = () => hrFbRefresh(true, 0, true);
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function hrFbChipUpdate(busy){
+  if(!document.body) return;
+  const el = hrFbChip();
+  if(busy){ el.textContent = '🔄 بيحدّث شئون الموظفين...'; return; }
+  const t = HR_FB_AT ? new Date(HR_FB_AT).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) : '—';
+  el.textContent = '👥 شئون الموظفين: ' + HR_FB_EMP.length + ' • ' + t + ' 🔄';
+}
+// maxAge: أقصى عمر مسموح للكاش (بالمللي ثانية). force = تجاهل الكاش. بترجّع true لو اتحدّث فعلاً.
+async function hrFbRefresh(force, maxAge, verbose){
+  const age = Date.now() - HR_FB_AT;
+  if(!force && HR_FB_AT && age < (maxAge === undefined ? HR_FB_TTL : maxAge)) return false;
+  if(HR_FB_BUSY) return HR_FB_BUSY;
+  HR_FB_BUSY = (async () => {
+    hrFbChipUpdate(true);
+    try{
+      const [emp, term] = await Promise.all([hrFbFetchItems('hr_employees_index'), hrFbFetchItems('hr_termination_index')]);
+      HR_FB_EMP = emp; HR_FB_TERM = term; HR_FB_AT = Date.now(); HR_FB_ERR_SHOWN = false;
+      try{ localStorage.setItem(HR_FB_CACHE_KEY, JSON.stringify({ at: HR_FB_AT, emp, term })); }catch(e){}
+      if(typeof HR_FB_ON_UPDATE === 'function') HR_FB_ON_UPDATE();
+      if(verbose && typeof showToast === 'function') showToast('✅ اتحدّثت بيانات شئون الموظفين (' + emp.length + ' تعيين • ' + term.length + ' تصفية)');
+      return true;
+    }catch(e){
+      console.warn('فشل قراءة شئون الموظفين من Firebase:', e);
+      if((!HR_FB_ERR_SHOWN || verbose) && typeof showToast === 'function'){ HR_FB_ERR_SHOWN = true; showToast('⚠️ مش قادر أحدّث بيانات شئون الموظفين من Firebase (' + (e && e.message || e) + ') — شغال بآخر نسخة محفوظة', true); }
+      return false;
+    }finally{
+      HR_FB_BUSY = null; hrFbChipUpdate(false);
+    }
+  })();
+  return HR_FB_BUSY;
+}
+function hrFbStart(onUpdate){
+  HR_FB_ON_UPDATE = onUpdate;
+  if(hrFbLoadCache()) onUpdate();
+  hrFbChipUpdate(false);
+  hrFbRefresh(false);
+}
 let EMPLOYEE_WATCH_STARTED = false;
 function watchEmployeeChunksMain(){
   if(EMPLOYEE_WATCH_STARTED) return; // بدأت قبل كده في الصفحة دي — مفيش داعي نعيد الاشتراك (وقراءة كل الموظفين) مع كل تسجيل دخول
@@ -2567,26 +2682,15 @@ function watchEmployeeChunksMain(){
   // شئون الموظفين كسبانة دايمًا: أي كود موجود هناك بيلغي أي نسخة يدوية أو أساسية بنفس الكود،
   // فلو حد ضاف الكود ده رسميًا بعدين، البيانات الرسمية هي اللي هتظهر من غير أي تعديل تاني.
   const rebuild = () => {
-    const merged = [];
-    chunkArrs.forEach(a => { if (a) a.forEach(r => merged.push(r)); });
-    const hrOps = mapHrEmployeesToOperators(merged);
+    const hrOps = mapHrEmployeesToOperators(hrFbEmployeeRows());
     const hrCodes = new Set(hrOps.map(o => o.c));
     const baseOnly = baseOpsArr.filter(o => o && Number.isFinite(o.c) && !hrCodes.has(o.c));
     const baseCodes = new Set(baseOnly.map(o => o.c));
     const manualOnly = MANUAL_OPERATORS.filter(o => !hrCodes.has(o.c) && !baseCodes.has(o.c));
     OPERATORS = hrOps.concat(baseOnly).concat(manualOnly);
   };
-  for (let i = 0; i < HR_EMP_CHUNKS; i++){
-    const idx = i;
-    const unsub = hrEmpChunkDocMain(idx).onSnapshot(snap => {
-      readMeter.snap('hr_employee_chunks', snap);
-      let arr = [];
-      if (snap.exists){ try { arr = JSON.parse(snap.data().value || '[]'); } catch(e){ arr = []; } }
-      chunkArrs[idx] = arr;
-      rebuild();
-    }, () => { /* تجاهل أخطاء الاتصال المؤقتة */ });
-    coreRealtimeUnsubs.push(unsub);
-  }
+  // التعيينات/التصفيات بتيجي من Firebase بتاع بوابة شئون الموظفين (شوف hrFbStart فوق) — مش من Supabase
+  hrFbStart(rebuild);
   const unsubBaseOps = operatorsCol().onSnapshot(snap => {
     readMeter.snap('operators_collection', snap);
     baseOpsArr = snap.docs.map(d => d.data());
@@ -5370,6 +5474,7 @@ async function saveAllRows(){
   });
   const valid = readRows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تكتب كود على الأقل لصف واحد'); return; }
+  await hrFbRefresh(false, HR_FB_PRESAVE_TTL); // نتأكد إن التصفيات محدّثة قبل ما نحفظ
   // الأكواد المصفّية في شئون الموظفين ممنوعة (إلا لو تاريخ التسجيل في/قبل يوم التصفية)
   const termBad = termBlockedCodesFor(valid.map(r => r.code), date);
   if(termBad.length){ termBlockedToast(termBad); return; }
@@ -6322,6 +6427,7 @@ async function saveEditedGroup(){
   });
   const valid = rows.filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تسيب كود على الأقل لصف واحد — ولو عايز تمسح الملف كله ارجع للسجلات وامسحه من هناك'); return; }
+  await hrFbRefresh(false, HR_FB_PRESAVE_TTL);
   const termBadEdit = termBlockedCodesFor(valid.map(r => r.code), date);
   if(termBadEdit.length){ termBlockedToast(termBadEdit); return; }
   const unknownCodes = [...new Set(valid.filter(r => !r.knownCode).map(r => r.code))];
