@@ -2595,7 +2595,7 @@ function scheduleNetPause(){
     if(!document.hidden || netPaused || !sbReady) return;
     if(anySaveInFlight()){ scheduleNetPause(); return; }
     netPaused = true;
-    try{ await db.disableNetwork(); }catch(e){ console.warn('disableNetwork:', e); }
+    try{ if(typeof db.disableNetwork === 'function') await db.disableNetwork(); }catch(e){ console.warn('disableNetwork:', e); }
   }, NET_PAUSE_AFTER_MS);
 }
 document.addEventListener('visibilitychange', async () => {
@@ -2603,7 +2603,7 @@ document.addEventListener('visibilitychange', async () => {
   if(document.hidden){ scheduleNetPause(); return; }
   if(netPauseTimer){ clearTimeout(netPauseTimer); netPauseTimer = null; }
   if(netPaused){
-    try{ await db.enableNetwork(); }catch(e){ console.warn('enableNetwork:', e); }
+    try{ if(typeof db.enableNetwork === 'function') await db.enableNetwork(); }catch(e){ console.warn('enableNetwork:', e); }
     netPaused = false;
   }
 });
@@ -5290,6 +5290,7 @@ function entryGridFillPreview(){
 }
 function entryGridFillApply(drag){
   entryGridClearFillPreview();
+  if(!drag) return; // mouseup اتنفّذ من غير سحب شغّال (EntryFillDrag اتصفّر) — مفيش حاجة تتنسخ
   const {r1,c1,r2,c2} = drag;
   let targetR = drag.targetR;
   if(targetR<=r2) return;
