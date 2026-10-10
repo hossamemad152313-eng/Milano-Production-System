@@ -1265,10 +1265,11 @@ header.top .row1-left{ display:flex; align-items:center; }
 }
 @media screen and (min-width:1101px){
   .jflat-wrap, .ttab-wrap, .ttab-exec-wrap{ overflow:visible !important; max-height:none !important; }
+  .jflat-table thead th, .ttab thead th, .ttab-exec thead th{ top:var(--stick-top,0px) !important; }
 }
 @media screen and (min-width:701px){
   .jflat-table thead th, .ttab thead th, .ttab-exec thead th{
-    position:sticky !important; top:var(--stick-top,0px); z-index:15;
+    position:sticky !important; top:0; z-index:15;
     box-shadow:0 2px 0 rgba(0,0,0,.18);
   }
   .jflat-table thead th:first-child{ border-top-right-radius:12px; }
