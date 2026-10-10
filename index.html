@@ -1221,6 +1221,70 @@ header.top .row1-left{ display:flex; align-items:center; }
   body.pf-logo-once #milano-print-logo{ position:static !important; margin:4mm 0 0 7mm !important; }
 }
 </style>
+<style id="milanoCompactForms">
+/* ===== 1) كل الكتابة في الويب بخط عريض (على الشاشة فقط، الطباعة زي ما هي) ===== */
+@media screen{
+  body, input, select, textarea, button, label, th, td{ font-weight:700; }
+  input, select, textarea, label, th, td{ font-weight:700 !important; }
+}
+/* ===== 2) الصفوف المدمجة ===== */
+.mrow{ display:grid; gap:8px; align-items:end; margin-bottom:8px; padding:6px 8px; border-radius:14px; transition:background .15s ease, box-shadow .15s ease; position:relative; z-index:1; }
+.mrow-2{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+.mrow-3{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+.mrow-4{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+.mrow-5{ grid-template-columns:repeat(5,minmax(0,1fr)); }
+/* ===== 3) الخانة واللابل فوقها بالظبط ===== */
+.mf{ display:flex; flex-direction:column; justify-content:flex-end; gap:3px; min-width:0; }
+.mf > label{ display:block; margin:0 !important; font-size:10.5px !important; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
+.mf > input, .mf > select{ width:100% !important; min-width:0; height:34px; padding:0 10px !important; font-size:12.5px !important; text-align:center; }
+.mf > input[type="date"]{ direction:ltr; padding:0 6px !important; font-size:12px !important; }
+/* ===== 4) التظليل الرمادي الغامق وانت بتكتب ===== */
+.mrow:focus-within{ background:rgba(90,90,98,.38); box-shadow:inset 0 0 0 1px rgba(255,255,255,.10); }
+.jline-card .mrow:focus-within{ background:rgba(60,60,66,.16); box-shadow:inset 0 0 0 1px rgba(60,60,66,.25); }
+.mrow .mf > input:focus, .mrow .mf > select:focus{ background:#3a3a40 !important; color:#fff !important; border-color:var(--amber) !important; box-shadow:0 0 0 3px rgba(227,30,36,.30) !important; outline:none; }
+.entry-header-box .mrow .mf:focus-within > label{ color:#fff !important; }
+.jline-card .mrow .mf:focus-within > label{ color:#232327 !important; }
+.mrow .mf > input:focus::placeholder{ color:#b5b5bd; }
+/* ===== 5) تصغير الكروت ===== */
+.entry-header-box{ padding:12px 12px 8px !important; }
+.entry-header-box .ehb-eyebrow{ margin-bottom:6px !important; }
+.jline-card{ padding:10px 12px !important; margin-bottom:10px !important; }
+.jline-card .rowhead{ margin-bottom:6px !important; }
+.jline-card .rowhead .line-badge{ padding:5px 14px !important; font-size:13px !important; }
+/* ===== 6) الشاشات الصغيرة ===== */
+@media (max-width:900px){
+  .mrow-5, .mrow-4{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mrow-5 > .mf:last-child:nth-child(odd){ grid-column:1 / -1; }
+}
+@media (max-width:520px){ .mrow-3{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* ===== بدون سكرول داخلي في الجداول + هيدر الأعمدة ثابت مع سكرول الصفحة ===== */
+.hp-daily-chips{ max-height:none !important; overflow:visible !important; }
+@media screen{
+  .jflat-wrap{ max-height:none !important; }
+}
+@media screen and (min-width:1101px){
+  .jflat-wrap, .ttab-wrap, .ttab-exec-wrap{ overflow:visible !important; max-height:none !important; }
+}
+@media screen and (min-width:701px){
+  .jflat-table thead th, .ttab thead th, .ttab-exec thead th{
+    position:sticky !important; top:var(--stick-top,0px); z-index:15;
+    box-shadow:0 2px 0 rgba(0,0,0,.18);
+  }
+  .jflat-table thead th:first-child{ border-top-right-radius:12px; }
+  .jflat-table thead th:last-child{ border-top-left-radius:12px; }
+}
+
+/* ===== إطار أسود للجدول + خط أسود يحدد كل صف فقط (بدون أعمدة وبدون خلفية بيضاء) ===== */
+@media screen and (min-width:701px){
+  .jflat-table, .ttab, .ttab-exec{ border-collapse:collapse; border:2px solid #0e0e10; }
+  .jflat-table td, .ttab td, .ttab-exec td{
+    border-left:0 !important; border-right:0 !important; border-top:0 !important;
+    border-bottom:1.5px solid #0e0e10 !important;
+  }
+  .jflat-table th, .ttab th, .ttab-exec th{ border-left:0 !important; border-right:0 !important; }
+}
+</style>
 </head>
 <body>
 <div class="phone">
@@ -6935,7 +6999,7 @@ function openRecordGroup(i){
         <button class="close-btn" onclick="closeModal()">✕</button>
         <h3>📁 ${recEsc(g.d)} · ${recEsc(g.h)} · خط ${recEsc(g.l)}</h3>
         <div style="font-size:11.5px;color:#bdbdc4;margin-bottom:10px;">${rows.length} عاملة — دوس على أي سجل عشان تعدّله، أو 🗑️ عشان تحذفه (هيسألك تأكيد قبل الحذف).</div>
-        <div style="max-height:62vh;overflow:auto;">${rows.map(recordRowHtml).join('') || '<div class="empty-state">مفيش سجلات</div>'}</div>
+        <div>${rows.map(recordRowHtml).join('') || '<div class="empty-state">مفيش سجلات</div>'}</div>
       </div>
     </div>`;
 }
@@ -7732,15 +7796,14 @@ function renderJardRegTab(){
     <div class="section-title">📦 تسجيل جرد جديد <span class="count" id="jard-edit-label"></span></div>
     <div class="entry-header-box">
       <div class="ehb-eyebrow">// فترة الجرد</div>
-      <div class="grid3">
-        <div><label>من تاريخ</label><input type="date" id="jard-from" onchange="renderJardSessionsList(); applyJardTargetAutofill(document.getElementById('jard-hall').value)"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="jard-to" onchange="renderJardSessionsList(); applyJardTargetAutofill(document.getElementById('jard-hall').value)"></div>
-        <div><label>الصالة</label>
+      <div class="mrow mrow-4">
+        <div class="mf"><label>من تاريخ</label><input type="date" id="jard-from" onchange="renderJardSessionsList(); applyJardTargetAutofill(document.getElementById('jard-hall').value)"></div>
+        <div class="mf"><label>إلى تاريخ</label><input type="date" id="jard-to" onchange="renderJardSessionsList(); applyJardTargetAutofill(document.getElementById('jard-hall').value)"></div>
+        <div class="mf"><label>الصالة</label>
           <select id="jard-hall" onchange="onJardHallChange()">${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select>
         </div>
+        <div class="mf"><label>اسم مدير الصالة</label><input type="text" id="jard-hall-manager" placeholder="اسم مدير الصالة"></div>
       </div>
-      <label style="margin-top:8px;">اسم مدير الصالة</label>
-      <input type="text" id="jard-hall-manager" placeholder="اسم مدير الصالة">
     </div>
 
     <div class="section-title">🧾 بيانات كل خط</div>
@@ -7879,16 +7942,16 @@ function jardLineHtml(id, lineNum){
     <div class="jline-card" id="jline-card-${id}">
       <div class="rowhead"><span class="line-badge">خط ${lineNum}</span></div>
       <input type="hidden" id="jline-num-${id}" value="${lineNum}">
-      <div class="jfield"><label>اسم مشرف الخط</label><input type="text" id="jline-supervisor-${id}" placeholder="اسم مشرف الخط"></div>
-      <div class="grid3">
-        <div class="jfield"><label>تارجت الإنتاج</label><input type="number" id="jline-target-${id}"></div>
-        <div class="jfield"><label>الإنتاج</label><input type="number" id="jline-prod-${id}"></div>
-        <div class="jfield"><label>عدد الإبر</label><input type="number" id="jline-needles-${id}"></div>
+      <div class="mrow mrow-3">
+        <div class="mf"><label>اسم مشرف الخط</label><input type="text" id="jline-supervisor-${id}" placeholder="اسم مشرف الخط"></div>
+        <div class="mf"><label>تارجت الإنتاج</label><input type="number" id="jline-target-${id}"></div>
+        <div class="mf"><label>الإنتاج</label><input type="number" id="jline-prod-${id}"></div>
       </div>
-      <div class="grid3">
-        <div class="jfield"><label>عجز الإنتاج — الساعات</label><input type="number" id="jline-deficit-h-${id}" placeholder="- للفايض"></div>
-        <div class="jfield"><label>عجز الإنتاج — الدقايق</label><input type="number" id="jline-deficit-m-${id}" placeholder="0-59"></div>
-        <div class="jfield"><label>صيانة إضافية</label><input type="text" id="jline-maint-${id}" placeholder="مثال: 2 ريشة مكوك"></div>
+      <div class="mrow mrow-4">
+        <div class="mf"><label>عجز الإنتاج — الساعات</label><input type="number" id="jline-deficit-h-${id}" placeholder="- للفايض"></div>
+        <div class="mf"><label>عجز الإنتاج — الدقائق</label><input type="number" id="jline-deficit-m-${id}" placeholder="0-59"></div>
+        <div class="mf"><label>عدد الإبر</label><input type="number" id="jline-needles-${id}"></div>
+        <div class="mf"><label>صيانة إضافية</label><input type="text" id="jline-maint-${id}" placeholder="مثال: 2 ريشة مكوك"></div>
       </div>
     </div>
   `;
@@ -9242,17 +9305,15 @@ function renderTargetRegTab(){
     </div>
     <div class="entry-header-box" oninput="markTargetFormDirty()">
       <div class="ehb-eyebrow">// فترة التارجت</div>
-      <div class="grid3">
-        <div><label>من تاريخ</label><input type="date" id="target-from" onchange="renderTargetPlansList();scheduleTargetDupScan()"></div>
-        <div><label>إلى تاريخ</label><input type="date" id="target-to" onchange="renderTargetPlansList();scheduleTargetDupScan()"></div>
-        <div><label>الصالة</label>
+      <div class="mrow mrow-5">
+        <div class="mf"><label>من تاريخ</label><input type="date" id="target-from" onchange="renderTargetPlansList();scheduleTargetDupScan()"></div>
+        <div class="mf"><label>إلى تاريخ</label><input type="date" id="target-to" onchange="renderTargetPlansList();scheduleTargetDupScan()"></div>
+        <div class="mf"><label>الصالة</label>
           <select id="target-hall" onchange="onTargetHallChange()">${HALLS.map(h=>`<option value="${h}">${h}</option>`).join('')}</select>
         </div>
+        <div class="mf"><label>اسم مدير الصالة</label><input type="text" id="target-hall-manager" placeholder="اسم مدير الصالة"></div>
+        <div class="mf"><label>إجمالي تارجت التسليم للصالة</label><input type="text" id="target-hall-deliveries" placeholder="مثال: 15000"></div>
       </div>
-      <label style="margin-top:8px;">اسم مدير الصالة</label>
-      <input type="text" id="target-hall-manager" placeholder="اسم مدير الصالة">
-      <label style="margin-top:8px;">إجمالي تارجت التسليم للصالة (إنت بتحدده)</label>
-      <input type="text" id="target-hall-deliveries" placeholder="مثال: 15000">
     </div>
     <div class="data-note" id="target-hall-production-total" style="margin-bottom:10px;"></div>
     <div class="data-note" style="margin-bottom:10px;">✅ يمكنك لصق من Excel داخل كل جدول خط: الأرتيكل ثم العدد ثم الساعات ثم الدقائق.</div>
@@ -9291,8 +9352,10 @@ function targetLineHtml(id, lineNum){
     <div class="jline-card" id="target-line-card-${id}">
       <div class="rowhead"><span class="line-badge">خط ${lineNum}</span></div>
       <input type="hidden" id="target-num-${id}" value="${lineNum}">
-      <div class="jfield"><label>اسم مشرف الخط</label><input type="text" id="target-supervisor-${id}" placeholder="اسم مشرف الخط"></div>
-      <div class="jfield"><label>إجمالي عدد التارجت المطلوب للخط</label><input type="number" id="target-line-total-input-${id}" oninput="updateLineTotals(${id})" placeholder="0"></div>
+      <div class="mrow mrow-2">
+        <div class="mf"><label>اسم مشرف الخط</label><input type="text" id="target-supervisor-${id}" placeholder="اسم مشرف الخط"></div>
+        <div class="mf"><label>إجمالي عدد التارجت المطلوب للخط</label><input type="number" id="target-line-total-input-${id}" oninput="updateLineTotals(${id})" placeholder="0"></div>
+      </div>
 
       <div class="section-title" style="font-size:11px;margin:10px 0 4px;">جدول التارجت (${TARGET_ROWS} صف — أرتيكل / العدد أو المراحل المتبقية / التوقيت)</div>
       <div class="ttab-wrap">
@@ -10228,9 +10291,25 @@ function printTargetDetails(){
           </table>
         </div>`;
     }).join('');
+    // إجماليات الصالة للطباعة: تارجت الإنتاج = مجموع خانة "إجمالي عدد التارجت المطلوب للخط" لكل الخطوط
+    let hProd = 0, hFloor = 0, hLineWork = 0;
+    p.lines.forEach(l => {
+      hProd += normalizeNumber(l.lineTarget||0);
+      (l.floorWork||[]).forEach(w => { hFloor += normalizeNumber(w.qty||0); });
+      (l.lineWork||[]).forEach(w => { hLineWork += normalizeNumber(w.qty||0); });
+    });
+    const pill = (label, val) => `<div style="display:inline-flex;align-items:center;gap:8px;border:1.6px solid #0e0e10;border-radius:999px;padding:4px 16px;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><span style="font-size:10px;font-weight:700;color:#444;">${label}</span><b style="font-size:14px;font-weight:800;color:#0e0e10;">${val}</b></div>`;
+    const hallTotalsHtml = `
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:4px 0 8px;">
+        ${pill('إجمالي تارجت الإنتاج', fmtNum(hProd))}
+        ${pill('إجمالي شغل الأرض', fmtNum(hFloor))}
+        ${pill('إجمالي شغل الخط', fmtNum(hLineWork))}
+        ${p.hallTargetDeliveries ? pill('إجمالي تارجت التسليم', p.hallTargetDeliveries) : ''}
+      </div>`;
     return `
       <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
       <h3>الفترة: ${p.from} إلى ${p.to}${p.hallTargetDeliveries? ` — إجمالي تارجت التسليم: ${p.hallTargetDeliveries}` : ''}</h3>
+      ${hallTotalsHtml}
       <div class="power-print-grid" style="display:grid;grid-template-columns:repeat(${lineCount}, 1fr);align-items:start;">${linesHtml}</div>
     `;
   }).join('<div style="height:2px;background:#e6dddd;margin:8px 0;"></div>');
@@ -12016,6 +12095,24 @@ bootApp();
   window.pfFitPrint = pfFitPrint;
   window.print = function(){ try{ pfFitPrint(); }catch(e){ console.warn('pfFitPrint', e); } return origPrint(); };
   window.addEventListener('afterprint', () => { const o = document.getElementById('print-rank-output'); if(o) o.style.zoom = ''; document.body.classList.remove('pf-logo-once'); });
+})();
+</script>
+<script>
+(function(){
+  function setTop(){
+    var h=document.querySelector('header.top');
+    var px=0;
+    if(h){ var st=getComputedStyle(h); if(st.position==='sticky'||st.position==='fixed') px=Math.round(h.getBoundingClientRect().height); }
+    document.documentElement.style.setProperty('--stick-top', px+'px');
+  }
+  window.addEventListener('resize', setTop);
+  window.addEventListener('load', setTop);
+  document.addEventListener('DOMContentLoaded', setTop);
+  if(window.ResizeObserver){
+    var ro=new ResizeObserver(setTop);
+    var tryObs=function(){ var h=document.querySelector('header.top'); if(h){ ro.observe(h); setTop(); } else setTimeout(tryObs,500); };
+    tryObs();
+  } else { setInterval(setTop,1000); }
 })();
 </script>
 </body>
