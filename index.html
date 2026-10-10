@@ -1272,18 +1272,27 @@ header.top .row1-left{ display:flex; align-items:center; }
     position:sticky !important; top:0; z-index:15;
     box-shadow:0 2px 0 rgba(0,0,0,.18);
   }
-  .jflat-table thead th:first-child{ border-top-right-radius:12px; }
-  .jflat-table thead th:last-child{ border-top-left-radius:12px; }
 }
 
-/* ===== إطار أسود للجدول + خط أسود يحدد كل صف فقط (بدون أعمدة وبدون خلفية بيضاء) ===== */
+/* ===== جداول منحنية الحواف: إطار أسود + خط أسود لكل صف + هيدر بيضاوي ===== */
 @media screen and (min-width:701px){
-  .jflat-table, .ttab, .ttab-exec{ border-collapse:collapse; border:2px solid #0e0e10; }
+  .jflat-wrap, .ttab-wrap, .ttab-exec-wrap{ border:none !important; border-radius:20px !important; }
+  .jflat-table, .ttab, .ttab-exec{
+    border-collapse:separate !important; border-spacing:0 !important;
+    border:2px solid #0e0e10; border-radius:20px;
+  }
   .jflat-table td, .ttab td, .ttab-exec td{
     border-left:0 !important; border-right:0 !important; border-top:0 !important;
     border-bottom:1.5px solid #0e0e10 !important;
   }
-  .jflat-table th, .ttab th, .ttab-exec th{ border-left:0 !important; border-right:0 !important; }
+  .jflat-table tbody tr:last-child td, .ttab tbody tr:last-child td, .ttab-exec tbody tr:last-child td{ border-bottom:0 !important; }
+  .jflat-table th, .ttab th, .ttab-exec th{ border:0 !important; }
+  /* ركن الهيدر: منحنى كبير يعمل شكل بيضاوي */
+  .jflat-table thead th:first-child, .ttab thead th:first-child, .ttab-exec thead th:first-child{ border-top-right-radius:18px; }
+  .jflat-table thead th:last-child,  .ttab thead th:last-child,  .ttab-exec thead th:last-child{  border-top-left-radius:18px; }
+  /* أركان آخر صف */
+  .jflat-table tbody tr:last-child td:first-child, .ttab tbody tr:last-child td:first-child, .ttab-exec tbody tr:last-child td:first-child{ border-bottom-right-radius:18px; }
+  .jflat-table tbody tr:last-child td:last-child,  .ttab tbody tr:last-child td:last-child,  .ttab-exec tbody tr:last-child td:last-child{  border-bottom-left-radius:18px; }
 }
 </style>
 </head>
