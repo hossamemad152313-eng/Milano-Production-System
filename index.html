@@ -3399,7 +3399,7 @@ async function doLogin(){
     const btn = document.getElementById('login-btn');
     if(btn){ btn.disabled = true; btn.textContent = 'بيحمّل البيانات...'; }
     try{ await DATA_REST_PROMISE; }catch(e){}
-    if(btn){ btn.disabled = false; btn.textContent = 'يلا اتفضل دخّل'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'يلا أتفضل أدخل'; }
   }
   currentUser = found;
   logActivity('دخول');
@@ -3508,7 +3508,7 @@ async function bootApp(){
   const btn = document.getElementById('login-btn');
   restoreRow.style.display = 'block';
   btn.disabled = false;
-  btn.textContent = 'يلا اتفضل دخّل';
+  btn.textContent = 'يلا أتفضل أدخل';
   if(!sbReady){
     const err = document.getElementById('login-err');
     err.style.color = '#e31e24';
