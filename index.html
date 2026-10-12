@@ -4598,8 +4598,7 @@ function renderReportTab(){
         <div><label>الصالة</label><select id="f-hall" ${reportHallLocked?'disabled':''}>${hallOptions}</select></div>
         <div><label>الخط</label><select id="f-line"><option value="__ALL__">كل الخطوط</option></select></div>
       </div>
-      <button class="apply-btn" onclick="rankMode=false; applyFilters()">اعرض النتيجة</button>
-      <button class="apply-btn btn-amber" onclick="rankMode=true; applyFilters();">🏆 أفضل 10 وأقل 10</button>
+      <button class="apply-btn btn-amber" onclick="rankMode=!rankMode; applyFilters();">🏆 أفضل 10 وأقل 10</button>
       ${(currentUser.role==='admin' || currentUser.role==='entry') ? `<div class="grid2 full">
         ${currentUser.role==='admin' ? `<button class="apply-btn" style="margin-top:0;background:#2E6B48;" onclick="exportExcel()">📥 صدّر Excel</button>` : ''}
         <button class="apply-btn" style="margin-top:0;background:#3a3a40;" onclick="printPerformanceSummary()">🖨️ اطبع ملخص الأداء</button>
@@ -4613,7 +4612,7 @@ function renderReportTab(){
       </div>
       <div id="worker-search-result"></div>
     </div>
-    <div id="report-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف تقييم الأداء.</div></div>
+    <div id="report-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ عشان تشوف تقييم الأداء.</div></div>
   `;
   document.getElementById('f-hall').addEventListener('change', updateLineOptions);
   updateLineOptions();
@@ -4876,7 +4875,7 @@ function printPerformanceSummary(){
   const from = document.getElementById('f-from').value;
   const to = document.getElementById('f-to').value;
   const hall = document.getElementById('f-hall').value;
-  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" الأول'); return; }
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const rows = currentFilteredRows();
   if(!rows.length){ showToast('⚠️ مفيش بيانات تتطبع في الفترة أو الفلتر ده'); return; }
 
@@ -5207,14 +5206,13 @@ function renderBestPerfTab(){
         <div><label>الصالة</label><select id="bf-hall">${hallOptions}</select></div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
-        <button class="apply-btn" onclick="applyBestPerfFilter()">اعرض النتيجة</button>
         <button class="apply-btn btn-amber" onclick="exportBestPerfExcel()">📥 صدّر Excel</button>
         <button class="apply-btn" style="background:#3a3a40;" onclick="printBestPerf()">🖨️ اطبع أداء الصالات</button>
         <button class="apply-btn" style="background:#5B6C7A;" onclick="printBestPerfDeficit()">🖨️ اطبع نسبة العجز</button>
       </div>
       <div class="data-note">بيعتمد على بيانات الجرد والتارجت المسجلة دلوقتي وبتتحدّث تلقائي لما تعدّل البيانات.</div>
     </div>
-    <div id="bestperf-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف أفضل أداء.</div></div>
+    <div id="bestperf-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ عشان تشوف أفضل أداء.</div></div>
   `;
 }
 // نسبة عجز الوقت لكل خط = عجز الوقت المسجل في الجرد ÷ إجمالي الوقت المستهدف للخط في التارجت (من ساعات/دقايق الأرتيكلات)
@@ -8787,17 +8785,16 @@ function renderJardDashboardFilters(){
       <div class="grid2 full" style="grid-template-columns:1fr;">
         <div><label>الصالة</label><select id="jf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div>
       </div>
-      <button class="apply-btn" onclick="applyJardFilter()">اعرض النتيجة</button>
       <div class="grid2 full">
-        <button class="apply-btn" style="margin-top:0;background:#3a3a40;" onclick="printJardHallDetail()">🖨️ اطبع جرد الصالة اللي انت عايزها</button>
+        <button class="apply-btn" style="margin-top:0;background:#3a3a40;" onclick="printJardHallDetail()">🖨️ اطبع جرد الصالة</button>
         <button class="apply-btn" style="margin-top:0;background:#1e1e22;" onclick="printJardAllHallsTotals()">🖨️ اطبع إجمالي كل الصالات</button>
       </div>
       <div class="grid2 full">
         ${currentUser.role==='admin' || currentUser.role==='headdept' ? `<button class="apply-btn" style="margin-top:0;background:#2E6B48;" onclick="exportJardExcel()">📥 صدّر Excel</button>` : ''}
       </div>
-      <div class="data-note">لو عايز جرد صالة واحدة بالتفصيل (كل خط وإجمالي الصالة)، اختارها من فوق ودوس "اطبع جرد الصالة اللي انت عايزها". لو عايز إجمالي كل صالة والإجمالي العام لكل الصالات مع بعض، اختار "كل الصالات" ودوس "اطبع إجمالي كل الصالات".</div>
+      <div class="data-note">لو عايز جرد صالة واحدة بالتفصيل (كل خط وإجمالي الصالة)، اختارها من فوق ودوس "اطبع جرد الصالة". لو عايز إجمالي كل صالة والإجمالي العام لكل الصالات مع بعض، اختار "كل الصالات" ودوس "اطبع إجمالي كل الصالات".</div>
     </div>
-    <div id="jard-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف الجرد.</div></div>
+    <div id="jard-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ عشان تشوف الجرد.</div></div>
   `;
 }
 function aggregateJardLines(sessions){
@@ -8970,7 +8967,7 @@ function printJardHallDetail(){
   const hall = document.getElementById('jf-hall').value;
   const from = document.getElementById('jf-from').value;
   const to = document.getElementById('jf-to').value;
-  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" الأول'); return; }
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   if(hall === '__ALL__'){ showToast('⚠️ اختار صالة واحدة بالتحديد فوق الأول (مش "كل الصالات") عشان تطبع تفاصيلها'); return; }
   if(!window.__jardLines || !window.__jardLines[hall] || !window.__jardLines[hall].length){ showToast('⚠️ مفيش بيانات جرد لصالة ' + hall + ' في الفترة دي'); return; }
   const lines = window.__jardLines[hall];
@@ -9061,7 +9058,7 @@ async function jardFitAllHallsFont(layoutHtml){
 async function printJardAllHallsTotals(){
   const from = document.getElementById('jf-from').value;
   const to = document.getElementById('jf-to').value;
-  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" الأول'); return; }
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   if(!window.__jardLines || !Object.keys(window.__jardLines).length){ showToast('⚠️ مفيش بيانات جرد تتطبع في الفترة دي'); return; }
   const hallEntries = Object.entries(window.__jardLines).map(([hall, lines]) => ({hall, totals: hallTotals(lines)}));
   hallEntries.sort((a,b)=> b.totals.successPct - a.totals.successPct);
@@ -10269,12 +10266,11 @@ function renderTargetTab(){
         <div><label>إلى تاريخ</label><input type="date" id="tf-to"></div>
       </div>
       <div class="grid2 full" style="grid-template-columns:1fr;"><div><label>الصالة</label><select id="tf-hall">${hallOptions}</select></div></div>
-      <button class="apply-btn" onclick="applyTargetFilter()">اعرض النتيجة</button>
       <button class="apply-btn" onclick="renderTargetSummary()">📋 ملخص التارجت</button>
       <button class="apply-btn" onclick="renderAndPrintTargetSummary()">🖨️ اطبع الملخص</button>
       <button class="apply-btn" style="background:#3a3a40;" onclick="printTargetDetails()">🖨️ اطبع تفاصيل التارجت</button>
     </div>
-    <div id="target-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف التارجت.</div></div>
+    <div id="target-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ عشان تشوف التارجت.</div></div>
     <div id="target-summary" style="margin-top:14px;"></div>
   `;
 }
@@ -10884,16 +10880,15 @@ function renderTargetExecTab(){
         <div><label>إلى تاريخ</label><input type="date" id="tex-to" onchange="applyTargetExecFilter()"></div>
       </div>
       <div class="grid2 full" style="grid-template-columns:1fr;"><div><label>الصالة</label><select id="tex-hall" onchange="applyTargetExecFilter()">${hallOptions}</select></div></div>
-      <button class="apply-btn" onclick="applyTargetExecFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3a3a40;" onclick="printTargetExecDetails()">🖨️ اطبع التفاصيل والعجز</button>
-      <button class="apply-btn" style="background:#2E7D32;" onclick="verifyTargetExecFromServer()">🔍 اتأكد من آخر حفظ</button>
+      <button class="apply-btn" style="background:#2E7D32;" onclick="verifyTargetExecFromServer()">🔍 اتأكد من آخر حفظ على السيرفر</button>
       <div id="texec-save-bar" style="display:none;flex:1 1 140px;" title="⚠️ في تعليم لسه ما اتحفظش — متنساش تدوس حفظ قبل ما تسيب الشاشة">
         <button class="save-btn" id="texec-save-btn" style="margin:0;width:100%;padding:8px 12px;min-height:38px;font-size:12.5px;animation:texecPulse 1.4s ease-in-out infinite;" onclick="commitTargetExecSave()">💾 احفظ التنفيذ ⚠️</button>
       </div>
     </div>
     <div id="texec-verify-result"></div>
     <div class="data-note clamp-note" onclick="this.classList.toggle('open')" style="margin-bottom:8px;">✅ لو الأرتيكل اتشتغل بالكامل، علّم عليه من غير ما تغيّر حاجة. لو لسه فاضل منه شغل لجولة جديدة، قبل ما تعلّم اكتب في خانة "المطلوب في الجديد" الوقت المتبقي المطلوب، وإحنا هنحسب "الفرق" (المستهدف الأصلي ناقص المطلوب في الجديد) تلقائي جنب نفس الأرتيكل من غير ما يتنسخ سطر جديد. التعليم بتاعك بيفضل محلي بس لحد ما تدوس "💾 احفظ التنفيذ" تحت.</div>
-    <div id="texec-results"><div class="empty-state">🔎 حدد الفترة (والصالة لو حابب) وادوس "اعرض النتيجة" عشان تشوف تنفيذ التارجت.</div></div>
+    <div id="texec-results"><div class="empty-state">🔎 حدد الفترة (والصالة لو حابب) عشان تشوف تنفيذ التارجت.</div></div>
   `;
 }
 function applyTargetExecFilter(){
@@ -11170,10 +11165,9 @@ function renderHallPowerTab(){
         <div><label>إلى تاريخ</label><input type="date" id="hpf-to"></div>
       </div>
       <div class="grid2 full" style="grid-template-columns:1fr;"><div><label>الصالة</label><select id="hpf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div></div>
-      <button class="apply-btn" onclick="applyHpFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3a3a40;" onclick="printHallPower()">🖨️ اطبع</button>
     </div>
-    <div id="hp-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف قوة الصالة.</div></div>
+    <div id="hp-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ عشان تشوف قوة الصالة.</div></div>
   `;
 }
 function applyHpFilter(){
@@ -11512,10 +11506,9 @@ function renderNightPowerTab(){
         <div><label>إلى تاريخ</label><input type="date" id="npf-to"></div>
       </div>
       <div class="grid2 full" style="grid-template-columns:1fr;"><div><label>الصالة</label><select id="npf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div></div>
-      <button class="apply-btn" onclick="applyNpFilter()">اعرض النتيجة</button>
       <button class="apply-btn" style="background:#3a3a40;" onclick="printNightPower()">🖨️ اطبع</button>
     </div>
-    <div id="np-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ وادوس "اعرض النتيجة" عشان تشوف قوة السهر.</div></div>
+    <div id="np-results"><div class="empty-state">🔎 حدد من تاريخ وإلى تاريخ عشان تشوف قوة السهر.</div></div>
   `;
 }
 function applyNpFilter(){
@@ -12627,6 +12620,59 @@ bootApp();
     group();
     new MutationObserver(sched).observe(document.body,{childList:true,subtree:true});
   });
+})();
+</script>
+
+<style id="filters-equal-btns">
+/* كل أزرار الفلتر بنفس العرض والارتفاع */
+@media (min-width:860px){
+  html body .card-box.filters .apply-btn{ flex:1 1 0 !important; min-width:150px !important; height:44px !important; min-height:44px !important; white-space:nowrap !important; display:flex; align-items:center; justify-content:center; box-sizing:border-box; }
+}
+@media (max-width:859px){
+  html body .card-box.filters .apply-btn{ flex:1 1 130px !important; min-height:44px !important; display:flex; align-items:center; justify-content:center; text-align:center; box-sizing:border-box; }
+}
+</style>
+<script>
+/* عرض النتيجة تلقائي أول ما تتغير الفترة أو الصالة في كل تابات الفلاتر (بيانات محلية، من غير قراءات زيادة) */
+(function(){
+  var MAP={'f':'applyFilters','bf':'applyBestPerfFilter','jf':'applyJardFilter','tf':'applyTargetFilter','hpf':'applyHpFilter','npf':'applyNpFilter'};
+  var timer=null;
+  document.addEventListener('change',function(e){
+    var t=e.target; if(!t||!t.id||!t.closest||!t.closest('.card-box.filters')) return;
+    var m=/^(f|bf|jf|tf|hpf|npf)-(from|to|hall|line)$/.exec(t.id); if(!m) return;
+    var fn=MAP[m[1]];
+    clearTimeout(timer);
+    timer=setTimeout(function(){
+      var a=document.getElementById(m[1]+'-from'), b=document.getElementById(m[1]+'-to');
+      if(!a||!b||!a.value||!b.value||a.value>b.value) return;
+      if(typeof window[fn]==='function'){ try{ window[fn](); }catch(err){ console.error(err); } }
+    },150);
+  });
+})();
+</script>
+<script>
+/* تنقل بالأسهم (فوق/تحت) في كروت الخطوط بالتسجيل: كل خانة تنزل على اللي تحتها منطقياً
+   (الإنتاج ↓ عدد الإبر، تارجت ↓ دقائق العجز، مشرف الخط ↓ ساعات العجز) والعكس */
+(function(){
+  var DOWN={supervisor:['deficit-h'],target:['deficit-m','deficit-h'],prod:['needles','maint']};
+  var UP={'deficit-h':['supervisor'],'deficit-m':['target','supervisor'],needles:['prod'],maint:['prod','target','supervisor']};
+  function ok(el){return el&&!el.disabled&&!el.readOnly&&el.offsetParent!==null;}
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='ArrowDown'&&e.key!=='ArrowUp') return;
+    if(e.ctrlKey||e.metaKey||e.altKey||e.shiftKey) return;
+    var m=/^jline-(supervisor|target|prod|deficit-h|deficit-m|needles|maint)-(.+)$/.exec(e.target&&e.target.id||'');
+    if(!m) return;
+    var list=(e.key==='ArrowDown'?DOWN:UP)[m[1]];
+    if(!list) return; // باقي الحالات (نزول من آخر صف لكارت الخط اللي بعده) يكمّلها التنقل العام
+    for(var i=0;i<list.length;i++){
+      var t=document.getElementById('jline-'+list[i]+'-'+m[2]);
+      if(ok(t)){
+        e.preventDefault(); e.stopPropagation();
+        t.focus(); try{t.select();}catch(x){}
+        return;
+      }
+    }
+  },true);
 })();
 </script>
 </body>
