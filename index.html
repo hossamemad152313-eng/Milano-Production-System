@@ -5097,11 +5097,11 @@ function printBestPerf(){
   const ring = (pct, label) => `<div class="bp-kpi bp-kpi-ring"><div class="bp-ring" style="--p:${(clamp(pct)*100).toFixed(1)}"><span>${fmtPct(pct)}</span></div><div class="bp-kpi-l">${label}</div></div>`;
   const kpi = (label, value, sub) => `<div class="bp-kpi"><div class="bp-kpi-v">${value}</div><div class="bp-kpi-l">${label}${sub ? ` <u>${sub}</u>` : ''}</div></div>`;
   const medals = ['🥇','🥈','🥉'];
-  const podium = (list, pctFn, subFn) => {
+  const podium = (list, ranks, pctFn, subFn) => {
     const top = list.slice(0,3);
     if(!top.length) return '';
     const order = top.length === 3 ? [1,0,2] : top.map((_,i)=>i);
-    return `<div class="bp-podium">${order.map(i => `<div class="bp-pod bp-pod-${i+1}"><div class="bp-medal">${medals[i]}</div><div class="bp-pod-hall">${esc(top[i].hall)}</div><div class="bp-pod-pct">${fmtPct(pctFn(top[i]))}</div><div class="bp-pod-sub">${subFn(top[i])}</div></div>`).join('')}</div>`;
+    return `<div class="bp-podium">${order.map(i => `<div class="bp-pod bp-pod-${i+1}"><div class="bp-medal">${medals[i]}</div><div class="bp-pod-hall">${esc(top[i].hall)}</div><div class="bp-pod-pct">${fmtPct(pctFn(top[i]))}</div><div class="bp-pod-sub">${subFn(top[i])}</div><div class="bp-pod-rank bp-b-${tierOf(ranks[i])}">${esc(ranks[i])}</div></div>`).join('')}</div>`;
   };
   const hallLabel = hall === '__ALL__' ? 'كل الصالات' : hall;
   const now = new Date();
@@ -5147,7 +5147,7 @@ function printBestPerf(){
       </div>
       <div class="bp-kpis">
         ${kpi('المستهدف', fmtNum(totalTarget))}
-        ${kpi('اللي اتنجز', fmtNum(totalActual))}
+        ${kpi('ما تم إنجازه', fmtNum(totalActual))}
         ${ring(totalAchPct, 'تحقيق الهدف')}
         ${kpi('الهالك', fmtNum(totalHalak), fmtPct(halakTotPct))}
         ${kpi('الإصلاح', fmtNum(totalEslah), fmtPct(eslahTotPct))}
@@ -5155,7 +5155,7 @@ function printBestPerf(){
       </div>
       <div class="bp-block" style="flex-grow:${rankedDelivery.length + 4}">
         <div class="bp-sec"><span>🚚</span> أفضل أداء للتسليمات</div>
-        ${showPodium ? podium(rankedDelivery, r => r.performancePct, r => `${fmtNum(r.actualDeliveries)} من ${fmtNum(r.targetDeliveries)}`) : ''}
+        ${showPodium ? podium(rankedDelivery, deliveryRanks, r => r.performancePct, r => `${fmtNum(r.actualDeliveries)} من ${fmtNum(r.targetDeliveries)}`) : ''}
         <div class="bp-tw"><table class="bp-table">
           <thead><tr><th>المركز</th><th>الصالة</th><th>التارجت</th><th>التسليمات</th><th>نسبة التحقيق</th></tr></thead>
           <tbody>${deliveryRows || '<tr><td colspan="5">مفيش صالات بمستهدف تسليمات</td></tr>'}</tbody>
@@ -5164,7 +5164,7 @@ function printBestPerf(){
       <div class="bp-divider"><i></i><b>◆ ◆ ◆</b><i></i></div>
       <div class="bp-block" style="flex-grow:${rankedQuality.length + 4}">
         <div class="bp-sec"><span>✅</span> أفضل أداء للجودة</div>
-        ${showPodium ? podium(rankedQuality, r => r.qualityPct, r => `هالك <bdi dir="ltr">${fmtPct(r.halakPct)}</bdi> · إصلاح <bdi dir="ltr">${fmtPct(r.eslahPct)}</bdi>`) : ''}
+        ${showPodium ? podium(rankedQuality, qualityRanks, r => r.qualityPct, r => `هالك <bdi dir="ltr">${fmtPct(r.halakPct)}</bdi> · إصلاح <bdi dir="ltr">${fmtPct(r.eslahPct)}</bdi>`) : ''}
         <div class="bp-tw"><table class="bp-table">
           <thead><tr><th>المركز</th><th>الصالة</th><th>التسليمات</th><th>الهالك</th><th>الإصلاح</th><th>نسبة الهالك</th><th>نسبة الإصلاح</th><th>نسبة الجودة</th></tr></thead>
           <tbody>${qualityRows || '<tr><td colspan="8">مفيش بيانات جودة</td></tr>'}</tbody>
@@ -5188,46 +5188,70 @@ function printBestPerfDeficit(){
   const totalTargetMinutes = deficitRows.reduce((sum,r)=>sum+r.targetMinutes,0);
   const totalDeficitMinutes = deficitRows.reduce((sum,r)=>sum+r.deficitMinutes,0);
   const overallSuccessPct = totalTargetMinutes ? 1 - (totalDeficitMinutes/totalTargetMinutes) : 0;
+
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const clamp = v => Math.max(0, Math.min(1, v || 0));
+  const tierOf = lbl => { const t = String(lbl); if(t.includes('استثنائي')) return 'ex'; if(t.includes('سوبر')) return 'sup'; if(t.includes('سبيشيال')) return 'spe'; return 'n'; };
+  const badge = lbl => `<span class="bp-badge bp-b-${tierOf(lbl)}">${esc(lbl)}</span>`;
+  const meter = pct => `<div class="bp-meter"><div class="bp-track"><i class="${pct >= 1 ? 'bp-full' : ''}" style="width:${(clamp(pct)*100).toFixed(1)}%"></i></div><b>${fmtPct(pct)}</b></div>`;
+  const ring = (pct, label) => `<div class="bp-kpi bp-kpi-ring"><div class="bp-ring" style="--p:${(clamp(pct)*100).toFixed(1)}"><span>${fmtPct(pct)}</span></div><div class="bp-kpi-l">${label}</div></div>`;
+  const kpi = (label, value) => `<div class="bp-kpi"><div class="bp-kpi-v">${value}</div><div class="bp-kpi-l">${label}</div></div>`;
+  const medals = ['🥇','🥈','🥉'];
+  const podium = () => {
+    const top = deficitRows.slice(0,3);
+    if(!top.length) return '';
+    const order = top.length === 3 ? [1,0,2] : top.map((_,i)=>i);
+    return `<div class="bp-podium">${order.map(i => `<div class="bp-pod bp-pod-${i+1}"><div class="bp-medal">${medals[i]}</div><div class="bp-pod-hall">${esc(top[i].line)}</div><div class="bp-pod-pct">${fmtPct(top[i].successPct)}</div><div class="bp-pod-sub">${esc(top[i].supervisor || '-')}<br>عجز ${esc(fmtMinutes(top[i].deficitMinutes))} من ${esc(fmtMinutes(top[i].targetMinutes))}</div><div class="bp-pod-rank bp-b-${tierOf(deficitRanks[i])}">${esc(deficitRanks[i])}</div></div>`).join('')}</div>`;
+  };
+  const hallLabel = hall === '__ALL__' ? 'كل الصالات' : hall;
+
   const deficitRowsHtml = deficitRows.map((row, idx) => `
-      <tr${String(deficitRanks[idx]).includes('استثنائي') ? ' class="exceptional-row"' : ''}>
-        <td>${deficitRanks[idx]}</td>
-        <td>${row.line}</td>
-        <td>${row.supervisor || '-'}</td>
+      <tr class="${tierOf(deficitRanks[idx]) === 'ex' ? 'bp-ex-row' : ''}">
+        <td>${badge(deficitRanks[idx])}</td>
+        <td class="bp-hall">${esc(row.line)}</td>
+        <td>${esc(row.supervisor || '-')}</td>
         <td>${fmtMinutes(row.targetMinutes)}</td>
-        <td>${fmtMinutes(row.deficitMinutes)}</td>
-        <td>${fmtPct(row.successPct)}</td>
-      </tr>
-    `).join('');
-  document.getElementById('print-rank-output').innerHTML = `
-    ${printBrandBar(true)}
-    <h2>أفضل أداء لنسبة العجز</h2>
-    <h3>الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}</h3>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:4px auto 8px;max-width:100%;">
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:8px;padding:5px;text-align:center;">
-        <div style="font-size:9px;color:#6b6b72;margin-bottom:2px;">عدد الخطوط</div>
-        <div style="font-size:13px;font-weight:800;">${fmtNum(deficitRows.length)}</div>
+        <td class="bp-neg">${fmtMinutes(row.deficitMinutes)}</td>
+        <td>${meter(row.successPct)}</td>
+      </tr>`).join('');
+
+  const n = deficitRows.length;
+  const size = n <= 14 ? 's0' : n <= 20 ? 's1' : n <= 26 ? 's2' : n <= 32 ? 's3' : n <= 38 ? 's4' : 's5';
+  const showPodium = n <= 45;
+
+  const out = document.getElementById('print-rank-output');
+  out.className = 'bp-print bp-' + size;
+  out.innerHTML = `
+    <section class="bp-page bp-page-last">
+      <div class="bp-head">
+        <div class="bp-brand"><img src="${window.MILANO_LOGO || ''}" alt=""><div><b>MILANO</b><span>SPORT SHOES · PRODUCTION SYSTEM</span></div></div>
+        <div class="bp-titlebox"><div class="bp-kicker">تقرير الأداء</div><div class="bp-title">أفضل أداء لنسبة العجز</div></div>
       </div>
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:8px;padding:5px;text-align:center;">
-        <div style="font-size:9px;color:#6b6b72;margin-bottom:2px;">إجمالي العجز بالوقت</div>
-        <div style="font-size:13px;font-weight:800;">${fmtMinutes(totalDeficitMinutes)}</div>
+      <div class="bp-chips">
+        <span class="bp-chip"><em>الصالة</em>${esc(hallLabel)}</span>
+        <span class="bp-chip"><em>من</em>${esc(from)}</span>
+        <span class="bp-chip"><em>إلى</em>${esc(to)}</span>
+        <span class="bp-chip"><em>عدد الخطوط</em>${fmtNum(n)}</span>
       </div>
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:8px;padding:5px;text-align:center;">
-        <div style="font-size:9px;color:#6b6b72;margin-bottom:2px;">نسبة النجاح الإجمالية</div>
-        <div style="font-size:13px;font-weight:800;">${fmtPct(overallSuccessPct)}</div>
+      <div class="bp-kpis" style="grid-template-columns:repeat(4,1fr);">
+        ${kpi('وقت التارجت', fmtMinutes(totalTargetMinutes))}
+        ${kpi('إجمالي العجز بالوقت', fmtMinutes(totalDeficitMinutes))}
+        ${kpi('عدد الخطوط', fmtNum(n))}
+        ${ring(overallSuccessPct, 'نسبة النجاح الإجمالية')}
       </div>
-    </div>
-    <table class="print-onepage">
-      <thead><tr><th>المركز</th><th>الخط</th><th>اسم المشرف</th><th>وقت التارجت</th><th>العجز</th><th>نسبة النجاح</th></tr></thead>
-      <tbody>${deficitRowsHtml || '<tr><td colspan="6">مفيش بيانات عجز</td></tr>'}</tbody>
-    </table>
+      <div class="bp-block" style="flex-grow:${n + 4}">
+        <div class="bp-sec"><span>⏱️</span> أفضل أداء لنسبة العجز</div>
+        ${showPodium ? podium() : ''}
+        <div class="bp-tw"><table class="bp-table">
+          <thead><tr><th>المركز</th><th>الخط</th><th>اسم المشرف</th><th>وقت التارجت</th><th>العجز</th><th>نسبة النجاح</th></tr></thead>
+          <tbody>${deficitRowsHtml || '<tr><td colspan="6">مفيش بيانات عجز</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </section>
   `;
   document.body.classList.add('print-rank-only');
-  document.getElementById('print-rank-output').classList.add('deficit-compact-print');
   window.print();
-  setTimeout(()=>{
-    document.body.classList.remove('print-rank-only');
-    document.getElementById('print-rank-output').classList.remove('deficit-compact-print');
-  }, 800);
+  setTimeout(()=>{ document.body.classList.remove('print-rank-only'); out.className = ''; }, 800);
 }
 
 function renderBestPerfTab(){
@@ -12800,14 +12824,16 @@ input[type="date"]::-webkit-datetime-edit-text{ direction:ltr; unicode-bidi:isol
 
 .bp-print .bp-podium{ position:relative; display:flex; align-items:flex-end; justify-content:center; gap:6px; width:78%; margin:0 auto 8px; padding-bottom:3px; }
 .bp-print .bp-podium::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; border-radius:3px; background:linear-gradient(90deg,#0E0E10,#E31E24,#0E0E10); }
-.bp-print .bp-pod{ flex:1 1 0; padding:4px 4px 4px; text-align:center; border:1px solid #d3cbcb; border-bottom:none; border-radius:3mm 3mm 0 0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
-.bp-print .bp-pod-1{ height:calc(27mm * var(--pod)); background:linear-gradient(180deg,#FFF3C4,#F5C26B); border-color:#B8860B; }
-.bp-print .bp-pod-2{ height:calc(22mm * var(--pod)); background:linear-gradient(180deg,#f7f7f9,#d6d8de); border-color:#9aa0ad; }
-.bp-print .bp-pod-3{ height:calc(18.5mm * var(--pod)); background:linear-gradient(180deg,#fbeee4,#e2b48d); border-color:#b97a45; }
-.bp-print .bp-medal{ font-size:15px; line-height:1; }
-.bp-print .bp-pod-hall{ font-size:11px; font-weight:900; color:#0E0E10; line-height:1.15; margin-top:1px; }
-.bp-print .bp-pod-pct{ font-size:14px; font-weight:900; color:#A8141A; line-height:1.15; direction:ltr; }
-.bp-print .bp-pod-sub{ font-size:8px; font-weight:700; color:#3a3a3a; line-height:1.2; }
+.bp-print .bp-pod{ flex:1 1 0; padding:4px 4px 4px; text-align:center; border:1px solid #d3cbcb; border-bottom:none; border-radius:3mm 3mm 0 0; display:flex; flex-direction:column; align-items:center; justify-content:space-evenly; }
+.bp-print .bp-pod-1{ height:calc(38mm * var(--pod)); background:linear-gradient(180deg,#FFF3C4,#F5C26B); border-color:#B8860B; }
+.bp-print .bp-pod-2{ height:calc(33mm * var(--pod)); background:linear-gradient(180deg,#f7f7f9,#d6d8de); border-color:#9aa0ad; }
+.bp-print .bp-pod-3{ height:calc(29mm * var(--pod)); background:linear-gradient(180deg,#fbeee4,#e2b48d); border-color:#b97a45; }
+.bp-print .bp-medal{ font-size:24px; line-height:1; }
+.bp-print .bp-pod-hall{ font-size:18px; font-weight:900; color:#0E0E10; line-height:1.15; margin-top:1px; }
+.bp-print .bp-pod-pct{ font-size:24px; font-weight:900; color:#A8141A; line-height:1.15; direction:ltr; }
+.bp-print .bp-pod-rank{ margin-top:0; padding:2px 16px; border-radius:999px; border:1.5px solid #d8d0d0; font-size:13px; font-weight:900; line-height:1.35; white-space:nowrap; }
+.bp-print .bp-pod-rank.bp-b-n{ background:#fff; color:#0E0E10; border-color:#8a8a8a; }
+.bp-print .bp-pod-sub{ font-size:11px; font-weight:700; color:#3a3a3a; line-height:1.2; }
 .bp-print .bp-block:last-of-type{ margin-bottom:8px; }
 .bp-print.bp-s2 .bp-pod-sub, .bp-print.bp-s3 .bp-pod-sub, .bp-print.bp-s4 .bp-pod-sub, .bp-print.bp-s5 .bp-pod-sub{ display:none; }
 </style>
