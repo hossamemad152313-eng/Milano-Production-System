@@ -1605,10 +1605,15 @@ function computeTieRankLabels(sortedRows, accessor, tieAccessor, useExceptional)
   let belowRankIdx = 0;   // فهرس الترتيب التسلسلي لللي تحت الـ100%
   let usedFirstTier = false; // هل اتاستخدم لقب "الأول" قبل كده (لصالة وصلت 100% فأكتر)
   let tiersStillRunning = true; // الألقاب الخاصة لازم تكون متتالية من أول مجموعة
+  // لقب "استثنائي" مش بيظهر غير لما يبقى فيه 3 مجموعات عدّت الـ100%.
+  // لو اتنين بس: سوبر سبيشيال ← سبيشيال. ولو واحدة بس: سبيشيال. (الألقاب بتتحسب من تحت: آخر لقب دايماً "سبيشيال")
+  let specialCount = 0;
+  while(specialCount < groups.length && specialCount < tierLabels.length && groups[specialCount].value > 1) specialCount++;
+  const tierOffset = useExceptional ? (tierLabels.length - specialCount) : 0;
   groups.forEach((group, gIdx) => {
     let label;
-    if(tiersStillRunning && gIdx < tierLabels.length && group.value > 1){
-      label = tierLabels[gIdx];
+    if(tiersStillRunning && gIdx < specialCount && group.value > 1){
+      label = tierLabels[gIdx + tierOffset];
     } else if(group.value >= 1){
       tiersStillRunning = false;
       label = rankLabel(0); // "الأول" - بتتكرر لأي صالة حققت 100% فأكتر
@@ -5080,63 +5085,96 @@ function printBestPerf(){
   const totalHalak = rows.reduce((sum,r)=>sum+r.totalHalak,0);
   const totalEslah = rows.reduce((sum,r)=>sum+r.totalEslah,0);
   const totalQualityPct = totalActual ? 1 - (totalHalak/totalActual) - (totalEslah/totalActual) : 0;
+  const totalAchPct = totalTarget ? totalActual/totalTarget : 0;
+  const halakTotPct = totalActual ? totalHalak/totalActual : 0;
+  const eslahTotPct = totalActual ? totalEslah/totalActual : 0;
+
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const clamp = v => Math.max(0, Math.min(1, v || 0));
+  const tierOf = lbl => { const t = String(lbl); if(t.includes('استثنائي')) return 'ex'; if(t.includes('سوبر')) return 'sup'; if(t.includes('سبيشيال')) return 'spe'; return 'n'; };
+  const badge = lbl => `<span class="bp-badge bp-b-${tierOf(lbl)}">${esc(lbl)}</span>`;
+  const meter = pct => `<div class="bp-meter"><div class="bp-track"><i class="${pct >= 1 ? 'bp-full' : ''}" style="width:${(clamp(pct)*100).toFixed(1)}%"></i></div><b>${fmtPct(pct)}</b></div>`;
+  const ring = (pct, label) => `<div class="bp-kpi bp-kpi-ring"><div class="bp-ring" style="--p:${(clamp(pct)*100).toFixed(1)}"><span>${fmtPct(pct)}</span></div><div class="bp-kpi-l">${label}</div></div>`;
+  const kpi = (label, value, sub) => `<div class="bp-kpi"><div class="bp-kpi-v">${value}</div><div class="bp-kpi-l">${label}${sub ? ` <u>${sub}</u>` : ''}</div></div>`;
+  const medals = ['🥇','🥈','🥉'];
+  const podium = (list, pctFn, subFn) => {
+    const top = list.slice(0,3);
+    if(!top.length) return '';
+    const order = top.length === 3 ? [1,0,2] : top.map((_,i)=>i);
+    return `<div class="bp-podium">${order.map(i => `<div class="bp-pod bp-pod-${i+1}"><div class="bp-medal">${medals[i]}</div><div class="bp-pod-hall">${esc(top[i].hall)}</div><div class="bp-pod-pct">${fmtPct(pctFn(top[i]))}</div><div class="bp-pod-sub">${subFn(top[i])}</div></div>`).join('')}</div>`;
+  };
+  const hallLabel = hall === '__ALL__' ? 'كل الصالات' : hall;
+  const now = new Date();
+  const stamp = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+
   const deliveryRows = rankedDelivery.map((row, idx) => `
-      <tr${String(deliveryRanks[idx]).includes('استثنائي') ? ' class="exceptional-row"' : ''}>
-        <td>${deliveryRanks[idx]}</td>
-        <td>${row.hall}</td>
+      <tr class="${tierOf(deliveryRanks[idx]) === 'ex' ? 'bp-ex-row' : ''}">
+        <td>${badge(deliveryRanks[idx])}</td>
+        <td class="bp-hall">${esc(row.hall)}</td>
         <td>${fmtNum(row.targetDeliveries)}</td>
         <td>${fmtNum(row.actualDeliveries)}</td>
-        <td>${fmtPct(row.performancePct)}</td>
-      </tr>
-    `).join('');
+        <td>${meter(row.performancePct)}</td>
+      </tr>`).join('');
   const qualityRows = rankedQuality.map((row, idx) => `
       <tr>
-        <td>${qualityRanks[idx]}</td>
-        <td>${row.hall}</td>
+        <td>${badge(qualityRanks[idx])}</td>
+        <td class="bp-hall">${esc(row.hall)}</td>
         <td>${fmtNum(row.actualDeliveries)}</td>
-        <td>${fmtNum(row.totalHalak)}</td>
-        <td>${fmtNum(row.totalEslah)}</td>
+        <td class="bp-neg">${fmtNum(row.totalHalak)}</td>
+        <td class="bp-neg">${fmtNum(row.totalEslah)}</td>
         <td>${fmtPct(row.halakPct)}</td>
         <td>${fmtPct(row.eslahPct)}</td>
-        <td>${fmtPct(row.qualityPct)}</td>
-      </tr>
-    `).join('');
-  document.getElementById('print-rank-output').innerHTML = `
-    ${printBrandBar(true)}
-    <h2>أفضل أداء للصالات</h2>
-    <h3>الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}</h3>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px auto 20px;max-width:100%;">
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:12px;padding:12px;text-align:center;">
-        <div style="font-size:11px;color:#6b6b72;margin-bottom:6px;">المستهدف</div>
-        <div style="font-size:18px;font-weight:800;">${fmtNum(totalTarget)}</div>
+        <td>${meter(row.qualityPct)}</td>
+      </tr>`).join('');
+  // الحجم بيتظبط تلقائي على حسب إجمالي الصفوف عشان كل حاجة تتحشر في ورقة واحدة وتملاها
+  const totalRows = rankedDelivery.length + rankedQuality.length;
+  const size = totalRows <= 12 ? 's0' : totalRows <= 16 ? 's1' : totalRows <= 20 ? 's2' : totalRows <= 24 ? 's3' : totalRows <= 28 ? 's4' : 's5';
+  const showPodium = totalRows <= 28;
+
+  const out = document.getElementById('print-rank-output');
+  out.className = 'bp-print bp-' + size;
+  out.innerHTML = `
+    <section class="bp-page bp-page-last">
+      <div class="bp-head">
+        <div class="bp-brand"><img src="${window.MILANO_LOGO || ''}" alt=""><div><b>MILANO</b><span>SPORT SHOES · PRODUCTION SYSTEM</span></div></div>
+        <div class="bp-titlebox"><div class="bp-kicker">تقرير الأداء</div><div class="bp-title">أفضل أداء للصالات</div></div>
       </div>
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:12px;padding:12px;text-align:center;">
-        <div style="font-size:11px;color:#6b6b72;margin-bottom:6px;">اللي اتنجز من المستهدف</div>
-        <div style="font-size:18px;font-weight:800;">${fmtNum(totalActual)}</div>
+      <div class="bp-chips">
+        <span class="bp-chip"><em>الصالة</em>${esc(hallLabel)}</span>
+        <span class="bp-chip"><em>من</em>${esc(from)}</span>
+        <span class="bp-chip"><em>إلى</em>${esc(to)}</span>
+        <span class="bp-chip"><em>عدد الصالات</em>${rows.length}</span>
       </div>
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:12px;padding:12px;text-align:center;">
-        <div style="font-size:11px;color:#6b6b72;margin-bottom:6px;">نسبة تحقيق الهدف</div>
-        <div style="font-size:18px;font-weight:800;">${fmtPct(totalTarget ? totalActual/totalTarget : 0)}</div>
+      <div class="bp-kpis">
+        ${kpi('المستهدف', fmtNum(totalTarget))}
+        ${kpi('اللي اتنجز', fmtNum(totalActual))}
+        ${ring(totalAchPct, 'تحقيق الهدف')}
+        ${kpi('الهالك', fmtNum(totalHalak), fmtPct(halakTotPct))}
+        ${kpi('الإصلاح', fmtNum(totalEslah), fmtPct(eslahTotPct))}
+        ${ring(totalQualityPct, 'نسبة الجودة')}
       </div>
-      <div style="background:#fff;border:1px solid #ddd8d8;border-radius:12px;padding:12px;text-align:center;">
-        <div style="font-size:11px;color:#6b6b72;margin-bottom:6px;">نسبة الجودة</div>
-        <div style="font-size:18px;font-weight:800;">${fmtPct(totalQualityPct)}</div>
+      <div class="bp-block" style="flex-grow:${rankedDelivery.length + 4}">
+        <div class="bp-sec"><span>🚚</span> أفضل أداء للتسليمات</div>
+        ${showPodium ? podium(rankedDelivery, r => r.performancePct, r => `${fmtNum(r.actualDeliveries)} من ${fmtNum(r.targetDeliveries)}`) : ''}
+        <div class="bp-tw"><table class="bp-table">
+          <thead><tr><th>المركز</th><th>الصالة</th><th>التارجت</th><th>التسليمات</th><th>نسبة التحقيق</th></tr></thead>
+          <tbody>${deliveryRows || '<tr><td colspan="5">مفيش صالات بمستهدف تسليمات</td></tr>'}</tbody>
+        </table></div>
       </div>
-    </div>
-    <h3>أفضل أداء للتسليمات</h3>
-    <table class="print-onepage">
-      <thead><tr><th>المركز</th><th>الصالة</th><th>التارجت</th><th>التسليمات</th><th>نسبة التحقيق</th></tr></thead>
-      <tbody>${deliveryRows || '<tr><td colspan="5">مفيش صالات بمستهدف تسليمات</td></tr>'}</tbody>
-    </table>
-    <h3>أفضل أداء للجودة</h3>
-    <table class="print-onepage">
-      <thead><tr><th>المركز</th><th>الصالة</th><th>التسليمات</th><th>الهالك</th><th>الإصلاح</th><th>نسبة الهالك</th><th>نسبة الإصلاح</th><th>نسبة الجودة</th></tr></thead>
-      <tbody>${qualityRows || '<tr><td colspan="8">مفيش بيانات جودة</td></tr>'}</tbody>
-    </table>
+      <div class="bp-divider"><i></i><b>◆ ◆ ◆</b><i></i></div>
+      <div class="bp-block" style="flex-grow:${rankedQuality.length + 4}">
+        <div class="bp-sec"><span>✅</span> أفضل أداء للجودة</div>
+        ${showPodium ? podium(rankedQuality, r => r.qualityPct, r => `هالك <bdi dir="ltr">${fmtPct(r.halakPct)}</bdi> · إصلاح <bdi dir="ltr">${fmtPct(r.eslahPct)}</bdi>`) : ''}
+        <div class="bp-tw"><table class="bp-table">
+          <thead><tr><th>المركز</th><th>الصالة</th><th>التسليمات</th><th>الهالك</th><th>الإصلاح</th><th>نسبة الهالك</th><th>نسبة الإصلاح</th><th>نسبة الجودة</th></tr></thead>
+          <tbody>${qualityRows || '<tr><td colspan="8">مفيش بيانات جودة</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </section>
   `;
   document.body.classList.add('print-rank-only');
   window.print();
-  setTimeout(()=> document.body.classList.remove('print-rank-only'), 800);
+  setTimeout(()=>{ document.body.classList.remove('print-rank-only'); out.className = ''; }, 800);
 }
 
 function printBestPerfDeficit(){
@@ -12675,5 +12713,103 @@ bootApp();
   },true);
 })();
 </script>
+<style id="date-input-fix">
+/* خانات التاريخ: عرض dd/mm/yyyy بحروف لاتينية متصلة بدل الكلمات العربية المفكوكة */
+input[type="date"]{ direction:ltr; text-align:center; letter-spacing:0 !important; font-family:'Cairo',sans-serif; font-variant-numeric:lining-nums; }
+input[type="date"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="date"]::-webkit-datetime-edit-text{ direction:ltr; unicode-bidi:isolate; letter-spacing:0 !important; font-family:'Cairo',sans-serif; }
+</style>
+<script>
+/* بيحدد لغة خانات التاريخ en-GB (يوم/شهر/سنة بأرقام لاتينية) في كل التابات، حتى اللي بتتبني ديناميك */
+(function(){
+  var pending=false;
+  function fix(root){
+    (root||document).querySelectorAll('input[type="date"]:not([lang="en-GB"])').forEach(function(i){ i.setAttribute('lang','en-GB'); });
+  }
+  function sched(){ if(pending) return; pending=true; requestAnimationFrame(function(){ pending=false; fix(); }); }
+  document.addEventListener('DOMContentLoaded',function(){
+    fix();
+    new MutationObserver(sched).observe(document.body,{childList:true,subtree:true});
+  });
+})();
+</script>
+<style id="bp-print-style">
+/* ===== تصميم طباعة "أفضل أداء للصالات": ورقة واحدة (تسليمات + جودة بينهم خط فاصل) ===== */
+#print-rank-output.bp-print{ padding:0 !important; text-align:right; --pad:6px; --fs:12px; --bar:7px; --pod:1; }
+#print-rank-output.bp-print.bp-s0{ --pad:8px; --fs:13px; --bar:8px; --pod:1.12; }
+#print-rank-output.bp-print.bp-s1{ --pad:5.5px; --fs:12px; --bar:7px; --pod:1; }
+#print-rank-output.bp-print.bp-s2{ --pad:3.8px; --fs:11px; --bar:6px; --pod:.92; }
+#print-rank-output.bp-print.bp-s3{ --pad:2.6px; --fs:10.5px; --bar:5px; --pod:.86; }
+#print-rank-output.bp-print.bp-s4{ --pad:1.6px; --fs:9.5px; --bar:4px; --pod:.8; }
+#print-rank-output.bp-print.bp-s5{ --pad:.5px; --fs:8.5px; --bar:3px; --pod:.8; }
+#print-rank-output.bp-print *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; box-sizing:border-box; }
+.bp-print .bp-page{ position:relative; min-height:270mm; padding:0; display:flex; flex-direction:column; }
+.bp-print .bp-page-last{ break-after:auto; page-break-after:auto; }
+.bp-print .bp-head{ position:relative; display:flex; align-items:center; justify-content:space-between; direction:ltr; gap:12px; padding:9px 16px; border-radius:4.5mm; color:#fff; overflow:hidden;
+  background:linear-gradient(135deg,#0E0E10 0%,#1b1b20 62%,#2a0a0c 100%); }
+.bp-print .bp-head::before{ content:""; position:absolute; top:0; bottom:0; left:46%; width:28mm; background:repeating-linear-gradient(115deg,rgba(227,30,36,0) 0 6px,rgba(227,30,36,.55) 6px 9px); transform:skewX(-18deg); opacity:.55; }
+.bp-print .bp-head::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(90deg,#E31E24,#F5C26B,#E31E24); }
+.bp-print .bp-brand{ position:relative; z-index:1; display:flex; align-items:center; gap:9px; }
+.bp-print .bp-brand img{ width:11mm; height:11mm; object-fit:contain; background:#fff; border-radius:50%; padding:1mm; }
+.bp-print .bp-brand b{ display:block; font-family:'Oswald','Cairo',sans-serif; font-size:17px; letter-spacing:.14em; line-height:1; color:#fff; }
+.bp-print .bp-brand span{ display:block; margin-top:3px; font-size:6px; letter-spacing:.2em; color:#b7b7bf; font-weight:600; }
+.bp-print .bp-titlebox{ position:relative; z-index:1; direction:rtl; text-align:right; }
+.bp-print .bp-kicker{ font-size:9px; font-weight:700; color:#F5C26B; letter-spacing:.04em; }
+.bp-print .bp-title{ font-size:22px; font-weight:900; line-height:1.1; color:#fff; }
+.bp-print .bp-chips{ display:flex; flex-wrap:wrap; gap:5px; margin:7px 0 7px; direction:rtl; }
+.bp-print .bp-chip{ display:inline-flex; align-items:center; gap:5px; padding:2px 10px; border:1px solid #d7d0d0; border-radius:999px; background:#faf6f6; font-size:10px; font-weight:800; color:#0E0E10; }
+.bp-print .bp-chip em{ font-style:normal; font-weight:700; color:#E31E24; font-size:9px; }
+.bp-print .bp-kpis{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-bottom:8px; direction:rtl; }
+.bp-print .bp-kpi{ display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:15mm; padding:5px 4px; border-radius:3mm; background:#0E0E10; color:#fff; text-align:center; border-bottom:2.5px solid #E31E24; }
+.bp-print .bp-kpi-v{ font-size:15px; font-weight:900; line-height:1.1; color:#fff; }
+.bp-print .bp-kpi-l{ margin-top:2px; font-size:8.5px; font-weight:700; color:#c9c9d0; }
+.bp-print .bp-kpi-l u{ text-decoration:none; color:#F5C26B; font-weight:800; direction:ltr; unicode-bidi:isolate; }
+.bp-print .bp-kpi-ring{ flex-direction:row; gap:6px; }
+.bp-print .bp-kpi-ring .bp-kpi-l{ margin:0; max-width:14mm; line-height:1.25; font-size:9px; color:#e8e8ee; }
+.bp-print .bp-ring{ --p:0; position:relative; width:11mm; height:11mm; flex:0 0 11mm; border-radius:50%; background:conic-gradient(#F5C26B calc(var(--p) * 1%), #3a3a42 0); display:flex; align-items:center; justify-content:center; }
+.bp-print .bp-ring::before{ content:""; position:absolute; inset:1.4mm; border-radius:50%; background:#0E0E10; }
+.bp-print .bp-ring span{ position:relative; font-size:6px; font-weight:900; color:#fff; direction:ltr; }
+.bp-print .bp-sec{ display:flex; align-items:center; gap:7px; margin:0 0 6px; padding:3px 12px 3px 10px; width:fit-content; border-radius:999px; background:#0E0E10; color:#fff; font-size:12px; font-weight:900; border-right:4px solid #E31E24; }
+.bp-print .bp-block{ display:flex; flex-direction:column; flex-basis:auto; min-height:0; }
+.bp-print .bp-tw{ flex:1 1 auto; display:flex; flex-direction:column; }
+.bp-print .bp-divider{ display:flex; align-items:center; gap:10px; margin:10px 0 10px; direction:ltr; }
+.bp-print .bp-divider i{ flex:1; height:0; border-top:2px solid transparent; border-image:linear-gradient(90deg,rgba(227,30,36,0),#E31E24 30%,#F5C26B 70%,rgba(245,194,107,0)) 1; }
+.bp-print .bp-divider b{ color:#E31E24; font-size:9px; line-height:1; letter-spacing:3px; }
+#print-rank-output.bp-print table.bp-table{ width:100%; min-width:0; flex:1 1 auto; margin:0; border:1px solid #cfc7c7; border-radius:3.5mm; box-shadow:none; overflow:hidden; border-collapse:separate; border-spacing:0; }
+#print-rank-output.bp-print table.bp-table th{ background:#0E0E10; color:#fff; font-size:calc(var(--fs) - .5px); font-weight:800; padding:5px 5px; border-bottom:2px solid #E31E24; }
+#print-rank-output.bp-print table.bp-table td{ background:#fff; padding:var(--pad) 5px; font-size:var(--fs); font-weight:700; border-bottom:1px solid #e6dede; color:#1F1F1F; vertical-align:middle; line-height:1.25; }
+#print-rank-output.bp-print table.bp-table tbody tr:nth-child(even) td{ background:#faf5f5; }
+#print-rank-output.bp-print table.bp-table tbody tr:last-child td{ border-bottom:none; }
+#print-rank-output.bp-print table.bp-table td.bp-hall{ font-weight:900; text-align:right; padding-right:12px; }
+#print-rank-output.bp-print table.bp-table td.bp-neg{ color:#A8141A; font-weight:800; }
+#print-rank-output.bp-print table.bp-table tr.bp-ex-row td{ background:#FBE7A1 !important; border-top:1.5px solid #B8860B; border-bottom:1.5px solid #B8860B; font-weight:900; }
+.bp-print .bp-badge{ display:inline-block; min-width:19mm; padding:1px 8px; border-radius:999px; font-size:calc(var(--fs) - 1px); font-weight:800; background:#eee8e8; color:#222; border:1px solid #d8d0d0; white-space:nowrap; }
+.bp-print .bp-b-ex{ background:linear-gradient(90deg,#F5C26B,#FFE9A8); color:#4a3200; border-color:#B8860B; }
+.bp-print .bp-b-sup{ background:#0E0E10; color:#F5C26B; border-color:#0E0E10; }
+.bp-print .bp-b-spe{ background:#E31E24; color:#fff; border-color:#E31E24; }
+.bp-print .bp-meter{ display:flex; align-items:center; gap:6px; direction:ltr; min-width:34mm; }
+.bp-print .bp-meter b{ flex:0 0 auto; min-width:12mm; text-align:left; font-size:var(--fs); font-weight:900; }
+.bp-print .bp-track{ flex:1 1 auto; height:var(--bar); border-radius:99px; background:#e6dede; overflow:hidden; }
+.bp-print .bp-track i{ display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,#0E0E10,#E31E24); }
+.bp-print .bp-track i.bp-full{ background:linear-gradient(90deg,#B8860B,#F5C26B); }
+.bp-print .bp-foot{ margin-top:auto; display:flex; justify-content:space-between; align-items:center; padding:5px 4px 0; border-top:1.5px solid #E31E24; font-size:8px; font-weight:700; color:#777; direction:ltr; letter-spacing:.06em; }
+
+.bp-print .bp-podium{ position:relative; display:flex; align-items:flex-end; justify-content:center; gap:6px; width:78%; margin:0 auto 8px; padding-bottom:3px; }
+.bp-print .bp-podium::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; border-radius:3px; background:linear-gradient(90deg,#0E0E10,#E31E24,#0E0E10); }
+.bp-print .bp-pod{ flex:1 1 0; padding:4px 4px 4px; text-align:center; border:1px solid #d3cbcb; border-bottom:none; border-radius:3mm 3mm 0 0; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
+.bp-print .bp-pod-1{ height:calc(27mm * var(--pod)); background:linear-gradient(180deg,#FFF3C4,#F5C26B); border-color:#B8860B; }
+.bp-print .bp-pod-2{ height:calc(22mm * var(--pod)); background:linear-gradient(180deg,#f7f7f9,#d6d8de); border-color:#9aa0ad; }
+.bp-print .bp-pod-3{ height:calc(18.5mm * var(--pod)); background:linear-gradient(180deg,#fbeee4,#e2b48d); border-color:#b97a45; }
+.bp-print .bp-medal{ font-size:15px; line-height:1; }
+.bp-print .bp-pod-hall{ font-size:11px; font-weight:900; color:#0E0E10; line-height:1.15; margin-top:1px; }
+.bp-print .bp-pod-pct{ font-size:14px; font-weight:900; color:#A8141A; line-height:1.15; direction:ltr; }
+.bp-print .bp-pod-sub{ font-size:8px; font-weight:700; color:#3a3a3a; line-height:1.2; }
+.bp-print .bp-block:last-of-type{ margin-bottom:8px; }
+.bp-print.bp-s2 .bp-pod-sub, .bp-print.bp-s3 .bp-pod-sub, .bp-print.bp-s4 .bp-pod-sub, .bp-print.bp-s5 .bp-pod-sub{ display:none; }
+</style>
 </body>
 </html>
