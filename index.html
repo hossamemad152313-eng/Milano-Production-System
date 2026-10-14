@@ -1512,6 +1512,7 @@ let CURRENT_LABEL_BY_KEY = {};
 /* تجميع التابات المرتبطة ببعض تحت زرار واحد (زي "تارجت" اللي جواه عرض/تسجيل/تنفيذ) */
 const TAB_GROUPS = [
   {key:'grp-perf', label:'📊 أداء', children:['report','entry','records','manualcodes'], subLabels:{report:'📊 تقييم', entry:'📝 تسجيل', records:'🗂️ سجل', manualcodes:'👤 أكواد مؤقتة'}},
+  {key:'grp-delays', label:'⏰ تأخيرات', children:['delays'], subLabels:{}},
   {key:'grp-jard', label:'📦 جرد', children:['jard','jardreg','jardsessions'], subLabels:{jard:'📦 شوف', jardreg:'📝 تسجيل', jardsessions:'📋 سجل'}},
   {key:'grp-bestperf', label:'🏅 أفضل أداء', children:['bestperf'], subLabels:{}},
   {key:'grp-target', label:'🎯 تارجت', children:['target','targetreg','targetexec','targetplans'], subLabels:{target:'🎯 شوف', targetreg:'📝 تسجيل', targetexec:'📐 تنفيذ', targetplans:'📋 سجل'}},
@@ -3449,7 +3450,9 @@ function getHrPinOwner(){
 /* صلاحيات مقيّدة داخل بوابة شئون الموظفين: فريق المتابعة (FollowUp.Team) يشوف تاب التأخيرات بس
    وبيشتغل فيه من غير باسورد التعديل، ومن غير ما يمسح الشيتات المحفوظة نهائيًا. أي مستخدم تاني = null (كل الصلاحيات زي ما هي). */
 function isFollowUpUser(u){ return !!u && String(u.user || '').trim().toLowerCase() === 'followup.team'; }
+var hrOpenMode = 'full'; // 'full' = بوابة شئون الموظفين كاملة، 'delays' = تاب التأخيرات لوحده (من تاب "تأخيرات" في الشريط الرئيسي)
 function getHrPortalScope(){
+  if(hrOpenMode === 'delays') return {views:['delays'], noDelete: isFollowUpUser(currentUser), autoUnlock:true};
   if(isFollowUpUser(currentUser)) return {views:['delays'], noDelete:true, autoUnlock:true};
   return null;
 }
@@ -3474,9 +3477,15 @@ function base64ToUtf8(b64){
   return new TextDecoder('utf-8').decode(bytes);
 }
 let hrPortalHtml = null;
-function openHRPortal(){
+function openHRPortal(mode){
+  mode = mode === 'delays' ? 'delays' : 'full';
+  hrOpenMode = mode;
   const hrView = document.getElementById('hr-view');
   const iframe = document.getElementById('hr-iframe');
+  // لو البوابة كانت مفتوحة بوضع تاني (كاملة / تأخيرات بس) نعيد تحميلها عشان الصلاحيات تتطبق صح
+  if(iframe.dataset.hrLoaded && iframe.dataset.hrMode !== mode){ delete iframe.dataset.hrLoaded; iframe.removeAttribute('srcdoc'); }
+  iframe.dataset.hrMode = mode;
+  const ttl = hrView.querySelector('.hr-topbar-title'); if(ttl) ttl.textContent = mode === 'delays' ? '⏰ MILANO — التأخيرات' : '👤 MILANO — شئون الموظفين';
   if(!hrPortalHtml){
     hrPortalHtml = base64ToUtf8(HR_PORTAL_B64);
   }
@@ -3494,7 +3503,7 @@ function openHRPortal(){
   document.body.style.overflow = 'hidden';
 }
 function closeHRPortal(){
-  if(!confirm('تقفل شئون الموظفين وترجع للنظام؟')) return;
+  if(!confirm(hrOpenMode === 'delays' ? 'تقفل التأخيرات وترجع للنظام؟' : 'تقفل شئون الموظفين وترجع للنظام؟')) return;
   document.getElementById('hr-view').style.display = 'none';
   // نرجّع اسكرول صفحة النظام الرئيسي طبيعي زي ما كان بعد قفل بوابة شئون الموظفين.
   document.documentElement.style.overflow = '';
@@ -3573,7 +3582,7 @@ function initApp(){
       ['hallpower','💪 قوة صالة'],['hallpowerreg','📝 تسجيل قوة صالة'],
       ['nightpower','🌙 قوة سهر'],['nightpowerreg','📝 تسجيل قوة سهر'],
       ['supervisors','👩‍🏭 مشرفات المكن'],['supervisorsreg','📝 تسجيل مشرفات المكن'],
-      ['hrportal','👤 شئون الموظفين'],['printforms','🖨️ اطبع النماذج'],
+      ['delays','⏰ تأخيرات'],['hrportal','👤 شئون الموظفين'],['printforms','🖨️ اطبع النماذج'],
       ['usage','📊 استهلاك Supabase'],['activitylog','🕵️ سجل النشاط']
     ];
   }
@@ -3592,8 +3601,11 @@ function initApp(){
     });
   }
 
-  /* فريق المتابعة: بتتضاف له شئون الموظفين (بتفتح على تاب التأخيرات بس) فوق صلاحياته الحالية */
-  if(isFollowUpUser(currentUser) && !tabs.some(([x]) => x === 'hrportal')) tabs.push(['hrportal','⏰ التأخيرات']);
+  /* فريق المتابعة: بتتضاف له تاب "تأخيرات" فوق صلاحياته الحالية (بتفتح تاب التأخيرات لوحده من غير ما يدخل شئون الموظفين) */
+  if(isFollowUpUser(currentUser)){
+    tabs = tabs.filter(([k]) => k !== 'hrportal');
+    if(!tabs.some(([x]) => x === 'delays')) tabs.push(['delays','⏰ تأخيرات']);
+  }
 
   CURRENT_LABEL_BY_KEY = {}; tabs.forEach(([k,l]) => CURRENT_LABEL_BY_KEY[k] = l);
   const availableKeys = new Set(tabs.map(([k]) => k));
@@ -3624,7 +3636,8 @@ function switchGroup(groupKey){
   switchTab(group.children[0]);
 }
 function switchTab(key){
-  if(key === 'hrportal'){ openHRPortal(); return; }
+  if(key === 'hrportal'){ openHRPortal('full'); return; }
+  if(key === 'delays'){ openHRPortal('delays'); return; }
   if(activeTab === 'targetexec' && key !== 'targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved){
     if(!confirm('⚠️ عندك تعديلات في تنفيذ التارجت لسه ما اتحفظتش. عايز تسيب الشاشة من غير ما تحفظ؟')) return;
     execHasUnsaved = false;
@@ -7780,6 +7793,7 @@ const TAB_CATALOG = [
   {key:'nightpowerreg', label:'📝 تسجيل قوة سهر'},
   {key:'supervisors', label:'👩‍🏭 مشرفات المكن'},
   {key:'supervisorsreg', label:'📝 تسجيل مشرفات المكن'},
+  {key:'delays', label:'⏰ تأخيرات'},
   {key:'hrportal', label:'👤 شئون الموظفين'},
   {key:'printforms', label:'🖨️ اطبع النماذج'}
 ];
