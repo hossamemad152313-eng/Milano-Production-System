@@ -8295,10 +8295,11 @@ function jardLineHtml(id, lineNum){
     <div class="jline-card" id="jline-card-${id}">
       <div class="rowhead"><span class="line-badge">خط ${lineNum}</span></div>
       <input type="hidden" id="jline-num-${id}" value="${lineNum}">
-      <div class="mrow mrow-3">
+      <div class="mrow mrow-4">
         <div class="mf"><label>اسم مشرف الخط</label><input type="text" id="jline-supervisor-${id}" placeholder="اسم مشرف الخط"></div>
         <div class="mf"><label>تارجت الإنتاج</label><input type="number" id="jline-target-${id}"></div>
         <div class="mf"><label>الإنتاج</label><input type="number" id="jline-prod-${id}"></div>
+        <div class="mf"><label>تارجت التسليم</label><input type="number" id="jline-target-deliv-${id}" placeholder="اختياري"></div>
       </div>
       <div class="mrow mrow-4">
         <div class="mf"><label>عجز الإنتاج — الساعات</label><input type="number" id="jline-deficit-h-${id}" placeholder="- للفايض"></div>
@@ -8814,6 +8815,7 @@ async function saveJardSession(){
       line: lineNum,
       supervisor: document.getElementById('jline-supervisor-'+id).value.trim(),
       targetProduction: Number(document.getElementById('jline-target-'+id).value)||0,
+      targetDeliveries: Number(document.getElementById('jline-target-deliv-'+id).value)||0,
       production: Number(document.getElementById('jline-prod-'+id).value)||0,
       deficitMinutes,
       needles: Number(document.getElementById('jline-needles-'+id).value)||0,
@@ -8979,6 +8981,7 @@ function editJardSession(id){
   idsWithLineNums.forEach(({id:lid,_src}) => {
     document.getElementById('jline-supervisor-'+lid).value = _src.supervisor||'';
     document.getElementById('jline-target-'+lid).value = _src.targetProduction||'';
+    document.getElementById('jline-target-deliv-'+lid).value = _src.targetDeliveries||'';
     document.getElementById('jline-prod-'+lid).value = _src.production||'';
     const dm = _src.deficitMinutes||0;
     const dsign = dm < 0 ? -1 : 1;
@@ -9052,11 +9055,16 @@ function aggregateJardLines(sessions){
     s.lines.forEach(l => {
       if(!map.has(l.line)) map.set(l.line, {
         line:l.line, supervisor:l.supervisor||'', targetProduction:0, production:0,
-        deliveries:0, halak:0, eslah:0, deficitMinutes:0, needles:0, maintOther:[]
+        deliveries:0, targetDeliveries:0, deliveriesCounted:0, halak:0, eslah:0, deficitMinutes:0, needles:0, maintOther:[]
       });
       const agg = map.get(l.line);
       if(l.supervisor) agg.supervisor = l.supervisor;
       agg.targetProduction += l.targetProduction||0;
+      // تارجت التسليم: بنقارنه بتسليمات نفس الجلسة بس (الجلسات اللي ملهاش تارجت تسليم مبتتحسبش في العجز)
+      if((l.targetDeliveries||0) > 0){
+        agg.targetDeliveries += l.targetDeliveries;
+        agg.deliveriesCounted += (l.articles||[]).reduce((sum,a) => sum + (a.qty||0), 0);
+      }
       agg.production += l.production||0;
       agg.deficitMinutes += l.deficitMinutes||0;
       agg.needles += l.needles||0;
@@ -9069,10 +9077,12 @@ function aggregateJardLines(sessions){
   return [...map.values()].map(a => {
     const deficitProduction = a.targetProduction - a.production;
     const deficitProductionPct = a.targetProduction ? deficitProduction/a.targetProduction : 0;
+    const deficitDeliveries = a.targetDeliveries > 0 ? a.targetDeliveries - a.deliveriesCounted : 0;
+    const deficitDeliveriesPct = a.targetDeliveries > 0 ? deficitDeliveries/a.targetDeliveries : 0;
     const halakPct = a.deliveries ? a.halak/a.deliveries : 0;
     const eslahPct = a.deliveries ? a.eslah/a.deliveries : 0;
-    const successPct = 1 - (deficitProductionPct + halakPct + eslahPct);
-    return {...a, deficitProduction, deficitProductionPct, halakPct, eslahPct, successPct};
+    const successPct = 1 - (deficitProductionPct + deficitDeliveriesPct + halakPct + eslahPct);
+    return {...a, deficitProduction, deficitProductionPct, deficitDeliveries, deficitDeliveriesPct, halakPct, eslahPct, successPct};
   }).sort((a,b)=>a.line-b.line);
 }
 function jardHallManagerOf(hall){ return String((window.__jardHallManagers && window.__jardHallManagers[hall]) || '').trim(); }
@@ -9089,15 +9099,30 @@ function hallTotals(lines){
   const t = lines.reduce((t,l)=>({
     targetProduction:t.targetProduction+l.targetProduction, production:t.production+l.production,
     deliveries:t.deliveries+l.deliveries,
+    targetDeliveries:t.targetDeliveries+(l.targetDeliveries||0), deliveriesCounted:t.deliveriesCounted+(l.deliveriesCounted||0),
     halak:t.halak+l.halak, eslah:t.eslah+l.eslah, deficitMinutes:t.deficitMinutes+l.deficitMinutes, needles:t.needles+l.needles,
     maintOther:t.maintOther.concat(l.maintOther||[])
-  }), {targetProduction:0,production:0,deliveries:0,halak:0,eslah:0,deficitMinutes:0,needles:0,maintOther:[]});
+  }), {targetProduction:0,production:0,deliveries:0,targetDeliveries:0,deliveriesCounted:0,halak:0,eslah:0,deficitMinutes:0,needles:0,maintOther:[]});
   const deficitProduction = t.targetProduction - t.production;
   const deficitProductionPct = t.targetProduction ? deficitProduction/t.targetProduction : 0;
+  const deficitDeliveries = t.targetDeliveries > 0 ? t.targetDeliveries - t.deliveriesCounted : 0;
+  const deficitDeliveriesPct = t.targetDeliveries > 0 ? deficitDeliveries/t.targetDeliveries : 0;
   const halakPct = t.deliveries ? t.halak/t.deliveries : 0;
   const eslahPct = t.deliveries ? t.eslah/t.deliveries : 0;
-  const successPct = 1 - (deficitProductionPct + halakPct + eslahPct);
-  return {...t, deficitProduction, deficitProductionPct, halakPct, eslahPct, successPct};
+  const successPct = 1 - (deficitProductionPct + deficitDeliveriesPct + halakPct + eslahPct);
+  return {...t, deficitProduction, deficitProductionPct, deficitDeliveries, deficitDeliveriesPct, halakPct, eslahPct, successPct};
+}
+function jardDelivMetricsHtml(x){
+  const has = x.targetDeliveries > 0;
+  const color = x.deficitDeliveries > 0 ? 'var(--red)' : 'var(--green)';
+  return `
+        <div class="wm"><div class="l">تارجت التسليم</div><div class="v">${has ? fmtNum(x.targetDeliveries) : '-'}</div></div>
+        <div class="wm"><div class="l">عجز التسليمات</div>${has ? `<div class="v" style="color:${color}">${fmtNum(x.deficitDeliveries)}</div><div class="p">${fmtPct(x.deficitDeliveriesPct)}</div>` : '<div class="v">-</div>'}</div>`;
+}
+function jardDelivPrintTds(x, bold){
+  const has = x.targetDeliveries > 0;
+  const b = v => bold ? `<b>${v}</b>` : v;
+  return `<td>${b(has ? fmtNum(x.targetDeliveries) : '-')}</td><td>${has ? b(fmtNum(x.deficitDeliveries)) + `<div style="font-size:.85em;font-weight:600;">${fmtPct(x.deficitDeliveriesPct)}</div>` : b('-')}</td>`;
 }
 function jardHallBlockHtml(hall, lines, hallManager){
   const t = hallTotals(lines);
@@ -9111,7 +9136,7 @@ function jardHallBlockHtml(hall, lines, hallManager){
         <div class="wm"><div class="l">تارجت الإنتاج</div><div class="v">${fmtNum(l.targetProduction)}</div></div>
         <div class="wm"><div class="l">الإنتاج</div><div class="v">${fmtNum(l.production)}</div></div>
         <div class="wm"><div class="l">عجز الإنتاج</div><div class="v">${fmtNum(l.deficitProduction)}</div><div class="p">${fmtPct(l.deficitProductionPct)}</div></div>
-        <div class="wm"><div class="l">التسليمات</div><div class="v">${fmtNum(l.deliveries)}</div></div>
+        <div class="wm"><div class="l">التسليمات</div><div class="v">${fmtNum(l.deliveries)}</div></div>${jardDelivMetricsHtml(l)}
         <div class="wm"><div class="l">الهالك</div><div class="v">${fmtNum(l.halak)}</div><div class="p">${fmtPct(l.halakPct)}</div></div>
         <div class="wm"><div class="l">الإصلاح</div><div class="v">${fmtNum(l.eslah)}</div><div class="p">${fmtPct(l.eslahPct)}</div></div>
         <div class="wm"><div class="l">عجز الوقت</div><div class="v" style="color:${l.deficitMinutes<0?'var(--green)':'var(--red)'}">${fmtMinutes(l.deficitMinutes)}</div></div>
@@ -9128,7 +9153,7 @@ function jardHallBlockHtml(hall, lines, hallManager){
         <div class="wm"><div class="l">تارجت الإنتاج</div><div class="v">${fmtNum(t.targetProduction)}</div></div>
         <div class="wm"><div class="l">الإنتاج</div><div class="v">${fmtNum(t.production)}</div></div>
         <div class="wm"><div class="l">عجز الإنتاج</div><div class="v">${fmtNum(t.deficitProduction)}</div></div>
-        <div class="wm"><div class="l">التسليمات</div><div class="v">${fmtNum(t.deliveries)}</div></div>
+        <div class="wm"><div class="l">التسليمات</div><div class="v">${fmtNum(t.deliveries)}</div></div>${jardDelivMetricsHtml(t)}
         <div class="wm"><div class="l">الهالك</div><div class="v">${fmtNum(t.halak)}</div></div>
         <div class="wm"><div class="l">الإصلاح</div><div class="v">${fmtNum(t.eslah)}</div></div>
         <div class="wm"><div class="l">عجز الوقت</div><div class="v" style="color:${t.deficitMinutes<0?'var(--green)':'var(--red)'}">${fmtMinutes(t.deficitMinutes)}</div></div>
@@ -9176,7 +9201,7 @@ function applyJardFilter(){
   perHall.forEach(h => { window.__jardLines[h.hall] = h.lines; window.__jardHallManagers[h.hall] = h.hallManager; });
 
   results.innerHTML = `
-    <div class="section-title">🏆 ترتيب الصالات (حسب نسبة نجاح الخط = تسليمات وهالك وإصلاح)</div>
+    <div class="section-title">🏆 ترتيب الصالات (حسب نسبة نجاح الخط = عجز الإنتاج وعجز التسليمات والهالك والإصلاح)</div>
     <div class="chart-box top">
       ${perHall.map((h,i) => `
         <div class="cbar-row">
@@ -9197,11 +9222,12 @@ function exportJardExcel(){
       'الصالة': hall, 'الخط': l.line, 'مشرف الخط': l.supervisor,
       'تارجت الإنتاج': l.targetProduction, 'الإنتاج': l.production, 'عجز الإنتاج': l.deficitProduction, 'نسبة عجز الإنتاج': fmtPct(l.deficitProductionPct),
       'التسليمات': l.deliveries,
+      'تارجت التسليم': l.targetDeliveries > 0 ? l.targetDeliveries : '', 'عجز التسليمات': l.targetDeliveries > 0 ? l.deficitDeliveries : '', 'نسبة عجز التسليمات': l.targetDeliveries > 0 ? fmtPct(l.deficitDeliveriesPct) : '',
       'الهالك': l.halak, 'الإصلاح': l.eslah, 'نسبة نجاح الخط': fmtPct(l.successPct),
       'عجز بالوقت': fmtMinutes(l.deficitMinutes), 'عدد الإبر': l.needles, 'صيانة إضافية': l.maintOther.join('، ')
     }));
     const t = hallTotals(lines);
-    rows.push({'الصالة': hall, 'الخط':'الإجمالي', 'مشرف الخط':'', 'تارجت الإنتاج':t.targetProduction, 'الإنتاج':t.production, 'عجز الإنتاج':t.deficitProduction, 'نسبة عجز الإنتاج':'', 'التسليمات':t.deliveries, 'الهالك':t.halak, 'الإصلاح':t.eslah, 'نسبة نجاح الخط':fmtPct(t.successPct), 'عجز بالوقت':fmtMinutes(t.deficitMinutes), 'عدد الإبر':t.needles, 'صيانة إضافية':t.maintOther.join('، ')});
+    rows.push({'الصالة': hall, 'الخط':'الإجمالي', 'مشرف الخط':'', 'تارجت الإنتاج':t.targetProduction, 'الإنتاج':t.production, 'عجز الإنتاج':t.deficitProduction, 'نسبة عجز الإنتاج':'', 'التسليمات':t.deliveries, 'تارجت التسليم': t.targetDeliveries > 0 ? t.targetDeliveries : '', 'عجز التسليمات': t.targetDeliveries > 0 ? t.deficitDeliveries : '', 'نسبة عجز التسليمات': t.targetDeliveries > 0 ? fmtPct(t.deficitDeliveriesPct) : '', 'الهالك':t.halak, 'الإصلاح':t.eslah, 'نسبة نجاح الخط':fmtPct(t.successPct), 'عجز بالوقت':fmtMinutes(t.deficitMinutes), 'عدد الإبر':t.needles, 'صيانة إضافية':t.maintOther.join('، ')});
     rows.push({});
   });
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -9232,6 +9258,7 @@ function printJardHallDetail(){
       <td>${fmtPct(l.deficitProductionPct)}</td>
       <td>${fmtMinutes(l.deficitMinutes)}</td>
       <td>${fmtNum(l.deliveries)}</td>
+      ${jardDelivPrintTds(l,false)}
       <td>${fmtNum(l.halak)}</td>
       <td>${fmtPct(l.halakPct)}</td>
       <td>${fmtNum(l.eslah)}</td>
@@ -9242,8 +9269,8 @@ function printJardHallDetail(){
   const bodyHtml = `
     <table class="target-print-table">
       <thead>
-        <tr><th colspan="14">${hall}${jardHallManagerOf(hall) ? ' — مدير الصالة: ' + jardEscHtml(withOstaz(jardHallManagerOf(hall))) : ''}</th></tr>
-        <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th class="maint-th">صيانة</th></tr>
+        <tr><th colspan="16">${hall}${jardHallManagerOf(hall) ? ' — مدير الصالة: ' + jardEscHtml(withOstaz(jardHallManagerOf(hall))) : ''}</th></tr>
+        <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>تارجت التسليم</th><th>عجز التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th class="maint-th">صيانة</th></tr>
       </thead>
       <tbody>
         ${rowsHtml}
@@ -9255,6 +9282,7 @@ function printJardHallDetail(){
           <td><b>${fmtPct(t.deficitProductionPct)}</b></td>
           <td><b>${fmtMinutes(t.deficitMinutes)}</b></td>
           <td><b>${fmtNum(t.deliveries)}</b></td>
+          ${jardDelivPrintTds(t,true)}
           <td><b>${fmtNum(t.halak)}</b></td>
           <td><b>${fmtPct(t.halakPct)}</b></td>
           <td><b>${fmtNum(t.eslah)}</b></td>
@@ -9317,16 +9345,19 @@ async function printJardAllHallsTotals(){
     production: g.production + h.totals.production,
     deficitProduction: g.deficitProduction + h.totals.deficitProduction,
     deliveries: g.deliveries + h.totals.deliveries,
+    targetDeliveries: g.targetDeliveries + (h.totals.targetDeliveries||0),
+    deficitDeliveries: g.deficitDeliveries + (h.totals.deficitDeliveries||0),
     halak: g.halak + h.totals.halak,
     eslah: g.eslah + h.totals.eslah,
     deficitMinutes: g.deficitMinutes + h.totals.deficitMinutes,
     needles: g.needles + h.totals.needles,
     maintOther: g.maintOther.concat(h.totals.maintOther || [])
-  }), {targetProduction:0, production:0, deficitProduction:0, deliveries:0, halak:0, eslah:0, deficitMinutes:0, needles:0, maintOther:[]});
+  }), {targetProduction:0, production:0, deficitProduction:0, deliveries:0, targetDeliveries:0, deficitDeliveries:0, halak:0, eslah:0, deficitMinutes:0, needles:0, maintOther:[]});
   const grandDeficitPct = grand.targetProduction ? grand.deficitProduction/grand.targetProduction : 0;
   const grandHalakPct = grand.deliveries ? grand.halak/grand.deliveries : 0;
   const grandEslahPct = grand.deliveries ? grand.eslah/grand.deliveries : 0;
-  const grandSuccessPct = 1 - (grandDeficitPct + grandHalakPct + grandEslahPct);
+  grand.deficitDeliveriesPct = grand.targetDeliveries ? grand.deficitDeliveries/grand.targetDeliveries : 0;
+  const grandSuccessPct = 1 - (grandDeficitPct + grand.deficitDeliveriesPct + grandHalakPct + grandEslahPct);
 
   const rowsHtml = hallEntries.map(h => `
     <tr>
@@ -9337,6 +9368,7 @@ async function printJardAllHallsTotals(){
       <td>${fmtPct(h.totals.deficitProductionPct)}</td>
       <td>${fmtMinutes(h.totals.deficitMinutes)}</td>
       <td>${fmtNum(h.totals.deliveries)}</td>
+      ${jardDelivPrintTds(h.totals,false)}
       <td>${fmtNum(h.totals.halak)}</td>
       <td>${fmtPct(h.totals.halakPct)}</td>
       <td>${fmtNum(h.totals.eslah)}</td>
@@ -9346,10 +9378,10 @@ async function printJardAllHallsTotals(){
     </tr>`).join('');
   const bodyHtml = `
     <table class="target-print-table jard-all-tbl jard-all-d${hallEntries.length <= 5 ? 1 : hallEntries.length <= 9 ? 2 : hallEntries.length <= 13 ? 3 : 4}">
-      <colgroup><col style="width:12%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:6.4%"><col style="width:17.6%"></colgroup>
+      <colgroup><col style="width:11%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:5.77%"><col style="width:14%"></colgroup>
       <thead>
-        <tr><th colspan="13">إجمالي كل الصالات</th></tr>
-        <tr><th class="hall-th">الصالة</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th class="maint-th">صيانة</th></tr>
+        <tr><th colspan="15">إجمالي كل الصالات</th></tr>
+        <tr><th class="hall-th">الصالة</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>تارجت التسليم</th><th>عجز التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th class="maint-th">صيانة</th></tr>
       </thead>
       <tbody>
         ${rowsHtml}
@@ -9361,6 +9393,7 @@ async function printJardAllHallsTotals(){
           <td><b>${fmtPct(grandDeficitPct)}</b></td>
           <td><b>${fmtMinutes(grand.deficitMinutes)}</b></td>
           <td><b>${fmtNum(grand.deliveries)}</b></td>
+          ${jardDelivPrintTds(grand,true)}
           <td><b>${fmtNum(grand.halak)}</b></td>
           <td><b>${fmtPct(grandHalakPct)}</b></td>
           <td><b>${fmtNum(grand.eslah)}</b></td>
