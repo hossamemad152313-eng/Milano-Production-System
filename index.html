@@ -480,7 +480,7 @@
   .twork-grid input.tdup-flag{ background:#ffe6e6; box-shadow:inset 0 0 0 2px var(--amber); font-weight:800; }
   /* ---------- جدول تنفيذ التارجت (خط أوضح وأكبر، مع مسافات معقولة من غير ما نحتاج سحب/swipe) ---------- */
   .ttab-exec-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; }
-  .ttab-exec{ border-collapse:collapse; width:100%; min-width:760px; table-layout:fixed; }
+  .ttab-exec{ border-collapse:collapse; width:100%; min-width:840px; table-layout:fixed; }
   .ttab-exec th{ background:var(--amber-dark); color:#fff; font-size:11.5px; font-weight:800; padding:8px 5px; text-align:center; white-space:normal; line-height:1.3; word-break:break-word; }
   .ttab-exec td{ padding:8px 5px; border-bottom:1px solid var(--line); text-align:center; font-size:12px; font-weight:700; white-space:normal; word-break:break-word; }
   .ttab-exec td:first-child{ text-align:center; font-size:12px; font-weight:700; color:var(--muted); white-space:normal; word-break:break-word; }
@@ -943,6 +943,11 @@ input[type="number"], input[type="text"], input[type="date"], select{
 #print-rank-output table.target-print-table td.maint-td{ min-width:125px !important; width:13% !important; white-space:normal !important; word-break:break-word !important; overflow:visible !important; text-overflow:clip !important; line-height:1.5 !important; text-align:center !important; }
 #print-rank-output table.target-print-table td.maint-td .maint-needles{ font-weight:800; }
 #print-rank-output table.target-print-table th.hall-th, #print-rank-output table.target-print-table td.hall-td{ min-width:125px !important; }
+#print-rank-output table.target-print-table.tx-print{ table-layout:fixed !important; }
+#print-rank-output table.target-print-table.tx-print th{ font-size:7px !important; padding:2px 1px !important; white-space:nowrap !important; line-height:1.2 !important; letter-spacing:0 !important; }
+#print-rank-output table.target-print-table.tx-print thead tr:first-child th{ font-size:8px !important; white-space:normal !important; }
+#print-rank-output table.target-print-table.tx-print td{ font-size:8px !important; padding:2px 1px !important; white-space:nowrap !important; }
+#print-rank-output table.target-print-table.tx-print tr.total-row td{ font-size:7.5px !important; white-space:normal !important; }
 #print-rank-output table.target-print-table td .hall-mgr{ font-size:11.5px; font-weight:600; margin-top:2px; }
 #print-rank-output table.target-print-table td.maint-td .maint-extra{ font-size:12px; font-weight:700; margin-top:2px; }
 </style>
@@ -9071,6 +9076,7 @@ function aggregateJardLines(sessions){
   }).sort((a,b)=>a.line-b.line);
 }
 function jardHallManagerOf(hall){ return String((window.__jardHallManagers && window.__jardHallManagers[hall]) || '').trim(); }
+function withOstaz(n){ n=String(n||'').trim(); if(!n) return ''; return /^(ال)?[أا]ستاذ(ة)?\s/.test(n) ? n : 'الأستاذ ' + n; }
 function jardEscHtml(v){ return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function fmtMaintCell(needles, maintOther){
   const esc = v => String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/(\d+)/g,'<span dir="ltr">$1</span>');
@@ -9236,7 +9242,7 @@ function printJardHallDetail(){
   const bodyHtml = `
     <table class="target-print-table">
       <thead>
-        <tr><th colspan="14">${hall}${jardHallManagerOf(hall) ? ' — مدير الصالة: ' + jardEscHtml(jardHallManagerOf(hall)) : ''}</th></tr>
+        <tr><th colspan="14">${hall}${jardHallManagerOf(hall) ? ' — مدير الصالة: ' + jardEscHtml(withOstaz(jardHallManagerOf(hall))) : ''}</th></tr>
         <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th class="maint-th">صيانة</th></tr>
       </thead>
       <tbody>
@@ -9324,7 +9330,7 @@ async function printJardAllHallsTotals(){
 
   const rowsHtml = hallEntries.map(h => `
     <tr>
-      <td class="hall-td"><b>${h.hall}</b>${jardHallManagerOf(h.hall) ? `<div class="hall-mgr">مدير الصالة: ${jardEscHtml(jardHallManagerOf(h.hall))}</div>` : ''}</td>
+      <td class="hall-td"><b>${h.hall}</b>${jardHallManagerOf(h.hall) ? `<div class="hall-mgr">مدير الصالة: ${jardEscHtml(withOstaz(jardHallManagerOf(h.hall)))}</div>` : ''}</td>
       <td>${fmtNum(h.totals.targetProduction)}</td>
       <td>${fmtNum(h.totals.production)}</td>
       <td>${fmtNum(h.totals.deficitProduction)}</td>
@@ -10653,7 +10659,7 @@ function printTargetDetails(opts){
         ${p.hallTargetDeliveries ? pill('إجمالي تارجت التسليم', p.hallTargetDeliveries) : ''}
       </div>`;
     return `
-      <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
+      <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${withOstaz(p.hallManager)}</span>` : ''}</h2>
       <h3>الفترة: ${p.from} إلى ${p.to}${p.hallTargetDeliveries? ` — إجمالي تارجت التسليم: ${p.hallTargetDeliveries}` : ''}</h3>
       ${hallTotalsHtml}
       <div class="power-print-grid" style="display:grid;grid-template-columns:repeat(${lineCount}, 1fr);align-items:start;">${linesHtml}</div>
@@ -10888,7 +10894,11 @@ function renderExecLineCard(plan, l, execLine){
       ? `<span style="color:var(--green);font-weight:800;">✅ تمام</span>`
       : `<span style="color:var(--amber-dark);font-weight:800;">⏳ لسه</span>`;
     let diffCell = '-';
+    let doneCell = '-';
     if(it.done){
+      const aw = execItemAmounts(it);
+      const wColor = aw.execMin > 0 ? 'var(--green)' : 'var(--muted)';
+      doneCell = `<b style="color:${wColor};">${fmtMinutes(aw.execMin)}</b>`;
       const a = execItemAmounts(it);
       const diffColor = a.usingBase
         ? (a.diffMin < 0 ? 'var(--green)' : (a.diffMin > 0 ? 'var(--red)' : 'var(--muted)'))
@@ -10907,6 +10917,7 @@ function renderExecLineCard(plan, l, execLine){
         <td>
           ${!it.done ? `<div class="hm-pair"><input type="number" id="texec-ah-${it.id}" value="${defAH}" min="0" ${canEdit?`oninput="updateExecActualValue('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}><span>:</span><input type="number" id="texec-am-${it.id}" value="${defAM}" min="0" max="59" ${canEdit?`oninput="updateExecActualValue('${plan.id}',${l.line},'${it.id}')"`:''} ${canEdit?'':'disabled'}></div>` : `${defAH}:${String(defAM).padStart(2,'0')}`}
         </td>
+        <td id="texec-done-${it.id}">${doneCell}</td>
         <td id="texec-diff-${it.id}">${diffCell}</td>
         <td>${statusBadge}</td>
         <td>
@@ -10916,7 +10927,7 @@ function renderExecLineCard(plan, l, execLine){
           </div>
         </td>
       </tr>`;
-  }).join('') || '<tr><td colspan="8">مفيش أرتيكلات مسجلة للخط ده في خطة التارجت</td></tr>';
+  }).join('') || '<tr><td colspan="9">مفيش أرتيكلات مسجلة للخط ده في خطة التارجت</td></tr>';
 
   return `
     <div class="jline-result-card">
@@ -10927,10 +10938,10 @@ function renderExecLineCard(plan, l, execLine){
       <div class="ttab-exec-wrap">
         <table class="ttab-exec">
           <colgroup>
-            <col style="width:15%"><col style="width:8%"><col style="width:13%"><col style="width:14%">
-            <col style="width:14%"><col style="width:12%"><col style="width:13%"><col style="width:11%">
+            <col style="width:14%"><col style="width:7%"><col style="width:11%"><col style="width:12%">
+            <col style="width:12%"><col style="width:12%"><col style="width:11%"><col style="width:12%"><col style="width:9%">
           </colgroup>
-          <thead><tr><th>أرتيكل</th><th>عدد</th><th>أساسي</th><th>مستهدف</th><th>جديد</th><th>فرق</th><th>الحالة</th><th>✔️</th></tr></thead>
+          <thead><tr><th>أرتيكل</th><th>عدد</th><th>أساسي</th><th>مستهدف</th><th>جديد</th><th>اشتغل</th><th>فرق</th><th>الحالة</th><th>✔️</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>
@@ -11013,6 +11024,8 @@ function updateExecDiffPreview(planId, lineNum, itemId){
     : (a.diffMin > 0 ? 'var(--green)' : (a.diffMin < 0 ? 'var(--red)' : 'var(--muted)'));
   const baseMark = a.usingBase ? `<span title="محسوبة بناءً على الوقت الأساسي (${it.baseTime})" style="font-size:9px;">⚡</span>` : '';
   cell.innerHTML = `<b style="color:${diffColor};">${fmtSignedMinutes(a.diffMin)}</b>${baseMark} <span style="font-size:9px;color:var(--muted);">(معاينة)</span>`;
+  const doneCellEl = document.getElementById('texec-done-'+itemId);
+  if(doneCellEl) doneCellEl.innerHTML = `<b style="color:${a.execMin > 0 ? 'var(--green)' : 'var(--muted)'};">${fmtMinutes(a.execMin)}</b> <span style="font-size:9px;color:var(--muted);">(معاينة)</span>`;
 }
 function updateExecActualValue(planId, lineNum, itemId){
   // بيحفظ قيمة خانة "جديد" (actualH/actualM) جوه الـ item نفسه أول ما المستخدم يكتب فيها،
@@ -11182,15 +11195,16 @@ function printTargetExecDetails(){
       const rows = le.items || [];
       return `
         <div class="power-print-card target-card" style="flex:none;max-width:none;width:100%;min-width:0;">
-          <table class="print-onepage target-print-table" style="table-layout:fixed;">
+          <table class="print-onepage target-print-table tx-print" style="table-layout:fixed;">
+            <colgroup><col style="width:18%"><col style="width:14%"><col style="width:14%"><col style="width:13%"><col style="width:14%"><col style="width:16%"><col style="width:11%"></colgroup>
             <thead>
-              <tr><th colspan="6">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
-              <tr><th>أرتيكل</th><th>أساسي</th><th>مستهدف</th><th>المطلوب في الجديد</th><th>الفرق</th><th>الحالة</th></tr>
+              <tr><th colspan="7">خط ${l.line}${l.supervisor? ' — '+l.supervisor : ''}</th></tr>
+              <tr><th>أرتيكل</th><th>أساسي</th><th>مستهدف</th><th>الجديد</th><th>اشتغل</th><th>فرق</th><th>الحالة</th></tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${r.baseTime||'-'}</td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtSignedMinutes(((r.h||0)*60+(r.m||0)) - ((r.actualH||0)*60+(r.actualM||0))) : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="6">مفيش</td></tr>'}
-              <tr class="total-row"><td colspan="3">إجمالي اللي اتعلّم عليه</td><td colspan="3"><b>${fmtMinutes(t.execMin)}</b></td></tr>
-              <tr class="total-row"><td colspan="3">إجمالي العجز</td><td colspan="3"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
+              ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${r.baseTime||'-'}</td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtMinutes(execItemAmounts(r).execMin) : '-'}</td><td>${r.done? (()=>{const _a=execItemAmounts(r); return fmtSignedMinutes(_a.diffMin)+(_a.usingBase?'⚡':'');})() : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="7">مفيش</td></tr>'}
+              <tr class="total-row"><td colspan="3">إجمالي اللي اتعلّم عليه</td><td colspan="4"><b>${fmtMinutes(t.execMin)}</b></td></tr>
+              <tr class="total-row"><td colspan="3">إجمالي العجز</td><td colspan="4"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
             </tbody>
           </table>
         </div>`;
@@ -11198,7 +11212,7 @@ function printTargetExecDetails(){
     const hallTotal = hallExecMin+hallPendMin;
     const hallDeficitPct = hallTotal>0 ? hallPendMin/hallTotal : 0;
     return `
-      <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${p.hallManager}</span>` : ''}</h2>
+      <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${withOstaz(p.hallManager)}</span>` : ''}</h2>
       <h3>الفترة: ${p.from} إلى ${p.to} — إجمالي عجز الصالة: ${fmtMinutes(hallPendMin)} (${fmtPct(hallDeficitPct)})</h3>
       <div class="power-print-grid" style="display:grid;grid-template-columns:repeat(${lineCount}, 1fr);align-items:start;">${linesHtml}</div>
     `;
