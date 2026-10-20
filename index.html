@@ -1460,6 +1460,7 @@ header.top.hr-merged #subtabs-row.fit-3 .hr-sub-btn .ic{ display:none; }
 [data-tb]{ display:none !important; }
 header.top .tb-actions{ display:flex; align-items:center; gap:4px; flex:0 1 auto; min-width:0; order:0; overflow-x:auto; scrollbar-width:none; padding:2px 4px; }
 header.top .tb-actions::-webkit-scrollbar{ display:none; }
+header.top .tb-actions:empty{ display:none; }
 header.top .row1{ align-items:center; }
 header.top .hall-badge{ flex:1 1 0; width:auto; max-width:none; min-width:84px; min-height:38px; box-sizing:border-box; padding:3px 14px 2px; border-radius:16px; gap:0; justify-content:center; }
 header.top .hall-name{ font-size:clamp(11px, .55vw + 6px, 13px); line-height:1.25; }
@@ -1491,6 +1492,7 @@ header.top.hr-merged .tb-actions{ display:none; }
 @media screen and (max-width:700px){
   header.top .hall-badge{ flex:1 1 0; max-width:none; }
   header.top .tb-actions{ order:6; flex:1 0 100%; padding:0; margin-inline-end:0; }
+  header.top #tb-actions-a{ order:5; }
   header.top .tb-actions:empty{ display:none; }
   .tb-btn{ flex:1 1 0; font-size:11.5px; padding:8px 14px; min-height:36px; }
 }
@@ -1596,6 +1598,7 @@ header.top .tb-count:focus{ border-color:#e3262c; box-shadow:0 0 0 3px rgba(227,
   <div id="app-view">
     <header class="top">
       <div class="row1">
+        <div class="tb-actions" id="tb-actions-a"></div>
         <div class="hall-badge" id="hall-badge" onclick="openUsersFromProfile()" style="cursor:pointer;" title="مستخدمين">
           <div class="hall-name" id="hall-name">--</div>
           <div class="hall-sub" id="hall-sub">--</div>
@@ -3844,10 +3847,16 @@ window.addEventListener('resize', function(){ hrFitSubTabs(); });
     return out;
   }
   function tbRefresh(){
-    var bar = document.getElementById('tb-actions');
+    var bar = document.getElementById('tb-actions'), barA = document.getElementById('tb-actions-a');
     if(!bar) return;
-    var src = collect();
-    src.sort(function(a,b){ return (a.ord != null ? a.ord : TB_ORDER[a.kind]) - (b.ord != null ? b.ord : TB_ORDER[b.kind]); });
+    var all = collect();
+    all.sort(function(a,b){ return (a.ord != null ? a.ord : TB_ORDER[a.kind]) - (b.ord != null ? b.ord : TB_ORDER[b.kind]); });
+    // الأزرار اللي ترتيبها سالب (رقم/ضيف/Excel/ترس في التأخيرات) بتروح الشريط اللي على يمين شيب الصالات
+    var isA = function(x){ return x.ord != null && x.ord < 0; };
+    tbFill(bar, all.filter(function(x){ return !isA(x); }));
+    if(barA) tbFill(barA, all.filter(isA));
+  }
+  function tbFill(bar, src){
     var same = bar._srcs && bar._srcs.length === src.length && src.every(function(x,i){ return x.el === bar._srcs[i]; });
     if(!same){
       bar.innerHTML = '';
