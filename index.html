@@ -9502,8 +9502,100 @@ function exportJardExcel(){
   showToast('✅ اتصدّر الملف');
 }
 
+
+/* ===== اختيار الأعمدة اللي تظهر في طباعة الجرد =====
+   بنبني الجدول كامل زي ما هو، وبعدين نشيل الأعمدة اللي المستخدم ما اختارهاش (الصف التاني في الهيدر هو مصدر الأسماء).
+   الاختيار بيتحفظ في المتصفح لكل نوع طباعة ('detail' جرد صالة / 'all' إجمالي الصالات). */
+function jardPrintColsLoad(kind){
+  try{ const v = JSON.parse(localStorage.getItem('jardPrintHidden_'+kind) || '[]'); return Array.isArray(v) ? v : []; }catch(e){ return []; }
+}
+function jardPrintColsSave(kind, arr){
+  try{ localStorage.setItem('jardPrintHidden_'+kind, JSON.stringify(arr)); }catch(e){}
+}
+function jardPrintHeaderLabels(bodyHtml){
+  const doc = new DOMParser().parseFromString(bodyHtml, 'text/html');
+  const rows = doc.querySelectorAll('thead tr');
+  const hr = rows[rows.length-1];
+  return hr ? Array.from(hr.children).map(c => c.textContent.trim()) : [];
+}
+function jardPrintFilterCols(bodyHtml, hiddenIdx){
+  if(!hiddenIdx.length) return bodyHtml;
+  const doc = new DOMParser().parseFromString(bodyHtml, 'text/html');
+  const tbl = doc.querySelector('table');
+  const hset = new Set(hiddenIdx);
+  const headRows = tbl.querySelectorAll('thead tr');
+  const labelRow = headRows[headRows.length-1];
+  const total = labelRow.children.length;
+  const visible = total - hset.size;
+  // صف العنوان (colspan)
+  for(let i=0;i<headRows.length-1;i++){ const c = headRows[i].children[0]; if(c) c.setAttribute('colspan', visible); }
+  // صف أسماء الأعمدة
+  Array.from(labelRow.children).forEach((c,i)=>{ if(hset.has(i)) c.remove(); });
+  // الصفوف: بنراعي colspan (زي خانة "إجمالي الصالة" اللي واخدة عمودين)
+  tbl.querySelectorAll('tbody tr').forEach(tr => {
+    let col = 0;
+    Array.from(tr.children).forEach(td => {
+      const span = Number(td.getAttribute('colspan')) || 1;
+      let keep = 0;
+      for(let k=0;k<span;k++){ if(!hset.has(col+k)) keep++; }
+      col += span;
+      if(keep === 0) td.remove(); else if(span > 1) td.setAttribute('colspan', keep);
+    });
+  });
+  // colgroup: نعيد توزيع العرض بالتساوي (عمود الصالة الأول يفضل أعرض)
+  const cg = tbl.querySelector('colgroup');
+  if(cg){
+    const first = !hset.has(0);
+    const rest = first ? visible-1 : visible;
+    const firstW = 11;
+    const w = rest > 0 ? ((100 - (first ? firstW : 0)) / rest).toFixed(2) : 0;
+    cg.innerHTML = Array.from({length:visible}).map((_,i)=> `<col style="width:${(first && i===0) ? firstW : w}%">`).join('');
+  }
+  return tbl.outerHTML;
+}
+function jardPickPrintColumns(kind, bodyHtml){
+  return new Promise(resolve => {
+    const labels = jardPrintHeaderLabels(bodyHtml);
+    const hidden = new Set(jardPrintColsLoad(kind));
+    const ov = document.createElement('div');
+    ov.id = 'jard-cols-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML = `
+      <div dir="rtl" style="background:#fff;color:#000;border-radius:14px;max-width:460px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.35);">
+        <div style="padding:16px 18px 8px;font-weight:800;font-size:16px;">🖨️ اختار الأعمدة اللي تظهر في الطباعة</div>
+        <div style="padding:0 18px 8px;display:flex;gap:8px;">
+          <button type="button" data-act="all" style="flex:1;padding:6px;border:1px solid #bbb;border-radius:8px;background:#f4f4f4;cursor:pointer;">✔ الكل</button>
+          <button type="button" data-act="none" style="flex:1;padding:6px;border:1px solid #bbb;border-radius:8px;background:#f4f4f4;cursor:pointer;">✖ ولا واحد</button>
+        </div>
+        <div id="jard-cols-list" style="padding:4px 18px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;">
+          ${labels.map((l,i)=>`<label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer;"><input type="checkbox" data-i="${i}" ${hidden.has(i)?'':'checked'} ${i===0?'checked disabled':''}> ${jardEscHtml(l)}</label>`).join('')}
+        </div>
+        <div style="padding:12px 18px 16px;display:flex;gap:8px;">
+          <button type="button" data-act="ok" style="flex:2;padding:10px;border:0;border-radius:10px;background:#1e1e22;color:#fff;font-weight:800;cursor:pointer;">🖨️ اطبع</button>
+          <button type="button" data-act="cancel" style="flex:1;padding:10px;border:0;border-radius:10px;background:#8a8a93;color:#fff;cursor:pointer;">إلغاء</button>
+        </div>
+      </div>`;
+    const boxes = () => Array.from(ov.querySelectorAll('input[type=checkbox]'));
+    ov.addEventListener('click', e => {
+      const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+      if(e.target === ov || act === 'cancel'){ ov.remove(); resolve(null); return; }
+      if(act === 'all'){ boxes().forEach(b => b.checked = true); }
+      else if(act === 'none'){ boxes().forEach(b => { if(!b.disabled) b.checked = false; }); }
+      else if(act === 'ok'){
+        const hid = boxes().filter(b => !b.checked).map(b => Number(b.dataset.i));
+        if(labels.length > 1 && hid.length >= labels.length - 1){
+          showToast('⚠️ اختار عمود واحد على الأقل غير عمود الاسم'); return;
+        }
+        jardPrintColsSave(kind, hid);
+        ov.remove(); resolve(hid);
+      }
+    });
+    document.body.appendChild(ov);
+  });
+}
+
 /* ---------- طباعة جرد صالة واحدة بالتفصيل (كل خط + إجمالي الصالة) ---------- */
-function printJardHallDetail(){
+async function printJardHallDetail(){
   const hall = document.getElementById('jf-hall').value;
   const from = document.getElementById('jf-from').value;
   const to = document.getElementById('jf-to').value;
@@ -9556,7 +9648,9 @@ function printJardHallDetail(){
         </tr>
       </tbody>
     </table>`;
-  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(`MILANO SPORT SHOES — جرد ${hall}`, `من ${from} إلى ${to}`, bodyHtml);
+  const __hid = await jardPickPrintColumns('detail', bodyHtml);
+  if(__hid === null) return;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(`MILANO SPORT SHOES — جرد ${hall}`, `من ${from} إلى ${to}`, jardPrintFilterCols(bodyHtml, __hid));
   document.body.classList.add('print-rank-only');
   document.getElementById('print-rank-output').classList.add('landscape-mode');
   window.print();
@@ -9667,7 +9761,9 @@ async function printJardAllHallsTotals(){
         </tr>
       </tbody>
     </table>`;
-  const layoutHtml = buildPrintLayout('MILANO SPORT SHOES — إجمالي الجرد لكل الصالات', `من ${from} إلى ${to}`, bodyHtml);
+  const __hid = await jardPickPrintColumns('all', bodyHtml);
+  if(__hid === null) return;
+  const layoutHtml = buildPrintLayout('MILANO SPORT SHOES — إجمالي الجرد لكل الصالات', `من ${from} إلى ${to}`, jardPrintFilterCols(bodyHtml, __hid));
   const fitPx = await jardFitAllHallsFont(layoutHtml);
   document.getElementById('print-rank-output').innerHTML = layoutHtml;
   if(fitPx){ const tblEl = document.querySelector('#print-rank-output table.jard-all-tbl'); if(tblEl) tblEl.style.setProperty('--jf', fitPx + 'px'); }
@@ -10521,12 +10617,18 @@ async function syncTargetEditDownstream(plan, oldPlan){
         const oldT = oldPl ? (Number(oldPl.lineTarget) || 0) : null;
         const untouched = cur === 0 || (oldT !== null && cur === oldT);
         if(untouched && cur !== t){ l.targetProduction = t; ch = true; }
+        // مشرف الخط: نفس المبدأ — بيتحدّث لو فاضي في الجرد أو لسه زي القديم في الخطة
+        const newSup = String(pl.supervisor || '').trim();
+        const oldSup = oldPl ? String(oldPl.supervisor || '').trim() : null;
+        const curSup = String(l.supervisor || '').trim();
+        if(newSup && newSup !== curSup && (curSup === '' || (oldSup !== null && curSup === oldSup))){ l.supervisor = newSup; ch = true; }
       });
       if(ch) changed.push(sess);
     });
     if(changed.length){
       await saveJard();
-      notes.push('تارجت الإنتاج في ' + changed.length + ' جرد');
+      notes.push('الجرد (' + changed.length + ' جلسة)');
+      try{ if(document.getElementById('jf-from') && typeof applyJardFilter === 'function') applyJardFilter(); }catch(_){}
     }
   }catch(e){
     console.error('syncTargetEditDownstream', e);
