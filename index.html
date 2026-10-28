@@ -7068,9 +7068,9 @@ const T=v=>v instanceof Date?v.toISOString().slice(0,10):String(v??'').trim().sp
 const hdr=(rows[0]||[]).map(x=>String(x).trim());const full=hdr.includes('أول ظهور');const ix=n=>hdr.indexOf(n);const OFF=f.name.includes('تصفي');
 const mk=o=>{const a=[];if(o.hd)a.push({t:'hire',d:o.hd});if(o.rd)a.push({t:'return',d:o.rd});if(o.fd)a.push({t:'exit',d:o.fd});const w={hire:0,return:1,exit:2};return a.sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:w[x.t]-w[y.t])};
 let nw=0,rt=0,dp=0,up=0;const warn=[];
-for(const rr of rows){const code=String(rr[full?ix('الكود'):0]??'').trim();if(!/^\d+(?:\.0+)?$/.test(code))continue;const c=Number(code.replace(/\.0+$/,''));const old=OPERATORS.find(o=>o.c===c);
- if(full){const g=n=>rr[ix(n)];const hd=T(g('أول ظهور'))||null,fd=T(g('تاريخ التصفية'))||null;let rd=T(g('تاريخ العودة'))||null;if(rd&&rd===fd)rd=null;
-  const rec={c,n:String(g('الاسم')||'').trim(),dept:String(g('القسم')||'').trim(),job:String(g('الوظيفة')||'').trim(),khat:String(g('القسم/الخط')||'').trim(),hd,fd,rd,s:OFF?'متصفي':'نشط',a:!OFF};rec.mv=mk(rec);
+for(const rr of rows){const code=String(rr[full&&ix('الكود')>=0?ix('الكود'):0]??'').trim();if(!/^\d+(?:\.0+)?$/.test(code))continue;const c=Number(code.replace(/\.0+$/,''));const old=OPERATORS.find(o=>o.c===c);
+ if(full){const POS={'الكود':0,'الاسم':1,'القسم':2,'أول ظهور':3,'تاريخ التصفية':4,'تاريخ العودة':5,'الوظيفة':6,'القسم/الخط':7};const g=n=>{let i=ix(n);if(i<0)i=POS[n];return rr[i]};const hd=T(g('أول ظهور'))||null,fd=T(g('تاريخ التصفية'))||null;let rd=T(g('تاريخ العودة'))||null;if(rd&&rd===fd)rd=null;
+  const rec={c,n:String(g('الاسم')||old?.n||'').trim(),dept:String(g('القسم')||'').trim(),job:String(g('الوظيفة')||'').trim(),khat:String(g('القسم/الخط')||'').trim(),hd,fd,rd,s:OFF?'متصفي':'نشط',a:!OFF};rec.mv=mk(rec);
   if(old){Object.assign(old,rec);up++}else{OPERATORS.push(rec);nw++}continue}
  const r=rr.map(T);const D=r[3]||null;if(!D)continue;
  if(!old){OPERATORS.push({c,n:r[1]||'',dept:r[2]||'',job:'',khat:'',hd:D,fd:null,rd:null,s:'نشط',a:true,mv:[{t:'hire',d:D}]});nw++}
