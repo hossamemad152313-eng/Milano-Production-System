@@ -13219,6 +13219,7 @@ function printNightPower(){
   document.addEventListener('click', function(e){
     const handle = e.target.closest('.rownum');
     if(!handle) return;
+    if(handle.closest('table') && handle.closest('table').querySelector(GRID_CELL_SEL)) return; // الجدول له تحديد خاص بيه
     const r = handle.getBoundingClientRect();
     const cy = r.top + r.height/2;
     const tol = Math.max(r.height*0.65, 14);
@@ -13242,6 +13243,7 @@ function printNightPower(){
     if(!th) return;
     const table = th.closest('table');
     if(!table) return;
+    if(table.querySelector(GRID_CELL_SEL)) return; // الجدول له تحديد خاص بيه
     const r = th.getBoundingClientRect();
     const cx = r.left + r.width/2;
     const tol = Math.max(r.width*0.5, 20);
@@ -14044,5 +14046,99 @@ input[type="date"]::-webkit-datetime-edit-text{ direction:ltr; unicode-bidi:isol
 .bp-print .bp-block:last-of-type{ margin-bottom:8px; }
 .bp-print.bp-s2 .bp-pod-sub, .bp-print.bp-s3 .bp-pod-sub, .bp-print.bp-s4 .bp-pod-sub, .bp-print.bp-s5 .bp-pod-sub{ display:none; }
 </style>
+
+<script id="gridMouseExtras">
+/* تحسينات التحديد بالماوس لجداول التسجيل (إنتاج/إصلاح/هالك، التارجت، الجرد):
+   - الضغط على هامش الخانة (مش الحقل نفسه) بيبدأ التحديد برضو.
+   - السحب قرب حافة الشاشة فوق/تحت بيسكرول لوحده ويكمّل التحديد.
+   - الضغط على رقم الصف بيحدد الصف كله، والضغط على عنوان العمود بيحدد العمود كله. */
+(function(){
+  const GRIDS = [
+    { sel:'.entrygrid-cell',
+      rows:()=>entryGridRowCount(), cols:()=>ENTRY_GRID_COLS,
+      extend:c=>entryGridSetActive(+c.dataset.r,+c.dataset.c,true),
+      select:(c,r1,c1,r2,c2)=>{ entryGridSetActive(r1,c1,false); EntryGrid.selection={r1,c1,r2,c2}; entryGridHighlight(); } },
+    { sel:'.jgrid-cell',
+      rows:()=>JARD_FLAT_ROWS, cols:()=>JARD_GRID_COLS,
+      extend:c=>jardGridSetActive(+c.dataset.r,+c.dataset.c,true),
+      select:(c,r1,c1,r2,c2)=>{ jardGridSetActive(r1,c1,false); JardGrid.selection={r1,c1,r2,c2}; jardGridHighlight(); } },
+    { sel:'.tgrid-cell',
+      rows:()=>TARGET_ROWS, cols:()=>TARGET_GRID_COLS,
+      extend:c=>targetGridSetActive(+c.dataset.line,+c.dataset.r,+c.dataset.c,true),
+      select:(c,r1,c1,r2,c2)=>{ const L=+c.dataset.line; targetGridSetActive(L,r1,c1,false); TargetGrid.selection={lineId:L,r1,c1,r2,c2}; targetGridHighlight(L); } }
+  ];
+  const gridOf = el => { if(!el || !el.closest) return null; for(const g of GRIDS){ const c = el.closest(g.sel); if(c) return {g, cell:c}; } return null; };
+  const cellInTd = (td, g) => td && td.querySelector ? td.querySelector(g.sel) : null;
+  const gridForTable = tb => { if(!tb) return null; for(const g of GRIDS){ const c = tb.querySelector(g.sel); if(c) return {g, cell:c}; } return null; };
+
+  // 1) ضغطة على هامش الخانة
+  document.addEventListener('mousedown', function(e){
+    if(e.button !== 0) return;
+    const td = e.target && e.target.closest ? e.target.closest('td') : null;
+    if(!td || e.target.closest('input,select,textarea,button,a,label')) return;
+    for(const g of GRIDS){
+      const cell = cellInTd(td, g);
+      if(cell && cell.offsetParent){
+        e.preventDefault();
+        cell.dispatchEvent(new MouseEvent('mousedown', {bubbles:false, cancelable:true, button:0, clientX:e.clientX, clientY:e.clientY, shiftKey:e.shiftKey, ctrlKey:e.ctrlKey, metaKey:e.metaKey}));
+        try{ cell.focus(); }catch(_){}
+        return;
+      }
+    }
+  }, true);
+
+  // 2) سكرول تلقائي أثناء السحب
+  let drag = null, raf = 0;
+  document.addEventListener('mousedown', function(e){
+    if(e.button !== 0) return;
+    const hit = gridOf(e.target) || (e.target.closest && e.target.closest('td') && (()=>{ const td=e.target.closest('td'); for(const g of GRIDS){ const c=cellInTd(td,g); if(c) return {g,cell:c}; } return null; })());
+    drag = hit ? { g:hit.g, x:e.clientX, y:e.clientY } : null;
+  }, true);
+  document.addEventListener('mousemove', function(e){
+    if(!drag) return;
+    if(!(e.buttons & 1)){ drag = null; return; }
+    drag.x = e.clientX; drag.y = e.clientY;
+    if(!raf) raf = requestAnimationFrame(tick);
+  }, true);
+  document.addEventListener('mouseup', function(){ drag = null; }, true);
+  function tick(){
+    raf = 0;
+    if(!drag) return;
+    const EDGE = 70, vh = window.innerHeight;
+    let dy = 0;
+    if(drag.y < EDGE) dy = -Math.ceil((EDGE - Math.max(drag.y,0)) / 5);
+    else if(drag.y > vh - EDGE) dy = Math.ceil((Math.min(drag.y,vh) - (vh - EDGE)) / 5);
+    if(!dy) return;
+    window.scrollBy(0, dy);
+    const el = document.elementFromPoint(Math.max(1, Math.min(window.innerWidth-1, drag.x)), Math.max(1, Math.min(vh-1, drag.y)));
+    const hit = gridOf(el);
+    if(hit && hit.g === drag.g) hit.g.extend(hit.cell);
+    raf = requestAnimationFrame(tick);
+  }
+
+  // 3) رقم الصف = الصف كله، عنوان العمود = العمود كله
+  document.addEventListener('click', function(e){
+    const t = e.target;
+    if(!t || !t.closest || t.closest('input,select,textarea,button,a,label')) return;
+    const th = t.closest('th');
+    const td = th ? null : t.closest('td');
+    const table = (th || td) ? (th || td).closest('table') : null;
+    const hit = gridForTable(table);
+    if(!hit) return;
+    const g = hit.g;
+    if(th){
+      const c = th.cellIndex - 1;
+      if(c < 0 || c >= g.cols()) return;
+      g.select(hit.cell, 0, c, g.rows()-1, c);
+    } else if(td && td.cellIndex === 0){
+      const tr = td.closest('tr');
+      const first = tr && tr.querySelector(g.sel);
+      if(!first) return;
+      const r = +first.dataset.r;
+      g.select(first, r, 0, r, g.cols()-1);
+    }
+  }, true);
+})();
+</script>
 </body>
 </html>
