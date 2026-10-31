@@ -951,6 +951,18 @@ input[type="number"], input[type="text"], input[type="date"], select{
 #print-rank-output table.target-print-table td .hall-mgr{ font-size:11.5px; font-weight:600; margin-top:2px; }
 #print-rank-output table.target-print-table td.maint-td .maint-extra{ font-size:12px; font-weight:700; margin-top:2px; }
 </style>
+<style id="targetBigPrintStyle">
+/* طباعة تفاصيل التارجت: خط أكبر وأتقل */
+#print-rank-output.tgt-big-print table.target-print-table th{ font-size:13px !important; font-weight:900 !important; padding:4px 5px !important; }
+#print-rank-output.tgt-big-print table.target-print-table thead tr:first-child th{ font-size:15px !important; font-weight:900 !important; padding:5px 5px !important; }
+#print-rank-output.tgt-big-print table.target-print-table td{ font-size:14px !important; font-weight:900 !important; color:#000 !important; padding:4px 5px !important; }
+#print-rank-output.tgt-big-print table.target-print-table td b{ font-weight:900 !important; }
+#print-rank-output.tgt-big-print table.target-print-table tr.total-row td{ font-size:12.5px !important; font-weight:900 !important; }
+#print-rank-output.tgt-big-print.tgt-big-small table.target-print-table th{ font-size:11px !important; }
+#print-rank-output.tgt-big-print.tgt-big-small table.target-print-table thead tr:first-child th{ font-size:12.5px !important; }
+#print-rank-output.tgt-big-print.tgt-big-small table.target-print-table td{ font-size:12px !important; }
+#print-rank-output.tgt-big-print.tgt-big-small table.target-print-table tr.total-row td{ font-size:10.5px !important; }
+</style>
 <style id="exceptionalRowPrintStyle">
 /* صف "استثنائي" في طباعة أفضل أداء للتسليمات: تظليل دهبي + خط أسود عريض + إطار عشان يبقى متميز على الورق (حتى لو الطباعة أبيض وأسود) */
 @media print{
@@ -2500,9 +2512,10 @@ function mapManualToOperators(list){
    (تسجيل أيام قديمة كان شغال فيها فعلاً)، غير كده بيتمنع. */
 const TERM_CLEARED_STATUS_MAIN = 'تصفية ممسوحة';
 function isTerminatedOp(o){ return !!o && !o.manual && (o.a === false || o.s === TERM_CLEARED_STATUS_MAIN); }
-function termInfoFor(op, dateStr){
+function termInfoFor(op, dateStr, toStr){
   const isD = s => /^\d{4}-\d{2}-\d{2}/.test(String(s || ''));
   const ds = /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || '')) ? String(dateStr) : '';
+  const de = /^\d{4}-\d{2}-\d{2}$/.test(String(toStr || '')) ? String(toStr) : ds; // نهاية الفترة (لو تسجيل فترة)
   if(isTerminatedOp(op)){
     const fd = isD(op.fd) ? String(op.fd).slice(0,10) : '';
     const cleared = op.s === TERM_CLEARED_STATUS_MAIN;
@@ -2512,17 +2525,17 @@ function termInfoFor(op, dateStr){
   // عاملة رجعت (نشطة وليها تاريخ تصفية قديم + تاريخ عودة): التسجيل ممنوع في الفترة اللي بين التصفية والعودة بس
   if(op && !op.manual && isD(op.fd) && isD(op.rd) && ds){
     const fd = String(op.fd).slice(0,10), rd = String(op.rd).slice(0,10);
-    if(rd > fd && ds > fd && ds < rd) return { fd, rd, cleared:false, gap:true, blocked:true };
+    if(rd > fd && ds > fd && ds < rd && de < rd) return { fd, rd, cleared:false, gap:true, blocked:true };
   }
   return null;
 }
 function termLabel(ti){ return ti.gap ? ('مصفّى بتاريخ ' + ti.fd + ' (رجعت ' + ti.rd + ')') : (ti.fd ? ('مصفّى بتاريخ ' + ti.fd) : (ti.cleared ? 'مصفّى (اتمسح من أرشيف التصفيات)' : 'مصفّى')); }
 // بترجّع قايمة الأكواد المصفّية (اللي لازم تتمنع) من مجموعة أكواد لتاريخ تسجيل معيّن
-function termBlockedCodesFor(codes, dateStr){
+function termBlockedCodesFor(codes, dateStr, toStr){
   const out = [];
   [...new Set((codes || []).map(String))].forEach(c => {
     const op = OPERATORS.find(o => String(o.c) === c);
-    const ti = op && termInfoFor(op, dateStr);
+    const ti = op && termInfoFor(op, dateStr, toStr);
     if(ti && ti.blocked) out.push(c + ' (' + termLabel(ti) + ')');
   });
   return out;
@@ -4052,6 +4065,7 @@ function hrMergeSync(fresh){
   }
 })();
 function doLogout(){
+  try{ draftClearAll(); }catch(e){}
   logActivity('خروج');
   // نفضّي بوابة شئون الموظفين عشان صلاحيات المستخدم الجاي (المقيّدة أو الكاملة) تتحمّل من الأول
   try{
@@ -4178,7 +4192,7 @@ function switchGroup(groupKey){
   if(!group) return;
   switchTab(group.children[0]);
 }
-function switchTab(key){
+function __switchTabOrig(key){
   if(activeTab === 'targetexec' && key !== 'targetexec' && typeof execHasUnsaved !== 'undefined' && execHasUnsaved){
     if(!confirm('⚠️ عندك تعديلات في تنفيذ التارجت لسه ما اتحفظتش. عايز تسيب الشاشة من غير ما تحفظ؟')) return;
     execHasUnsaved = false;
@@ -4229,6 +4243,120 @@ function switchTab(key){
   if(key === 'printforms') renderPrintFormsTab();
   if(key === 'usage') renderUsageTab();
   if(key === 'activitylog') renderActivityLogTab();
+}
+
+
+/* ================= حافظ المسودات =================
+   لو بتكتب/بتعدّل في تاب تسجيل (إنتاج/إصلاح/هالك، جرد، تارجت، مشرفات، قوة صالة/سهر) ولسه ما حفظتش،
+   وروحت لأي تاب تاني (زي "اطبع ورق")، الفورم بتتحفظ بعناصرها زي ما هي. وترجع لما ترجع للتاب،
+   أو لما تدوس الأيقونة الصغيرة اللي بتظهر تحت. علامة ✕ بتمسح المسودة. */
+const DRAFT = { stash:{}, dirty:false, keepDirty:false, inited:false };
+const DRAFT_DEFS = {
+  entry: {
+    label: () => ENTRY_MODE === 'eslah' ? 'إصلاح' : ENTRY_MODE === 'halak' ? 'هالك' : 'تسجيل الإنتاج',
+    get: () => ({ pendingRowIds:[...pendingRowIds], rowIdCounter, lastBulkCount, ENTRY_MODE, ENTRY_COLS, ENTRY_GRID_COLS, PERIOD_EDIT_ID, EDITING_RECORD_GROUP }),
+    set: o => { pendingRowIds = o.pendingRowIds; rowIdCounter = o.rowIdCounter; lastBulkCount = o.lastBulkCount; ENTRY_MODE = o.ENTRY_MODE; ENTRY_COLS = o.ENTRY_COLS; ENTRY_GRID_COLS = o.ENTRY_GRID_COLS; PERIOD_EDIT_ID = o.PERIOD_EDIT_ID; EDITING_RECORD_GROUP = o.EDITING_RECORD_GROUP; }
+  },
+  jardreg: {
+    label: () => 'الجرد',
+    get: () => ({ jardLineCounter, pendingJardLineIds:[...pendingJardLineIds], editingJardSessionId }),
+    set: o => { jardLineCounter = o.jardLineCounter; pendingJardLineIds = o.pendingJardLineIds; editingJardSessionId = o.editingJardSessionId; }
+  },
+  targetreg: {
+    label: () => 'التارجت',
+    get: () => ({ targetLineCounter, pendingTargetLineIds:[...pendingTargetLineIds], editingTargetPlanId, targetFormDirty }),
+    set: o => { targetLineCounter = o.targetLineCounter; pendingTargetLineIds = o.pendingTargetLineIds; editingTargetPlanId = o.editingTargetPlanId; targetFormDirty = o.targetFormDirty; }
+  },
+  supervisorsreg: {
+    label: () => 'مشرفات المكن',
+    get: () => ({ SUP_EDIT_ID, SUP_ROW_IDS:[...SUP_ROW_IDS], SUP_ROW_COUNTER }),
+    set: o => { SUP_EDIT_ID = o.SUP_EDIT_ID; SUP_ROW_IDS = o.SUP_ROW_IDS; SUP_ROW_COUNTER = o.SUP_ROW_COUNTER; }
+  },
+  hallpowerreg: {
+    label: () => 'قوة صالة',
+    get: () => ({ editingHallPowerId }),
+    set: o => { editingHallPowerId = o.editingHallPowerId; }
+  },
+  nightpowerreg: {
+    label: () => 'قوة سهر',
+    get: () => ({ editingNightPowerId }),
+    set: o => { editingNightPowerId = o.editingNightPowerId; }
+  }
+};
+function draftInit(){
+  if(DRAFT.inited) return;
+  const main = document.getElementById('main-content');
+  if(!main) return;
+  DRAFT.inited = true;
+  const mark = e => {
+    const t = e.target;
+    if(!t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    if(e.type === 'keydown' && ['Tab','Shift','Control','Alt','Meta','Escape','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','CapsLock'].includes(e.key)) return;
+    DRAFT.dirty = true;
+  };
+  ['input','change','paste','keydown'].forEach(ev => main.addEventListener(ev, mark, true));
+  // أي إعادة رسم كاملة للتاب (بعد حفظ أو فتح تاب جديد) بتصفّر علامة "فيه تعديل" — إلا لو لسه راجعين من مسودة
+  new MutationObserver(() => { DRAFT.dirty = DRAFT.keepDirty; DRAFT.keepDirty = false; }).observe(main, { childList:true });
+  const st = document.createElement('style');
+  st.textContent = '#draft-dock{position:fixed;left:10px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:9000;display:none;flex-direction:column;gap:6px;align-items:flex-start;}'
+    + '.draft-chip{display:flex;align-items:stretch;background:#1e1e22;color:#fff;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.35);overflow:hidden;font-size:12px;font-weight:800;border:1.5px solid #e31e24;}'
+    + '.draft-go{background:none;border:0;color:#fff;padding:7px 10px 7px 8px;cursor:pointer;font:inherit;white-space:nowrap;}'
+    + '.draft-x{background:#e31e24;border:0;color:#fff;width:28px;cursor:pointer;font-weight:900;font-size:13px;}'
+    + '@media print{#draft-dock{display:none !important;}}';
+  document.head.appendChild(st);
+}
+function draftRenderDock(){
+  let dock = document.getElementById('draft-dock');
+  if(!dock){ dock = document.createElement('div'); dock.id = 'draft-dock'; document.body.appendChild(dock); }
+  const keys = Object.keys(DRAFT.stash);
+  dock.style.display = keys.length ? 'flex' : 'none';
+  dock.innerHTML = keys.map(k => `<div class="draft-chip"><button type="button" class="draft-go" title="ارجع للي كنت بتكتبه" onclick="draftResume('${k}')">↩️ ${DRAFT.stash[k].label}</button><button type="button" class="draft-x" title="امسح المسودة دي" onclick="draftDiscard('${k}')">✕</button></div>`).join('');
+}
+function draftStash(key){
+  const main = document.getElementById('main-content');
+  const def = DRAFT_DEFS[key];
+  if(!main || !def || !main.firstElementChild) return;
+  const frag = document.createDocumentFragment();
+  while(main.firstChild) frag.appendChild(main.firstChild);
+  DRAFT.stash[key] = { frag, globals: def.get(), scroll: window.scrollY || 0, label: def.label() };
+}
+function draftRestore(key){
+  const d = DRAFT.stash[key], def = DRAFT_DEFS[key];
+  const main = document.getElementById('main-content');
+  if(!d || !def || !main) return;
+  delete DRAFT.stash[key];
+  main.innerHTML = '';
+  main.appendChild(d.frag);
+  def.set(d.globals);
+  DRAFT.keepDirty = true;
+  try{ if(key === 'entry' && typeof entryGridClampActive === 'function') entryGridClampActive(); }catch(e){}
+  window.scrollTo(0, d.scroll || 0);
+}
+function draftResume(key){ switchTab(key); }
+async function draftDiscard(key){
+  if(!(await uiConfirm('تمسح التعديل اللي كنت بتكتبه (' + (DRAFT.stash[key] ? DRAFT.stash[key].label : '') + ') من غير ما تحفظه؟'))) return;
+  delete DRAFT.stash[key];
+  draftRenderDock();
+}
+function draftClearAll(){ DRAFT.stash = {}; DRAFT.dirty = false; DRAFT.keepDirty = false; draftRenderDock(); }
+// قبل ما نفتح تاب للتعديل (جرد/تارجت/سجل) وفيه مسودة محفوظة لنفس التاب: نسأل قبل ما نمسحها
+function draftGuardBeforeEdit(key){
+  if(DRAFT.stash[key]){
+    if(!confirm('⚠️ عندك تعديل في (' + DRAFT.stash[key].label + ') لسه ما اتحفظش. فتح الملف ده هيمسحه. تكمل؟')) return false;
+    delete DRAFT.stash[key];
+    draftRenderDock();
+  }
+  return true;
+}
+function switchTab(key){
+  draftInit();
+  const leaving = activeTab;
+  // لو بنسيب تاب تسجيل فيه كتابة لسه ما اتحفظتش: نخزّن الفورم بعناصرها
+  if(key !== leaving && DRAFT_DEFS[leaving] && DRAFT.dirty) draftStash(leaving);
+  __switchTabOrig(key);
+  // لو راجعين لتاب ليه مسودة: نرجّعها مكان الفورم الفاضية
+  if(DRAFT.stash[key] && activeTab === key) draftRestore(key);
+  draftRenderDock();
 }
 
 
@@ -6478,7 +6606,7 @@ function onCodeInput(id){
   }
   const found = OPERATORS.find(o => String(o.c) === String(code));
   if(found){
-    const ti = termInfoFor(found, (document.getElementById('entry-date') || document.getElementById('pp-from') || {}).value);
+    const ti = termInfoFor(found, (document.getElementById('entry-date') || document.getElementById('pp-from') || {}).value, (document.getElementById('pp-to') || {}).value);
     nameEl.value = (ti && ti.blocked) ? ('🚫 ' + termLabel(ti) + ' — ' + found.n) : found.n;
     nameEl.readOnly = true;
     nameEl.className = 'ename found' + (found.manual ? ' manual' : '') + (ti ? (ti.blocked ? ' term' : ' termwarn') : '');
@@ -6674,7 +6802,7 @@ async function saveSideRows(kind){
   const valid = pendingRowIds.map(id => ({ code: ((gv('code-'+id)||{}).value||'').trim(), val: ((gv(kind+'-'+id)||{}).value||'').trim() })).filter(r => r.code);
   if(!valid.length){ showToast('⚠️ لازم تكتب كود على الأقل لصف واحد'); return; }
   if(valid.some(r => r.val === '' || isNaN(Number(r.val)) || Number(r.val) < 0)){ showToast(`⚠️ اكتب قيمة ${label} لكل كود (اكتب 0 لو مفيش)`); return; }
-  const termBad = termBlockedCodesFor(valid.map(r => r.code), from);
+  const termBad = termBlockedCodesFor(valid.map(r => r.code), from, to);
   if(termBad.length){ termBlockedToast(termBad); return; }
   const unknown = [...new Set(valid.filter(r => !OPERATORS.some(o => String(o.c) === r.code)).map(r => r.code))];
   if(unknown.length){ showToast(`⚠️ الأكواد (${unknown.join('، ')}) مش معروفة. سجّلها في تاب الإنتاج الأول (باسمها) أو ضيفها في شئون الموظفين.`, true); return; }
@@ -6865,7 +6993,7 @@ async function saveSupervisors(){
   const codes = raw.map(r => r.c);
   const dup = codes.filter((c, i) => codes.indexOf(c) !== i);
   if(dup.length){ showToast(`⚠️ الكود (${[...new Set(dup)].join('، ')}) متكرر في الفترة دي`, true); return; }
-  const termBad = termBlockedCodesFor(codes, from);
+  const termBad = termBlockedCodesFor(codes, from, to);
   if(termBad.length){ termBlockedToast(termBad); return; }
   const id = ppId('sup', 'all', from, to);
   const existing = PERF_PERIODS.find(x => x.id === id);
@@ -7801,6 +7929,7 @@ function editRecordGroup(i){
   if(!rows.length){ showToast('⚠️ الملف ده مش موجود (يمكن اتمسح)'); return; }
   const gv = id => document.getElementById(id);
   const filter = { from: gv('rec-from')?.value, to: gv('rec-to')?.value, hall: gv('rec-hall')?.value, line: gv('rec-line')?.value };
+  if(!draftGuardBeforeEdit('entry')) return;
   ENTRY_FORCE_FULL = true;
   switchTab('entry');
   if(activeTab !== 'entry'){ ENTRY_FORCE_FULL = false; return; }
@@ -8575,7 +8704,7 @@ function renderJardRegTab(){
     </div>
 
     <div class="btn-row">
-    <div id="jard-missing-print-btns" style="display:${editingJardSessionId!==null ? 'contents':'none'};">
+    <div id="jard-missing-print-btns" style="display:contents;">
       <button data-tb="print" data-tb-label="🖨️ ناقص الهالك" class="apply-btn" style="background:#8a8a93;padding:6px 14px;font-size:12px;" onclick="printJardMissingHalak()">🖨️ اطبع ناقص الهالك</button>
       <button data-tb="print" data-tb-label="🖨️ ناقص الإصلاح" class="apply-btn" style="background:#8a8a93;padding:6px 14px;font-size:12px;" onclick="printJardMissingEslah()">🖨️ اطبع ناقص الإصلاح</button>
     </div>
@@ -9260,7 +9389,6 @@ function collectJardFlatRows(){
   return rows;
 }
 function printJardMissingField(fieldKey, fieldLabel, printTitle){
-  if(editingJardSessionId===null){ showToast('⚠️ افتح جرد للتعديل الأول عشان تطبع الأرتيكلات الناقصة'); return; }
   const hall = document.getElementById('jard-hall').value;
   const from = document.getElementById('jard-from').value;
   const to = document.getElementById('jard-to').value;
@@ -9357,6 +9485,7 @@ function renderJardSessionsTab(){
 function editJardSession(id){
   const s = JARD.find(x=>x.id===id);
   if(!s) return;
+  if(!draftGuardBeforeEdit('jardreg')) return;
   editingJardSessionId = null;
   if(activeTab !== 'jardreg') switchTab('jardreg');
   editingJardSessionId = id;
@@ -10886,6 +11015,7 @@ function renderTargetPlansTab(){
 function editTargetPlan(id){
   const p = TARGET_PLANS.find(x=>x.id===id);
   if(!p) return;
+  if(!draftGuardBeforeEdit('targetreg')) return;
   editingTargetPlanId = null;
   if(activeTab !== 'targetreg') switchTab('targetreg');
   editingTargetPlanId = id;
@@ -11134,14 +11264,18 @@ function printTargetDetails(opts){
   const from = opts ? opts.from : document.getElementById('tf-from').value;
   const to = opts ? opts.to : document.getElementById('tf-to').value;
   const hall = opts ? opts.hall : document.getElementById('tf-hall').value;
-  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
+  if(!(opts && opts.plans) && (!from || !to)){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
   const restrictedToOwnHall = currentUser.hall && !userSeesAllHalls();
   if(restrictedToOwnHall && hall !== currentUser.hall){
     showToast(`🔒 تفاصيل التارجت متاحة لصالتك (${currentUser.hall}) بس`);
     return;
   }
-  let plans = TARGET_PLANS.filter(p => p.from <= to && p.to >= from);
-  if(hall !== '__ALL__') plans = plans.filter(p=>p.hall===hall);
+  let plans;
+  if(opts && opts.plans){ plans = opts.plans; } // خطة جاهزة من الفورم (من غير حفظ)
+  else {
+    plans = TARGET_PLANS.filter(p => p.from <= to && p.to >= from);
+    if(hall !== '__ALL__') plans = plans.filter(p=>p.hall===hall);
+  }
   if(!plans.length){ showToast('⚠️ مفيش خطط تارجت في الفترة دي عشان تتطبع'); return; }
 
   const body = plans.map(p => {
@@ -11167,8 +11301,8 @@ function printTargetDetails(opts){
               ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td><b>${r.qty||'-'}</b></td><td>${r.h||0}</td><td>${r.m||0}</td></tr>`).join('') : '<tr><td colspan="4">مفيش</td></tr>'}
               <tr class="total-row"><td colspan="2">إجمالي الوقت</td><td colspan="2"><b>${totalH} ساعة و${totalM} دقيقة</b></td></tr>
               <tr class="total-row"><td colspan="2">إجمالي عدد التارجت المطلوب للخط</td><td colspan="2"><b>${fmtNum(l.lineTarget||0)}</b></td></tr>
-              ${floorTotal ? `<tr class="total-row"><td colspan="2">شغل الأرض (${fmtNum(floorTotal)})</td><td colspan="2" style="font-size:8px;font-weight:700;">${floorDetail}</td></tr>` : ''}
-              ${lineWorkTotal ? `<tr class="total-row"><td colspan="2">شغل الخط (${fmtNum(lineWorkTotal)})</td><td colspan="2" style="font-size:8px;font-weight:700;">${lineWorkDetail}</td></tr>` : ''}
+              ${floorTotal ? `<tr class="total-row"><td colspan="2">شغل الأرض (${fmtNum(floorTotal)})</td><td colspan="2" style="font-size:11px;font-weight:900;">${floorDetail}</td></tr>` : ''}
+              ${lineWorkTotal ? `<tr class="total-row"><td colspan="2">شغل الخط (${fmtNum(lineWorkTotal)})</td><td colspan="2" style="font-size:11px;font-weight:900;">${lineWorkDetail}</td></tr>` : ''}
             </tbody>
           </table>
         </div>`;
@@ -11202,24 +11336,43 @@ function printTargetDetails(opts){
     body
   );
   document.body.classList.add('print-rank-only');
-  document.getElementById('print-rank-output').classList.add('landscape-mode', 'hp-compact-print');
+  const __maxLines = Math.max(...plans.map(p => (p.lines||[]).length));
+  const __bigCls = __maxLines > 5 ? ['tgt-big-print','tgt-big-small'] : ['tgt-big-print'];
+  document.getElementById('print-rank-output').classList.add('landscape-mode', 'hp-compact-print', ...__bigCls);
   window.print();
   setTimeout(()=>{
     document.body.classList.remove('print-rank-only');
-    document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode', 'hp-compact-print', 'tgt-big-print', 'tgt-big-small');
   }, 800);
 }
 
 /* طباعة تفاصيل التارجت مباشرة من شاشة "تسجيل تارجت" — بنفس طباعة شاشة العرض بالظبط، على الصالة والفترة المختارين في الفورم */
-async function printTargetDetailsFromReg(){
-  const from = (document.getElementById('target-from')||{}).value;
-  const to = (document.getElementById('target-to')||{}).value;
-  const hall = (document.getElementById('target-hall')||{}).value;
-  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
-  if(typeof targetFormDirty !== 'undefined' && targetFormDirty){
-    if(!await uiConfirm('⚠️ عندك تعديل لسه ما اتحفظش في الفورم. الطباعة هتطلع آخر نسخة محفوظة بس. تكمل؟')) return;
-  }
-  printTargetDetails({from, to, hall});
+/* بتقرا فورم تسجيل التارجت زي ما هو دلوقتي (حتى لو لسه ما اتحفظش) وتبني منه خطة مؤقتة للطباعة بس */
+function readTargetFormPlanDraft(){
+  const gv = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const from = gv('target-from'), to = gv('target-to'), hall = gv('target-hall');
+  const lines = (pendingTargetLineIds || []).map(id => {
+    const rows = [];
+    for(let i=0;i<TARGET_ROWS;i++){
+      const article = gv('trow-'+id+'-article-'+i), qty = gv('trow-'+id+'-qty-'+i), h = gv('trow-'+id+'-h-'+i), m = gv('trow-'+id+'-m-'+i);
+      if(article || qty || h || m) rows.push({article, qty, h: Number(h)||0, m: Number(m)||0});
+    }
+    const work = (pre) => Array.from({length:TARGET_WORK_ROWS}).map((_,i) => ({ article: gv(pre+'-article-'+id+'-'+i), qty: gv(pre+'-qty-'+id+'-'+i) })).filter(r => r.article || r.qty);
+    return {
+      line: Number(gv('target-num-'+id)) || 0,
+      supervisor: gv('target-supervisor-'+id).trim(),
+      lineTarget: Number(gv('target-line-total-input-'+id)) || 0,
+      rows, floorWork: work('target-floor'), lineWork: work('target-line')
+    };
+  }).filter(l => l.line);
+  return { id:'draft', hall: hall || '—', from: from || '—', to: to || '—',
+    hallManager: gv('target-hall-manager').trim(), hallTargetDeliveries: gv('target-hall-deliveries').trim(), lines };
+}
+/* طباعة تفاصيل التارجت من فورم التسجيل مباشرة — من غير ما تحتاج تحفظ الأول */
+function printTargetDetailsFromReg(){
+  const plan = readTargetFormPlanDraft();
+  if(!plan.lines.length){ showToast('⚠️ اكتب رقم خط واحد على الأقل الأول'); return; }
+  printTargetDetails({ from: plan.from, to: plan.to, hall: plan.hall, plans: [plan] });
 }
 
 function renderAndPrintTargetSummary(){ renderTargetSummary(); printTargetSummary(); }
