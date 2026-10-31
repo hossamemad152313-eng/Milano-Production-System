@@ -3805,9 +3805,9 @@ function openHRPortal(mode){
   mode = (mode === 'delays' || mode === 'halfday') ? mode : 'full';
   hrOpenMode = mode;
   const hrView = document.getElementById('hr-view');
-  const iframe = document.getElementById('hr-iframe');
-  // لو البوابة كانت مفتوحة بوضع تاني (كاملة / تأخيرات بس) نعيد تحميلها عشان الصلاحيات تتطبق صح
-  if(iframe.dataset.hrLoaded && iframe.dataset.hrMode !== mode){ delete iframe.dataset.hrLoaded; iframe.removeAttribute('srcdoc'); }
+  // لو البوابة كانت مفتوحة بوضع تاني (كاملة / تأخيرات بس): لو فيها تعديل مش محفوظ بنخبّيها زي ما هي ونفتح إطار للوضع الجديد،
+  // وغير كده بنعيد تحميلها عشان الصلاحيات تتطبق صح
+  const iframe = hrActivateFrame(mode);
   const hrWasLoaded = !!iframe.dataset.hrLoaded;
   iframe.dataset.hrMode = mode;
   const ttl = hrView.querySelector('.hr-topbar-title'); if(ttl) ttl.textContent = mode === 'delays' ? '⏰ MILANO — التأخيرات' : (mode === 'halfday' ? '🌓 MILANO — نص يوم' : '👤 MILANO — شئون الموظفين');
@@ -3818,6 +3818,7 @@ function openHRPortal(mode){
     iframe.srcdoc = hrPortalHtml;
     iframe.dataset.hrLoaded = '1';
     iframe.addEventListener('load', pushHrPinToPortal, {once:true});
+    iframe.addEventListener('load', function(){ hrFrameWatch(iframe); }, {once:true});
     iframe.addEventListener('load', function(){ try{ installNoWheelNumber(iframe.contentDocument); }catch(e){} }, {once:true});
   }
   hrView.style.display = 'flex';
@@ -4254,7 +4255,9 @@ function __switchTabOrig(key){
 const DRAFT = { stash:{}, dirty:false, keepDirty:false, inited:false };
 const DRAFT_DEFS = {
   entry: {
-    label: () => ENTRY_MODE === 'eslah' ? 'إصلاح' : ENTRY_MODE === 'halak' ? 'هالك' : 'تسجيل الإنتاج',
+    variant: () => ENTRY_MODE,   // إنتاج / إصلاح / هالك / تعديل ملف: كل واحد له مسودة لوحده
+    beforeResume: g => { ENTRY_MODE = g.ENTRY_MODE; ENTRY_FORCE_FULL = (g.ENTRY_MODE === 'full'); },
+    label: () => ENTRY_MODE === 'eslah' ? 'إصلاح' : ENTRY_MODE === 'halak' ? 'هالك' : ENTRY_MODE === 'full' ? 'تعديل سجل' : 'تسجيل الإنتاج',
     get: () => ({ pendingRowIds:[...pendingRowIds], rowIdCounter, lastBulkCount, ENTRY_MODE, ENTRY_COLS, ENTRY_GRID_COLS, PERIOD_EDIT_ID, EDITING_RECORD_GROUP }),
     set: o => { pendingRowIds = o.pendingRowIds; rowIdCounter = o.rowIdCounter; lastBulkCount = o.lastBulkCount; ENTRY_MODE = o.ENTRY_MODE; ENTRY_COLS = o.ENTRY_COLS; ENTRY_GRID_COLS = o.ENTRY_GRID_COLS; PERIOD_EDIT_ID = o.PERIOD_EDIT_ID; EDITING_RECORD_GROUP = o.EDITING_RECORD_GROUP; }
   },
@@ -4282,6 +4285,19 @@ const DRAFT_DEFS = {
     label: () => 'قوة سهر',
     get: () => ({ editingNightPowerId }),
     set: o => { editingNightPowerId = o.editingNightPowerId; }
+  },
+  // تنفيذ التارجت: التعليمات اللي لسه ما اتحفظتش — بتتحفظ مع الشاشة بدل رسالة "عايز تسيب من غير حفظ؟"
+  targetexec: {
+    label: () => 'تنفيذ التارجت (لسه ما اتحفظش)',
+    isDirty: () => execHasUnsaved,
+    get: () => ({ execHasUnsaved, EXEC_DIRTY_IDS:[...EXEC_DIRTY_IDS] }),
+    afterStash: () => { execHasUnsaved = false; EXEC_DIRTY_IDS = new Set(); },
+    set: o => { execHasUnsaved = o.execHasUnsaved; EXEC_DIRTY_IDS = new Set(o.EXEC_DIRTY_IDS); }
+  },
+  users: {
+    label: () => 'المستخدمين',
+    get: () => ({}),
+    set: () => {}
   }
 };
 function draftInit(){
@@ -4306,23 +4322,113 @@ function draftInit(){
     + '@media print{#draft-dock{display:none !important;}}';
   document.head.appendChild(st);
 }
+/* مفتاح المسودة: اسم التاب (+ نوعه لو التاب ليه أنواع زي إنتاج/إصلاح/هالك) */
+function draftKey(tab){
+  const def = DRAFT_DEFS[tab];
+  return def && def.variant ? tab + ':' + def.variant() : tab;
+}
+function draftIsDirty(tab){
+  const def = DRAFT_DEFS[tab];
+  if(!def) return false;
+  return def.isDirty ? !!def.isDirty() : DRAFT.dirty;
+}
+
+/* ---- مسودات بوابة شئون الموظفين (iframe): كل وضع (كاملة / تأخيرات / نص يوم) ليه إطار لوحده بيفضل شغال مخفي ---- */
+const HR_MODE_LABEL = { full:'شئون الموظفين', delays:'التأخيرات', halfday:'نص يوم' };
+const HR_MODE_TAB = { full:'hrportal', delays:'delays', halfday:'halfday' };
+function hrFrameDirty(f){ return !!(f && f._hrDirty && f._hrDirty.size); }
+function hrAllFrames(){ return Array.from(document.querySelectorAll('#hr-view iframe')); }
+function hrFrameIsShown(f){
+  const hv = document.getElementById('hr-view');
+  return !!(hv && hv.style.display === 'flex' && f.id === 'hr-iframe' && f.style.display !== 'none');
+}
+function hrViewTitle(f, v){
+  try{ const b = f.contentDocument.querySelector('nav.tabs button[data-view="' + v + '"]'); if(b) return b.textContent.replace(/[◈✎▦📋⏱§⨯▣📊⏰🌓🎁]/g,'').trim(); }catch(e){}
+  return v;
+}
+// بتراقب أي كتابة جوه بوابة شئون الموظفين (من غير خانات البحث والفلاتر)، وبتفضّي العلامة لما تدوس زرار حفظ
+function hrFrameWatch(f){
+  let d; try{ d = f.contentDocument; }catch(e){ return; }
+  if(!d || f._hrWatched === d) return;
+  f._hrWatched = d;
+  f._hrDirty = new Map();
+  const curView = () => { try{ const b = d.querySelector('nav.tabs button.active'); return (b && b.dataset.view) || ''; }catch(e){ return ''; } };
+  const isFilter = t => {
+    const tp = String(t.type||'').toLowerCase();
+    if(tp === 'search' || tp === 'date' || tp === 'month' || tp === 'week' || tp === 'checkbox' || tp === 'radio' || tp === 'file') return true;
+    if(/search|filter|بحث|ابحث|فلتر/i.test((t.id||'') + ' ' + (t.name||'') + ' ' + (t.placeholder||'') + ' ' + (t.className||''))) return true;
+    if(t.closest('thead,.multiselect,.ms-panel,.pager,.filters,.toolbar')) return true;
+    return false;
+  };
+  const mark = e => {
+    const t = e.target;
+    if(!t || !t.matches || !t.matches('input,textarea,select,[contenteditable="true"]')) return;
+    if(isFilter(t)) return;
+    const v = curView();
+    if(!f._hrDirty.has(v)){ f._hrDirty.set(v, true); try{ draftRenderDock(); }catch(_){} }
+  };
+  ['input','change','paste'].forEach(ev => d.addEventListener(ev, mark, true));
+  d.addEventListener('click', e => {
+    const b = e.target && e.target.closest && e.target.closest('button');
+    if(!b || !/حفظ|احفظ|سجّل|سجل|اعتمد|ثبّت|تنفيذ/.test(b.textContent || '')) return;
+    const v = curView();
+    setTimeout(() => { try{ f._hrDirty.delete(v); draftRenderDock(); }catch(_){} }, 1500);
+  }, true);
+}
+// بترجّع الإطار المناسب للوضع المطلوب: لو الإطار الحالي فيه تعديل مش محفوظ بنخبّيه (مش بنعمله reload) ونفتح إطار تاني
+function hrActivateFrame(mode){
+  const hv = document.getElementById('hr-view');
+  const cur = document.getElementById('hr-iframe');
+  const stashed = document.getElementById('hr-iframe-' + mode);
+  const curLoaded = !!cur.dataset.hrLoaded;
+  if(curLoaded && cur.dataset.hrMode === mode) return cur;
+  const park = () => { cur.id = 'hr-iframe-' + cur.dataset.hrMode; cur.style.display = 'none'; };
+  if(!stashed){
+    if(!curLoaded) return cur;
+    if(!hrFrameDirty(cur)){ delete cur.dataset.hrLoaded; cur.removeAttribute('srcdoc'); cur._hrWatched = null; return cur; }
+    park();
+    const nf = document.createElement('iframe');
+    nf.id = 'hr-iframe'; nf.title = 'شئون الموظفين'; nf.setAttribute('allow', 'clipboard-read; clipboard-write'); nf.src = 'about:blank';
+    hv.appendChild(nf);
+    return nf;
+  }
+  if(curLoaded && hrFrameDirty(cur)) park(); else cur.remove();
+  stashed.id = 'hr-iframe'; stashed.style.display = '';
+  return stashed;
+}
+function hrFrameModes(){
+  return hrAllFrames().filter(f => f.dataset.hrLoaded && hrFrameDirty(f)).map(f => ({ f, mode: f.dataset.hrMode }));
+}
+
+function draftChips(){
+  const out = [];
+  Object.keys(DRAFT.stash).forEach(k => out.push({ k, label: DRAFT.stash[k].label, hr:false }));
+  hrFrameModes().forEach(({f, mode}) => {
+    if(hrFrameIsShown(f)) return;
+    const views = [...f._hrDirty.keys()].map(v => hrViewTitle(f, v)).filter(Boolean);
+    out.push({ k: 'hr:' + mode, label: (HR_MODE_LABEL[mode] || 'شئون الموظفين') + (views.length ? ' — ' + views.join('، ') : ''), hr:true });
+  });
+  return out;
+}
 function draftRenderDock(){
   let dock = document.getElementById('draft-dock');
   if(!dock){ dock = document.createElement('div'); dock.id = 'draft-dock'; document.body.appendChild(dock); }
-  const keys = Object.keys(DRAFT.stash);
-  dock.style.display = keys.length ? 'flex' : 'none';
-  dock.innerHTML = keys.map(k => `<div class="draft-chip"><button type="button" class="draft-go" title="ارجع للي كنت بتكتبه" onclick="draftResume('${k}')">↩️ ${DRAFT.stash[k].label}</button><button type="button" class="draft-x" title="امسح المسودة دي" onclick="draftDiscard('${k}')">✕</button></div>`).join('');
+  const chips = draftChips();
+  dock.style.display = (chips.length && currentUser) ? 'flex' : 'none';
+  dock.innerHTML = chips.map(c => `<div class="draft-chip"><button type="button" class="draft-go" title="ارجع للي كنت بتكتبه" onclick="draftResume('${c.k}')">↩️ ${c.label}</button><button type="button" class="draft-x" title="امسح المسودة دي" onclick="draftDiscard('${c.k}')">✕</button></div>`).join('');
 }
-function draftStash(key){
+function draftStash(tab){
   const main = document.getElementById('main-content');
-  const def = DRAFT_DEFS[key];
+  const def = DRAFT_DEFS[tab];
   if(!main || !def || !main.firstElementChild) return;
   const frag = document.createDocumentFragment();
   while(main.firstChild) frag.appendChild(main.firstChild);
-  DRAFT.stash[key] = { frag, globals: def.get(), scroll: window.scrollY || 0, label: def.label() };
+  const key = draftKey(tab);
+  DRAFT.stash[key] = { tab, frag, globals: def.get(), scroll: window.scrollY || 0, label: def.label() };
+  if(def.afterStash) def.afterStash();
 }
 function draftRestore(key){
-  const d = DRAFT.stash[key], def = DRAFT_DEFS[key];
+  const d = DRAFT.stash[key], def = d && DRAFT_DEFS[d.tab];
   const main = document.getElementById('main-content');
   if(!d || !def || !main) return;
   delete DRAFT.stash[key];
@@ -4330,18 +4436,40 @@ function draftRestore(key){
   main.appendChild(d.frag);
   def.set(d.globals);
   DRAFT.keepDirty = true;
-  try{ if(key === 'entry' && typeof entryGridClampActive === 'function') entryGridClampActive(); }catch(e){}
+  try{ if(d.tab === 'entry' && typeof entryGridClampActive === 'function') entryGridClampActive(); }catch(e){}
   window.scrollTo(0, d.scroll || 0);
 }
-function draftResume(key){ switchTab(key); }
-async function draftDiscard(key){
-  if(!(await uiConfirm('تمسح التعديل اللي كنت بتكتبه (' + (DRAFT.stash[key] ? DRAFT.stash[key].label : '') + ') من غير ما تحفظه؟'))) return;
-  delete DRAFT.stash[key];
+function draftResume(k){
+  if(k.indexOf('hr:') === 0){ switchTab(HR_MODE_TAB[k.slice(3)] || 'hrportal'); return; }
+  const d = DRAFT.stash[k];
+  if(!d) return;
+  // لو واقف دلوقتي على نفس التاب (نوع تاني) وفيه كتابة: نخزّنها الأول عشان ما تضيعش
+  if(activeTab === d.tab && draftIsDirty(activeTab)) draftStash(activeTab);
+  const def = DRAFT_DEFS[d.tab];
+  if(def && def.beforeResume) def.beforeResume(d.globals);
+  switchTab(d.tab);
+}
+async function draftDiscard(k){
+  const isHr = k.indexOf('hr:') === 0;
+  const label = isHr ? (HR_MODE_LABEL[k.slice(3)] || 'شئون الموظفين') : (DRAFT.stash[k] ? DRAFT.stash[k].label : '');
+  if(!(await uiConfirm('تمسح التعديل اللي كنت بتكتبه (' + label + ') من غير ما تحفظه؟'))) return;
+  if(isHr){
+    const mode = k.slice(3);
+    hrAllFrames().filter(f => f.dataset.hrMode === mode && f.dataset.hrLoaded).forEach(f => {
+      if(f.id === 'hr-iframe'){ delete f.dataset.hrLoaded; f.removeAttribute('srcdoc'); f.src = 'about:blank'; f._hrDirty = null; f._hrWatched = null; }
+      else f.remove();
+    });
+  } else delete DRAFT.stash[k];
   draftRenderDock();
 }
-function draftClearAll(){ DRAFT.stash = {}; DRAFT.dirty = false; DRAFT.keepDirty = false; draftRenderDock(); }
+function draftClearAll(){
+  DRAFT.stash = {}; DRAFT.dirty = false; DRAFT.keepDirty = false;
+  try{ hrAllFrames().forEach(f => { if(f.id !== 'hr-iframe') f.remove(); else { f._hrDirty = null; f._hrWatched = null; } }); }catch(e){}
+  draftRenderDock();
+}
 // قبل ما نفتح تاب للتعديل (جرد/تارجت/سجل) وفيه مسودة محفوظة لنفس التاب: نسأل قبل ما نمسحها
 function draftGuardBeforeEdit(key){
+  if(key === 'entry') key = 'entry:full'; // فتح سجل للتعديل بيتم في وضع "تعديل ملف"
   if(DRAFT.stash[key]){
     if(!confirm('⚠️ عندك تعديل في (' + DRAFT.stash[key].label + ') لسه ما اتحفظش. فتح الملف ده هيمسحه. تكمل؟')) return false;
     delete DRAFT.stash[key];
@@ -4353,10 +4481,10 @@ function switchTab(key){
   draftInit();
   const leaving = activeTab;
   // لو بنسيب تاب تسجيل فيه كتابة لسه ما اتحفظتش: نخزّن الفورم بعناصرها
-  if(key !== leaving && DRAFT_DEFS[leaving] && DRAFT.dirty) draftStash(leaving);
+  if(key !== leaving && DRAFT_DEFS[leaving] && draftIsDirty(leaving)) draftStash(leaving);
   __switchTabOrig(key);
-  // لو راجعين لتاب ليه مسودة: نرجّعها مكان الفورم الفاضية
-  if(DRAFT.stash[key] && activeTab === key) draftRestore(key);
+  // لو راجعين لتاب ليه مسودة (من نفس النوع): نرجّعها مكان الفورم الفاضية
+  if(activeTab === key && DRAFT_DEFS[key]){ const k2 = draftKey(key); if(DRAFT.stash[k2]) draftRestore(k2); }
   draftRenderDock();
 }
 
@@ -6796,11 +6924,14 @@ async function setEntryMode(m){
   if(m === ENTRY_MODE || !ENTRY_COLS_BY_MODE[m] || m === 'full') return;
   const gv = id => document.getElementById(id);
   const hasData = pendingRowIds.some(id => ['code','target','production','eslah','halak'].some(k => ((gv(k+'-'+id)||{}).value||'') !== ''));
-  if(hasData && !await uiConfirm('في بيانات لسه ما اتحفظتش في الجدول الحالي — لو غيّرت التاب هتتمسح. تكمل؟')) return;
+  // بدل ما البيانات تتمسح: بتتخزّن كمسودة (أيقونة ↩️ تحت) وترجع لما ترجع للتاب ده
+  if(hasData) draftStash('entry');
   const keep = { d: (gv('entry-date')||{}).value, h: (gv('entry-hall')||gv('pp-hall')||{}).value, l: (gv('entry-line')||{}).value };
   const wasSide = (ENTRY_MODE === 'eslah' || ENTRY_MODE === 'halak');
   ENTRY_MODE = m;
   renderEntryTab();
+  if(DRAFT.stash[draftKey('entry')]){ draftRestore(draftKey('entry')); draftRenderDock(); return; }
+  draftRenderDock();
   const nowSide = (m === 'eslah' || m === 'halak');
   if(keep.h){
     if(nowSide){ const ph = gv('pp-hall'); if(ph) ph.value = keep.h; }
