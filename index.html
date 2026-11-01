@@ -1245,6 +1245,19 @@ header.top .row1-left{ display:flex; align-items:center; }
   #print-rank-output.rank-compact-print .rank-perf-print table.target-print-table td:nth-child(5){ font-size:12px; }
   #print-rank-output.rank-compact-print .rank-perf-print table.target-print-table td:nth-child(3){ min-width:34mm; }
   /* ترتيب الأداء: اللوجو موجود في هيدر كل ورقة، فنشيل لوجو آخر المحتوى اللي كان بيطلّع ورقة تالتة فاضية */
+  /* ترتيب الأداء: كل الأعمدة جوه عرض الورقة (توزيع ثابت) و10 صفوف في الورقة الواحدة */
+  #print-rank-output .rank-perf-print table.rank-perf-tbl{ table-layout:fixed !important; width:100% !important; max-width:100% !important; min-width:0 !important; border-collapse:collapse; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl th{ font-size:10.5px !important; padding:5px 2px !important; white-space:normal !important; line-height:1.25 !important; text-align:center; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl thead tr:first-child th{ font-size:12px !important; padding:6px 4px !important; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl td{ font-size:11px !important; padding:5px 2px !important; line-height:1.3 !important; white-space:normal !important; word-break:break-word; overflow:visible !important; text-align:center; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl td:nth-child(3){ min-width:0 !important; font-size:10.5px !important; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl td:nth-child(5){ font-size:9.5px !important; line-height:1.25 !important; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl td:nth-child(7){ font-size:10px !important; }
+  #print-rank-output .rank-perf-print table.rank-perf-tbl tbody tr{ page-break-inside:avoid; break-inside:avoid; }
+  /* سدّ الفراغ الأبيض: الجدول بيتمدد على طول الورقة (الأولى والتانية) */
+  #print-rank-output .rank-print-page.rank-perf-print.rank-print-front{ height:206mm !important; min-height:0 !important; max-height:206mm; justify-content:flex-start !important; overflow:hidden; }
+  #print-rank-output .rank-perf-print .rank-perf-fill{ flex:1 1 auto; min-height:0; display:flex !important; flex-direction:column; justify-content:stretch !important; }
+  #print-rank-output .rank-perf-print .rank-perf-fill > table.rank-perf-tbl{ flex:1 1 auto; height:100% !important; }
   body.print-rank-only:has(.rank-perf-print) #milano-print-logo{ display:none !important; }
   /* لو الطباعة أكتر من ورقة فعلًا: اللوجو مرة واحدة في آخر المحتوى بدل ما يتكرر في كل ورقة */
   body.pf-logo-once #milano-print-logo{ position:static !important; margin:4mm 0 0 7mm !important; }
@@ -5522,19 +5535,52 @@ function periodShareFor(rows){
   });
   return out;
 }
+/* ===== التارجت المستحق (حسب وقت التشغيل الفعلي) =====
+   التارجت المستحق = (التارجت المحدد للماكينة ÷ 570) × (570 − دقائق الأعطال المعتمدة)
+   - التارجت المحدد هو نفس المسجل في كل صف (t) ومش بيتغير ولا بيتثبّت على رقم.
+   - بيتحسب لكل صف (ماكينة) لوحده، وبعدين بيتجمّع.
+   - لو الصف مفيهوش أعطال التارجت المستحق = التارجت الأصلي بالظبط (يعني البيانات القديمة نتيجتها زي ما هي).
+   - PERF_AATAL_UNIT_MIN: قيم الأعطال المسجلة بالدقايق (لو اتسجلت بالساعات خليها 60).
+   - PERF_APPROVED_AATAL_KEYS: أنواع الأعطال المعتمدة اللي بتتخصم (دلوقتي كلها). */
+const PERF_NORMAL_MINUTES = 570; // 9.5 ساعة
+const PERF_AATAL_UNIT_MIN = 1;
+const PERF_APPROVED_AATAL_KEYS = AATAL_KEYS.slice();
+function rowApprovedDowntimeMin(r){
+  let m = 0;
+  PERF_APPROVED_AATAL_KEYS.forEach(k => { m += Number(r && r.at && r.at[k]) || 0; });
+  m *= PERF_AATAL_UNIT_MIN;
+  return Math.min(PERF_NORMAL_MINUTES, Math.max(0, m));
+}
+function fmtDowntimeHM(min){
+  min = Math.round(Number(min) || 0);
+  if(min <= 0) return '-';
+  const h = Math.floor(min / 60), m = min % 60;
+  if(!h) return m + ' دقيقة';
+  if(!m) return h + ' ساعة';
+  return h + ' ساعة و ' + m + ' دقيقة';
+}
+function rowDueTarget(r){
+  const t = Number(r && r.t) || 0;
+  const d = rowApprovedDowntimeMin(r);
+  if(!d) return t;
+  return Math.round(t / PERF_NORMAL_MINUTES * (PERF_NORMAL_MINUTES - d));
+}
 function aggregate(rows){
-  const target = rows.reduce((s,r)=>s+r.t,0);
+  const target = rows.reduce((s,r)=>s+r.t,0); // التارجت الأصلي
+  const dueTarget = rows.reduce((s,r)=>s+rowDueTarget(r),0); // التارجت المستحق
+  const downtimeMin = rows.reduce((s,r)=>s+rowApprovedDowntimeMin(r),0); // دقائق الأعطال المعتمدة
   const production = rows.reduce((s,r)=>s+r.p,0);
   const __ps = periodShareFor(rows);
   const halak = rows.reduce((s,r)=>s+r.hk,0) + __ps.halak;
   const eslah = rows.reduce((s,r)=>s+r.es,0) + __ps.eslah;
   let aatal = 0; AATAL_KEYS.forEach(k => rows.forEach(r => aatal += (r.at && r.at[k]) || 0));
-  const deficit = target - production;
-  const pDeficit = target ? deficit/target : 0;
+  const deficit = dueTarget - production;
+  const pDeficit = dueTarget ? deficit/dueTarget : 0;
   const pHalak = production ? halak/production : 0;
   const pEslah = production ? eslah/production : 0;
+  const pAch = dueTarget ? production/dueTarget : 0; // نسبة تحقيق التارجت المستحق
   const pAada = 1 - (pDeficit + pHalak + pEslah);
-  return {target, production, halak, eslah, aatal, deficit, pDeficit, pHalak, pEslah, pAada};
+  return {target, dueTarget, downtimeMin, production, halak, eslah, aatal, deficit, pDeficit, pHalak, pEslah, pAch, pAada};
 }
 function groupByWorker(rows){
   const map = new Map();
@@ -5594,8 +5640,10 @@ async function applyFilters(){
       <div class="rank-item" style="display:block;">
         <div style="display:flex;justify-content:space-between;"><span><b>${w.code}</b> — ${w.name||'بدون اسم'}</span><b class="num">${fmtPct(w.agg.pAada)}</b></div>
         <div style="font-size:9.5px;color:var(--muted);margin-bottom:4px;">خبرة: ${experienceFull(w.code, toDate)} · ${days.length} يوم عمل</div>
-        <div class="jr-metrics" style="grid-template-columns:repeat(4,1fr);margin-bottom:5px;">
+        <div class="jr-metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:5px;">
           <div class="wm"><div class="l">تارجت</div><div class="v">${fmtNum(w.agg.target)}</div></div>
+          <div class="wm"><div class="l">الأعطال</div><div class="v">${fmtDowntimeHM(w.agg.downtimeMin)}</div></div>
+          <div class="wm"><div class="l">تارجت معدل</div><div class="v">${fmtNum(w.agg.dueTarget)}</div></div>
           <div class="wm"><div class="l">إنتاج</div><div class="v">${fmtNum(w.agg.production)}</div></div>
           <div class="wm"><div class="l">هالك</div><div class="v">${fmtNum(w.agg.halak)}</div></div>
           <div class="wm"><div class="l">إصلاح</div><div class="v">${fmtNum(w.agg.eslah)}</div></div>
@@ -5626,8 +5674,10 @@ async function applyFilters(){
 
   document.getElementById('report-results').innerHTML = `
     <div class="summary-grid">
-      <div class="kpi"><div class="lbl">إجمالي التارجت</div><div class="val num">${fmtNum(agg.target)}</div></div>
-      <div class="kpi"><div class="lbl">إجمالي الإنتاج</div><div class="val num">${fmtNum(agg.production)}</div></div>
+      <div class="kpi"><div class="lbl">التارجت الأصلي</div><div class="val num">${fmtNum(agg.target)}</div></div>
+      <div class="kpi"><div class="lbl">التارجت المستحق</div><div class="val num">${fmtNum(agg.dueTarget)}</div><div class="sub">بعد خصم ${fmtNum(agg.downtimeMin)} دقيقة أعطال</div></div>
+      <div class="kpi"><div class="lbl">الإنتاج الفعلي</div><div class="val num">${fmtNum(agg.production)}</div></div>
+      <div class="kpi ${agg.pAch>=0.95?'good':(agg.pAch>=0.8?'amber':'bad')}"><div class="lbl">نسبة تحقيق التارجت</div><div class="val num">${fmtPct(agg.pAch)}</div><div class="sub">الإنتاج ÷ التارجت المستحق</div></div>
       <div class="kpi ${agg.deficit>0?'bad':'good'}"><div class="lbl">العجز</div><div class="val num">${fmtNum(agg.deficit)}</div><div class="sub">${fmtPct(agg.pDeficit)}</div></div>
       <div class="kpi amber"><div class="lbl">عدد العاملات</div><div class="val num">${workers.length}</div></div>
       <div class="kpi bad"><div class="lbl">الهالك</div><div class="val num">${fmtNum(agg.halak)}</div><div class="sub">${fmtPct(agg.pHalak)}</div></div>
@@ -5635,12 +5685,12 @@ async function applyFilters(){
     </div>
 
     <div class="perf-bar-wrap">
-      <div class="lbl">نسبة الأداء النهائية (بدون احتساب الأعطال)</div>
+      <div class="lbl">نسبة الأداء النهائية (على التارجت المستحق بعد خصم الأعطال)</div>
       <div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100, agg.pAada*100))}%"></div></div>
       <div class="track-labels"><span>${fmtPct(agg.pAada)}</span></div>
     </div>
 
-    <div class="section-title">تفصيل الأعطال (إجمالي ${fmtNum(agg.aatal)} — مش بتتخصم من الأداء)</div>
+    <div class="section-title">تفصيل الأعطال (إجمالي ${fmtNum(agg.aatal)} دقيقة — بتتخصم من وقت التشغيل: التارجت المستحق = التارجت ÷ ${PERF_NORMAL_MINUTES} × (${PERF_NORMAL_MINUTES} − دقائق الأعطال))</div>
     <div class="aatal-strip">
       ${AATAL_KEYS.filter(k=>aatalBreakdown[k]>0).map(k => `<div class="aatal-chip">${k} · ${AATAL_LABELS[k]}: ${fmtNum(aatalBreakdown[k])}</div>`).join('') || '<div class="aatal-chip">مفيش أعطال مسجلة</div>'}
     </div>
@@ -5671,26 +5721,29 @@ function printRankOnly(){
         <td>${[...w.lines].filter(l=>l!==undefined && l!==null && l!=='').sort((a,b)=>a-b).join('، ') || '-'}</td>
         <td>${experienceFull(w.code, toDate, true)}</td>
         <td>${fmtNum(w.agg.target)}</td>
+        <td>${fmtDowntimeHM(w.agg.downtimeMin)}</td>
+        <td>${fmtNum(w.agg.dueTarget)}</td>
         <td>${fmtNum(w.agg.production)}</td>
         <td>${fmtNum(w.agg.halak)}</td>
         <td>${fmtNum(w.agg.eslah)}</td>
         <td><b>${fmtPct(w.agg.pAada)}</b></td>
       </tr>`).join('');
     return `
-      <table class="target-print-table">
+      <table class="target-print-table rank-perf-tbl">
+        <colgroup><col style="width:4%"><col style="width:8%"><col style="width:17%"><col style="width:6%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:5%"><col style="width:6%"><col style="width:7%"></colgroup>
         <thead>
-          <tr><th colspan="10">${titleText}</th></tr>
-          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+          <tr><th colspan="12">${titleText}</th></tr>
+          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>الأعطال</th><th>تارجت معدل</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
         </thead>
         <tbody>
-          ${rowsHtml || '<tr><td colspan="10">مفيش</td></tr>'}
+          ${rowsHtml || '<tr><td colspan="12">مفيش</td></tr>'}
         </tbody>
       </table>`;
   };
 
   const body = `
     <div class="rank-print-page rank-print-front rank-perf-print">
-      ${rankTableHtml(top10, `✅ أعلى ${top10.length} — نسبة الأداء`)}
+      <div class="rank-perf-fill">${rankTableHtml(top10, `✅ أعلى ${top10.length} — نسبة الأداء`)}</div>
     </div>
     <div class="rank-print-page rank-print-back rank-perf-print">
       ${buildPrintHeader('ترتيب الأداء — MILANO SPORT SHOES', `الصالة: ${hall==='__ALL__'?'كل الصالات':hall} · الفترة: من ${from} إلى ${to}`)}
@@ -5722,12 +5775,14 @@ function printPerformanceSummary(){
   const bodyHtml = `
     <table class="target-print-table" style="margin:0 0 14px;">
       <thead>
-        <tr><th>التارجت</th><th>الإنتاج</th><th>العجز</th><th>الهالك</th><th>الإصلاح</th><th>عدد العاملات</th></tr>
+        <tr><th>التارجت الأصلي</th><th>التارجت المستحق</th><th>الإنتاج الفعلي</th><th>نسبة التحقيق</th><th>العجز</th><th>الهالك</th><th>الإصلاح</th><th>عدد العاملات</th></tr>
       </thead>
       <tbody>
         <tr>
           <td><b>${fmtNum(agg.target)}</b></td>
+          <td><b>${fmtNum(agg.dueTarget)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">خصم ${fmtNum(agg.downtimeMin)} د</span></td>
           <td><b>${fmtNum(agg.production)}</b></td>
+          <td><b>${fmtPct(agg.pAch)}</b></td>
           <td><b>${fmtNum(agg.deficit)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pDeficit)}</span></td>
           <td><b>${fmtNum(agg.halak)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pHalak)}</span></td>
           <td><b>${fmtNum(agg.eslah)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pEslah)}</span></td>
@@ -5739,7 +5794,7 @@ function printPerformanceSummary(){
     <table class="target-print-table" style="margin:0 0 14px;">
       <tbody>
         <tr class="total-row">
-          <td style="font-size:13px;">نسبة الأداء النهائية (بدون احتساب الأعطال)</td>
+          <td style="font-size:13px;">نسبة الأداء النهائية (على التارجت المستحق بعد خصم الأعطال)</td>
           <td style="font-size:24px;"><b>${fmtPct(agg.pAada)}</b></td>
         </tr>
       </tbody>
@@ -5747,7 +5802,7 @@ function printPerformanceSummary(){
 
     <table class="target-print-table" style="margin:0 0 14px;">
       <thead>
-        <tr><th colspan="${AATAL_KEYS.length+1}">تفصيل الأعطال — إجمالي ${fmtNum(agg.aatal)} (مش بتتخصم من الأداء)</th></tr>
+        <tr><th colspan="${AATAL_KEYS.length+1}">تفصيل الأعطال — إجمالي ${fmtNum(agg.aatal)} دقيقة (بتتخصم من التارجت المستحق)</th></tr>
         <tr>${AATAL_KEYS.map(k=>`<th>${AATAL_LABELS[k]}</th>`).join('')}<th>الإجمالي</th></tr>
       </thead>
       <tbody>
@@ -5758,7 +5813,7 @@ function printPerformanceSummary(){
     <div class="section-title" style="margin:14px 2px 8px;">العاملات — ${workers.length} (كود مرة واحدة)</div>
     <table class="target-print-table">
       <thead>
-        <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+        <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>الأعطال</th><th>تارجت مستحق</th><th>إنتاج</th><th>نسبة التحقيق</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
       </thead>
       <tbody>
         ${workers.map((w,idx) => `
@@ -5769,7 +5824,10 @@ function printPerformanceSummary(){
             <td>${[...w.lines].filter(l=>l!==undefined && l!==null && l!=='').sort((a,b)=>a-b).join('، ') || '-'}</td>
             <td>${experienceFull(w.code, to)}</td>
             <td>${fmtNum(w.agg.target)}</td>
+            <td>${fmtDowntimeHM(w.agg.downtimeMin)}</td>
+            <td>${fmtNum(w.agg.dueTarget)}</td>
             <td>${fmtNum(w.agg.production)}</td>
+            <td>${fmtPct(w.agg.pAch)}</td>
             <td>${fmtNum(w.agg.halak)}</td>
             <td>${fmtNum(w.agg.eslah)}</td>
             <td><b>${fmtPct(w.agg.pAada)}</b></td>
@@ -5794,8 +5852,10 @@ function workerCardHtml(w){
         <div class="worker-pct ${cls}">${fmtPct(w.agg.pAada)}</div>
       </div>
       <div class="worker-metrics">
-        <div class="wm"><div class="l">تارجت</div><div class="v num">${fmtNum(w.agg.target)}</div></div>
-        <div class="wm"><div class="l">إنتاج</div><div class="v num">${fmtNum(w.agg.production)}</div></div>
+        <div class="wm"><div class="l">تارجت أصلي</div><div class="v num">${fmtNum(w.agg.target)}</div></div>
+        <div class="wm"><div class="l">تارجت مستحق</div><div class="v num">${fmtNum(w.agg.dueTarget)}</div></div>
+        <div class="wm"><div class="l">إنتاج فعلي</div><div class="v num">${fmtNum(w.agg.production)}</div></div>
+        <div class="wm"><div class="l">نسبة التحقيق</div><div class="v num">${fmtPct(w.agg.pAch)}</div></div>
         <div class="wm"><div class="l">عجز</div><div class="v num">${fmtNum(w.agg.deficit)}</div><div class="p">${fmtPct(w.agg.pDeficit)}</div></div>
         <div class="wm"><div class="l">هالك</div><div class="v num">${fmtNum(w.agg.halak)}</div><div class="p">${fmtPct(w.agg.pHalak)}</div></div>
         <div class="wm"><div class="l">إصلاح</div><div class="v num">${fmtNum(w.agg.eslah)}</div><div class="p">${fmtPct(w.agg.pEslah)}</div></div>
@@ -5826,7 +5886,10 @@ function exportExcel(){
     'الاسم': w.name,
     'الخطوط': [...w.lines].sort((a,b)=>a-b).join(', '),
     'التارجت': Math.round(w.agg.target),
+    'دقائق الأعطال المعتمدة': Math.round(w.agg.downtimeMin),
+    'التارجت المستحق': Math.round(w.agg.dueTarget),
     'الإنتاج': Math.round(w.agg.production),
+    'نسبة التحقيق': fmtPct(w.agg.pAch),
     'العجز': Math.round(w.agg.deficit),
     'نسبة العجز': fmtPct(w.agg.pDeficit),
     'الهالك': Math.round(w.agg.halak),
@@ -5841,7 +5904,8 @@ function exportExcel(){
   sheetRows.push({});
   sheetRows.push({
     'الكود':'', 'الاسم':'الإجمالي', 'الخطوط':'',
-    'التارجت': Math.round(totalAgg.target), 'الإنتاج': Math.round(totalAgg.production),
+    'التارجت': Math.round(totalAgg.target), 'دقائق الأعطال المعتمدة': Math.round(totalAgg.downtimeMin),
+    'التارجت المستحق': Math.round(totalAgg.dueTarget), 'الإنتاج': Math.round(totalAgg.production), 'نسبة التحقيق': fmtPct(totalAgg.pAch),
     'العجز': Math.round(totalAgg.deficit), 'نسبة العجز': fmtPct(totalAgg.pDeficit),
     'الهالك': Math.round(totalAgg.halak), 'نسبة الهالك': fmtPct(totalAgg.pHalak),
     'الإصلاح': Math.round(totalAgg.eslah), 'نسبة الإصلاح': fmtPct(totalAgg.pEslah),
@@ -8325,7 +8389,7 @@ function openRecordEditor(id){
           <div class="field"><label>إصلاح</label><input type="number" id="re-es" value="${Number(e.es)||0}"></div>
         </div>
         <details ${anyAatal?'open':''} style="margin:4px 0 8px;">
-          <summary style="color:#bdbdc4;font-size:12px;cursor:pointer;margin-bottom:8px;">الأعطال (مش بتتخصم من الأداء)</summary>
+          <summary style="color:#bdbdc4;font-size:12px;cursor:pointer;margin-bottom:8px;">الأعطال بالدقايق (بتتخصم من التارجت المستحق)</summary>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${aatalHtml}</div>
         </details>
         <button id="re-save" class="apply-btn" onclick="commitRecordEditor()">💾 احفظ التعديل</button>
