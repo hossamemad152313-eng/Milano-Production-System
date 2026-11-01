@@ -5452,7 +5452,8 @@ function renderReportTab(){
       ${(currentUser.role==='admin' || currentUser.role==='entry') ? `<div class="grid2 full">
         ${currentUser.role==='admin' ? `<button class="apply-btn" style="margin-top:0;background:#2E6B48;" onclick="exportExcel()">📥 صدّر Excel</button>` : ''}
         <button class="apply-btn" style="margin-top:0;background:#3a3a40;" onclick="printPerformanceSummary()">🖨️ اطبع</button>
-      </div>` : ''}
+      </div>
+      ${perfEslahToggleHtml()}` : ''}
       <div class="ws-inline" title="دور على عاملة بالكود (شوف اشتغلت كام يوم وأيامها بالظبط)">
         <div class="ws-field"><label>🔍 دور بالكود</label><input type="number" id="worker-search-code" placeholder="كود العاملة" onkeydown="if(event.key==='Enter'){event.preventDefault();searchWorkerByCode();}"></div>
         <button class="apply-btn ws-btn" type="button" onclick="searchWorkerByCode()">دور</button>
@@ -5667,6 +5668,7 @@ async function applyFilters(){
         <div class="rank-col top"><h4>✅ أفضل ${top10.length}</h4>${top10.map(rankItemHtml).join('') || '<div class="rank-item">مفيش</div>'}</div>
         <div class="rank-col bottom"><h4>⚠️ أقل ${bottom10.length}</h4>${bottom10.map(rankItemHtml).join('') || '<div class="rank-item">مفيش</div>'}</div>
       </div>
+      ${perfEslahToggleHtml()}
       <button class="apply-btn" style="background:#3a3a40;" onclick="printRankOnly()">🖨️ اطبع الترتيب بس</button>
     `;
     window.__rankTop10 = top10; window.__rankBottom10 = bottom10; window.__rankToDate = toDate;
@@ -5703,6 +5705,9 @@ async function applyFilters(){
   `;
   window.__currentWorkers = workers;
 }
+function perfShowEslah(){ try{ return localStorage.getItem('perfPrintShowEslah') !== '0'; }catch(e){ return true; } }
+function perfSetShowEslah(v){ try{ localStorage.setItem('perfPrintShowEslah', v ? '1' : '0'); }catch(e){} document.querySelectorAll('.perf-eslah-chk').forEach(c => { c.checked = !!v; }); }
+function perfEslahToggleHtml(){ return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:6px 0;cursor:pointer;"><input type="checkbox" class="perf-eslah-chk" ${perfShowEslah()?'checked':''} onchange="perfSetShowEslah(this.checked)"> إظهار عمود الإصلاح في الطباعة</label>`; }
 function printRankOnly(){
   const top10 = window.__rankTop10 || [];
   const bottom10 = window.__rankBottom10 || [];
@@ -5712,6 +5717,8 @@ function printRankOnly(){
   const hall = document.getElementById('f-hall').value;
 
   // جدول واحد مدمج لكل قايمة (زي شكل جداول الجرد) — بدل الرسم البياني + الجدول المنفصلين
+  const showEsl = perfShowEslah();
+  const colN = showEsl ? 12 : 11;
   const rankTableHtml = (list, titleText) => {
     const rowsHtml = list.map((w, idx) => `
       <tr>
@@ -5725,18 +5732,18 @@ function printRankOnly(){
         <td>${fmtNum(w.agg.dueTarget)}</td>
         <td>${fmtNum(w.agg.production)}</td>
         <td>${fmtNum(w.agg.halak)}</td>
-        <td>${fmtNum(w.agg.eslah)}</td>
+        ${showEsl ? `<td>${fmtNum(w.agg.eslah)}</td>` : ''}
         <td><b>${fmtPct(w.agg.pAada)}</b></td>
       </tr>`).join('');
     return `
       <table class="target-print-table rank-perf-tbl">
-        <colgroup><col style="width:4%"><col style="width:8%"><col style="width:17%"><col style="width:6%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:5%"><col style="width:6%"><col style="width:7%"></colgroup>
+        <colgroup><col style="width:4%"><col style="width:8%"><col style="width:17%"><col style="width:6%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:5%">${showEsl ? '<col style="width:6%">' : ''}<col style="width:7%"></colgroup>
         <thead>
-          <tr><th colspan="12">${titleText}</th></tr>
-          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>الأعطال</th><th>تارجت معدل</th><th>إنتاج</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+          <tr><th colspan="${colN}">${titleText}</th></tr>
+          <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>الأعطال</th><th>تارجت معدل</th><th>إنتاج</th><th>هالك</th>${showEsl ? '<th>إصلاح</th>' : ''}<th>نسبة الأداء</th></tr>
         </thead>
         <tbody>
-          ${rowsHtml || '<tr><td colspan="12">مفيش</td></tr>'}
+          ${rowsHtml || `<tr><td colspan="${colN}">مفيش</td></tr>`}
         </tbody>
       </table>`;
   };
@@ -5772,10 +5779,11 @@ function printPerformanceSummary(){
   const aatalBreakdown = {}; AATAL_KEYS.forEach(k=>aatalBreakdown[k]=0);
   rows.forEach(r => AATAL_KEYS.forEach(k => aatalBreakdown[k] += (r.at && r.at[k]) || 0));
 
+  const showEsl = perfShowEslah();
   const bodyHtml = `
     <table class="target-print-table" style="margin:0 0 14px;">
       <thead>
-        <tr><th>التارجت الأصلي</th><th>التارجت المستحق</th><th>الإنتاج الفعلي</th><th>نسبة التحقيق</th><th>العجز</th><th>الهالك</th><th>الإصلاح</th><th>عدد العاملات</th></tr>
+        <tr><th>التارجت الأصلي</th><th>التارجت المستحق</th><th>الإنتاج الفعلي</th><th>نسبة التحقيق</th><th>العجز</th><th>الهالك</th>${showEsl ? '<th>الإصلاح</th>' : ''}<th>عدد العاملات</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -5785,7 +5793,7 @@ function printPerformanceSummary(){
           <td><b>${fmtPct(agg.pAch)}</b></td>
           <td><b>${fmtNum(agg.deficit)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pDeficit)}</span></td>
           <td><b>${fmtNum(agg.halak)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pHalak)}</span></td>
-          <td><b>${fmtNum(agg.eslah)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pEslah)}</span></td>
+          ${showEsl ? `<td><b>${fmtNum(agg.eslah)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pEslah)}</span></td>` : ''}
           <td><b>${workers.length}</b></td>
         </tr>
       </tbody>
@@ -5813,7 +5821,7 @@ function printPerformanceSummary(){
     <div class="section-title" style="margin:14px 2px 8px;">العاملات — ${workers.length} (كود مرة واحدة)</div>
     <table class="target-print-table">
       <thead>
-        <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>الأعطال</th><th>تارجت مستحق</th><th>إنتاج</th><th>نسبة التحقيق</th><th>هالك</th><th>إصلاح</th><th>نسبة الأداء</th></tr>
+        <tr><th>م</th><th>الكود</th><th>الاسم</th><th>رقم الخط</th><th>الخبرة</th><th>تارجت</th><th>الأعطال</th><th>تارجت مستحق</th><th>إنتاج</th><th>نسبة التحقيق</th><th>هالك</th>${showEsl ? '<th>إصلاح</th>' : ''}<th>نسبة الأداء</th></tr>
       </thead>
       <tbody>
         ${workers.map((w,idx) => `
@@ -5829,7 +5837,7 @@ function printPerformanceSummary(){
             <td>${fmtNum(w.agg.production)}</td>
             <td>${fmtPct(w.agg.pAch)}</td>
             <td>${fmtNum(w.agg.halak)}</td>
-            <td>${fmtNum(w.agg.eslah)}</td>
+            ${showEsl ? `<td>${fmtNum(w.agg.eslah)}</td>` : ''}
             <td><b>${fmtPct(w.agg.pAada)}</b></td>
           </tr>`).join('')}
       </tbody>
