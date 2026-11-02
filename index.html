@@ -480,7 +480,7 @@
   .twork-grid input.tdup-flag{ background:#ffe6e6; box-shadow:inset 0 0 0 2px var(--amber); font-weight:800; }
   /* ---------- جدول تنفيذ التارجت (خط أوضح وأكبر، مع مسافات معقولة من غير ما نحتاج سحب/swipe) ---------- */
   .ttab-exec-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; }
-  .ttab-exec{ border-collapse:collapse; width:100%; min-width:840px; table-layout:fixed; }
+  .ttab-exec{ border-collapse:collapse; width:100%; min-width:980px; table-layout:fixed; }
   .ttab-exec th{ background:var(--amber-dark); color:#fff; font-size:11.5px; font-weight:800; padding:8px 5px; text-align:center; white-space:normal; line-height:1.3; word-break:break-word; }
   .ttab-exec td{ padding:8px 5px; border-bottom:1px solid var(--line); text-align:center; font-size:12px; font-weight:700; white-space:normal; word-break:break-word; }
   .ttab-exec td:first-child{ text-align:center; font-size:12px; font-weight:700; color:var(--muted); white-space:normal; word-break:break-word; }
@@ -683,6 +683,21 @@
   .files-grid .section-title{ grid-column:1/-1; margin:12px 2px 4px; }
   .files-grid .section-title:first-child{ margin-top:0; }
   .files-grid .empty-state{ grid-column:1/-1; }
+  /* جلسات الجرد: كارت لكل صالة (لحد 6 كروت جنب بعض) وجواه ملفات صغيرة مضغوطة بدل الفولدرات الكبيرة */
+  .jgrid{ display:grid !important; grid-template-columns:repeat(auto-fill,minmax(max(220px,calc(100%/6 - 10px)),1fr)) !important; gap:10px !important; align-items:start; }
+  .jgrid > .section-title, .jgrid > .data-note, .jgrid > .empty-state{ grid-column:1/-1; }
+  .jhall-card{ background:#fff; border:1px solid var(--line); border-radius:14px; overflow:hidden; box-shadow:0 2px 8px rgba(14,14,16,.05); position:relative; }
+  .jhall-card::before{ content:""; display:block; height:4px; background:linear-gradient(90deg,var(--amber),var(--amber-dark)); }
+  .jhall-title{ padding:8px 10px; font-size:13px; font-weight:800; color:var(--navy); border-bottom:1px solid var(--line); }
+  .jhall-title .count{ font-size:10px; color:var(--muted); font-weight:700; }
+  .jhall-files{ padding:4px; max-height:430px; overflow-y:auto; }
+  .jfile-row{ display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:8px; cursor:pointer; }
+  .jfile-row:hover{ background:#fdecec; }
+  .jfile-ico{ font-size:14px; line-height:1; }
+  .jfile-name{ flex:1; font-size:11.5px; font-weight:800; color:var(--navy); line-height:1.25; direction:ltr; text-align:right; unicode-bidi:plaintext; }
+  .jfile-name small{ display:block; font-size:8.5px; font-weight:600; color:var(--muted); direction:rtl; }
+  .jfile-act{ display:flex; gap:3px; }
+  .jfile-act .op-btn{ padding:3px 5px; font-size:11px; border-radius:6px; background:#F6F3EA; border:1px solid var(--line); line-height:1; }
   .file-card{
     background:#fff; border:1px solid var(--line); border-radius:14px; padding:36px 8px 10px; position:relative;
     overflow:hidden; display:flex; flex-direction:column; align-items:center; text-align:center; cursor:pointer;
@@ -2733,7 +2748,7 @@ async function loadRestOfData(){
   try{
     const targetsSpec = {docId:'mlp_targets', apply:v=>{TARGET_PLANS=v;}, tabs:['target','targetexec'], idKey:'id'};
     const targetExecSpec = {docId:'mlp_targetexec', apply:v=>{TARGET_EXEC=v;}, tabs:['targetexec'], idKey:'planId'};
-    const jardSpec = {docId:'mlp_jard', apply:v=>{JARD=v;}, tabs:['jard'], idKey:'id'};
+    const jardSpec = {docId:'mlp_jard', apply:v=>{JARD=v;}, tabs:['jard','targetexec'], idKey:'id'};
     const perfPeriodSpec = {docId:'mlp_perfperiod', apply:v=>{PERF_PERIODS=v;}, tabs:['report','supervisors'], idKey:'id'};
     const hallPowerSpec = {docId:'mlp_hallpower', apply:v=>{HALL_POWER=v;}, tabs:['hallpower'], idKey:'id'};
     const nightPowerSpec = {docId:'mlp_nightpower', apply:v=>{NIGHT_POWER=v;}, tabs:['nightpower'], idKey:'id'};
@@ -6455,7 +6470,7 @@ function renderEntryTab(){
     <button data-tb="save" data-tb-label="💾 احفظ" class="save-btn" onclick="saveAllRows()">💾 احفظ كل البيانات</button>
     <button data-tb="verify" class="apply-btn" style="background:#2E7D32;margin-bottom:10px;" onclick="verifyEntriesFromServer()">🔍 اتأكد من آخر حفظ على السيرفر</button>
     <div id="entries-verify-result"></div>
-    ${sideMode ? '<div class="section-title" style="margin-top:22px;">🗂️ الفترات المسجلة <span class="count">دوس ✏️ عشان تعدّل فترة أو 🗑️ عشان تمسحها</span></div><div id="pp-list"></div>' : ''}
+    ${sideMode ? '<div class="section-title" style="margin-top:22px;">🗂️ الفترات المسجلة <span class="count">دوس ✏️ عشان تعدّل فترة أو 🗑️ عشان تمسحها</span></div><div id="pp-list" class="jgrid"></div>' : ''}
   `;
   renderRowsContainer();
   if(sideMode) renderPeriodList();
@@ -7089,11 +7104,10 @@ function renderPeriodList(){
   const kind = ENTRY_MODE;
   PERIOD_LIST_VIEW = PERF_PERIODS.filter(x => x.kind === kind).sort((a,b) => (b.from||'').localeCompare(a.from||'') || (a.hall||'').localeCompare(b.hall||'', 'ar')).slice(0, 40);
   if(!PERIOD_LIST_VIEW.length){ box.innerHTML = '<div class="empty-state">لسه مفيش فترات متسجلة.</div>'; return; }
-  box.innerHTML = PERIOD_LIST_VIEW.map((p, i) => {
+  box.innerHTML = jfGroup(PERIOD_LIST_VIEW, p => p.hall || '-').map(([h, items]) => jfCard('🏭 '+h, items.length, items.map(({x:p, i}) => {
     const tot = (p.rows||[]).reduce((s, r) => s + (Number(r.v)||0), 0);
-    return `<div class="file-card"><div class="rname">${p.hall} — ${p.from} → ${p.to}</div><div class="rmeta">${(p.rows||[]).length} عاملة · إجمالي ${fmtNum(tot)} · ${p.by||'-'}</div>
-      <div><button class="op-btn" onclick="editPeriodRecord(${i})">✏️</button> <button class="op-btn" onclick="deletePeriodRecord(${i})">🗑️</button></div></div>`;
-  }).join('');
+    return jfRow(`editPeriodRecord(${i})`, `${jfMD(p.from)} → ${jfMD(p.to)}`, `${jfY(p.from)} · ${(p.rows||[]).length} عاملة · إجمالي ${fmtNum(tot)} · ${p.by||'-'}`, `editPeriodRecord(${i})`, `deletePeriodRecord(${i})`);
+  }).join(''))).join('');
 }
 function editPeriodRecord(i){
   const p = PERIOD_LIST_VIEW[i]; if(!p) return;
@@ -7149,7 +7163,7 @@ function renderSupervisorsRegTab(){
       <button data-tb="save" data-tb-label="💾 احفظ" class="save-btn" onclick="saveSupervisors()">💾 احفظ الفترة</button>
     </div>
     <div class="section-title">🗂️ الفترات المسجلة <span class="count">دوس ✏️ عشان تعدّل فترة أو 🗑️ عشان تمسحها</span></div>
-    <div id="sup-list"></div>`;
+    <div id="sup-list" class="jgrid"></div>`;
   supAddRows(10);
   renderSupList();
 }
@@ -7261,8 +7275,9 @@ function renderSupList(){
   const box = document.getElementById('sup-list'); if(!box) return;
   SUP_LIST_VIEW = PERF_PERIODS.filter(x => x.kind === 'sup').sort((a,b) => (b.from||'').localeCompare(a.from||'')).slice(0, 40);
   if(!SUP_LIST_VIEW.length){ box.innerHTML = '<div class="empty-state">لسه مفيش فترات متسجلة.</div>'; return; }
-  box.innerHTML = SUP_LIST_VIEW.map((p, i) => `<div class="file-card"><div class="rname">${p.from} → ${p.to}</div><div class="rmeta">${(p.rows||[]).length} مشرفة · ${p.by||'-'}</div>
-    <div><button class="op-btn" onclick="editSupPeriod(${i})">✏️</button> <button class="op-btn" onclick="deleteSupPeriod(${i})">🗑️</button></div></div>`).join('');
+  box.innerHTML = jfGroup(SUP_LIST_VIEW, p => String(p.from||'').slice(0,7)).map(([m, items]) => jfCard('📅 '+m, items.length, items.map(({x:p, i}) =>
+    jfRow(`editSupPeriod(${i})`, `${jfMD(p.from)} → ${jfMD(p.to)}`, `${jfY(p.from)} · ${(p.rows||[]).length} مشرفة · ${p.by||'-'}`, `editSupPeriod(${i})`, `deleteSupPeriod(${i})`)
+  ).join(''))).join('');
 }
 function editSupPeriod(i){
   const p = SUP_LIST_VIEW[i]; if(!p) return;
@@ -7798,7 +7813,7 @@ function recordsPanelHtml(){
       <button class="apply-btn" onclick="applyRecordsFilter()">بحث</button>
       ${currentUser.role==='admin' ? `<div style="text-align:left;margin-top:8px;"><button style="background:none;border:none;color:var(--red);font-size:10.5px;text-decoration:underline;cursor:pointer;padding:4px;" onclick="deleteFilteredRecords()">🗑️ امسح كل السجلات المطابقة للفلتر ده</button></div>` : ''}
     </div>
-    <div id="records-list"></div>
+    <div id="records-list" class="jgrid"></div>
   `;
 }
 // ============ تقرير الاكتمال (الأيام والخطوط الناقصة) ============
@@ -8014,12 +8029,14 @@ async function applyRecordsFilter(){
   if(!list) return;
   if(!rows.length){ list.innerHTML = `<div class="empty-state">${nonameOnly ? '🎉 مفيش ولا كود بدون اسم دلوقتي في الفلتر ده.' : 'مفيش سجلات مطابقة.'}</div>`; return; }
   if(nonameOnly){
+    list.classList.remove('jgrid');
     list.innerHTML = renderNoNameGroupedHtml(rows);
     return;
   }
   rows.sort((a,b)=> (b.d+String(b.l)).localeCompare(a.d+String(a.l)));
   const searchQ = (document.getElementById('rec-search')?.value || '').trim();
-  if(!searchQ){ list.innerHTML = recordsGroupedHtml(rows); return; }
+  if(!searchQ){ list.classList.add('jgrid'); list.innerHTML = recordsGroupedHtml(rows); return; }
+  list.classList.remove('jgrid');
   list.innerHTML = rows.slice(0,300).map(recordRowHtml).join('') +
     (rows.length>300 ? `<div class="data-note">في ${rows.length-300} سجل تاني، ضيق البحث أكتر عشان تشوفهم</div>` : '');
 }
@@ -8083,24 +8100,14 @@ function recordsGroupedHtml(rows){
   REC_GROUPS = Object.values(map).sort((a,b)=> String(a.h).localeCompare(String(b.h)) || String(b.d).localeCompare(String(a.d)) || Number(a.l)-Number(b.l));
   const shown = REC_GROUPS.slice(0,200);
   const isAdmin = currentUser && currentUser.role === 'admin';
-  let html = '', lastHall = null;
-  shown.forEach((g,i) => {
-    if(g.h !== lastHall){
-      lastHall = g.h;
-      const cnt = REC_GROUPS.filter(x => x.h === g.h).length;
-      html += `<div class="section-title" style="grid-column:1/-1;margin-top:10px;">🏭 ${recEsc(g.h)} <span class="count">(${cnt} ملف)</span></div>`;
-    }
-    html += `
-      <div class="file-card" onclick="editRecordGroup(${i})">
-        <div class="rtop">
-          <div><div class="rname">${recEsc(g.d)} · خط ${recEsc(g.l)}</div>
-          <div class="rmeta">${g.ids.length} عاملة · تارجت ${fmtNum(g.t)} · إنتاج ${fmtNum(g.p)}<br>${recEsc([...g.by].join('، ')) || '-'}</div></div>
-          <div class="ractions">
-            <button class="op-btn" onclick="event.stopPropagation();editRecordGroup(${i})">✏️</button>
-            ${isAdmin ? `<button class="op-btn" onclick="event.stopPropagation();confirmDeleteRecordGroup(${i})">🗑️</button>` : ''}
-          </div>
-        </div>
-      </div>`;
+  let html = '';
+  jfGroup(shown, g => g.h).forEach(([h, items]) => {
+    const cnt = REC_GROUPS.filter(x => x.h === h).length;
+    html += jfCard('🏭 '+recEsc(h), cnt, items.map(({x:g, i}) =>
+      jfRow(`editRecordGroup(${i})`, `${recEsc(jfMD(g.d))} · خط ${recEsc(g.l)}`,
+        `${recEsc(jfY(g.d))} · ${g.ids.length} عاملة · تارجت ${fmtNum(g.t)} · إنتاج ${fmtNum(g.p)} · ${recEsc([...g.by].join('، ')) || '-'}`,
+        `editRecordGroup(${i})`, isAdmin ? `confirmDeleteRecordGroup(${i})` : '')
+    ).join(''));
   });
   if(REC_GROUPS.length > shown.length) html += `<div class="data-note" style="grid-column:1/-1;">في ${REC_GROUPS.length-shown.length} ملف تاني، ضيّق الفترة أو الصالة عشان تشوفهم</div>`;
   return html;
@@ -9688,6 +9695,20 @@ function printJardMissingField(fieldKey, fieldLabel, printTitle){
 }
 function printJardMissingHalak(){ printJardMissingField('halak','الهالك','MILANO SPORT SHOES — أرتيكلات ناقصة الهالك'); }
 function printJardMissingEslah(){ printJardMissingField('eslah','الإصلاح','MILANO SPORT SHOES — أرتيكلات ناقصة الإصلاح'); }
+/* ===== شكل موحّد لكل قوائم الملفات (جرد/تارجت/أداء/قوة/سجلات): كارت لكل مجموعة (صالة أو شهر) وجواه ملفات صغيرة ===== */
+function jfGroup(arr, keyFn){ const m = new Map(); arr.forEach((x,i) => { const k = keyFn(x,i); if(!m.has(k)) m.set(k, []); m.get(k).push({x,i}); }); return [...m]; }
+function jfRow(click, name, sub, editFn, delFn){
+  return `<div class="jfile-row"${click ? ` onclick="${click}"` : ''} title="${String(name+' — '+sub).replace(/"/g,'&quot;')}">
+    <span class="jfile-ico">🗂️</span>
+    <span class="jfile-name">${name}<small>${sub}</small></span>
+    <span class="jfile-act">${editFn ? `<button class="op-btn" onclick="event.stopPropagation();${editFn}">✏️</button>` : ''}${delFn ? `<button class="op-btn" onclick="event.stopPropagation();${delFn}">🗑️</button>` : ''}</span>
+  </div>`;
+}
+function jfCard(title, count, rowsHtml){
+  return `<div class="jhall-card"><div class="jhall-title">${title} <span class="count">(${count} ملف)</span></div><div class="jhall-files">${rowsHtml}</div></div>`;
+}
+function jfMD(d){ return String(d||'').slice(5); }
+function jfY(d){ return String(d||'').slice(0,4); }
 function renderJardSessionsList(){
   const list = document.getElementById('jard-sessions-list');
   if(!list) return;
@@ -9704,18 +9725,21 @@ function renderJardSessionsList(){
   sorted.forEach(s => { (byHall[s.hall] = byHall[s.hall] || []).push(s); });
   const hallsSorted = Object.keys(byHall).sort();
   list.innerHTML = hallsSorted.map(h => `
-    <div class="section-title">🏭 ${h} <span class="count">(${byHall[h].length} ملف)</span></div>
-    ${byHall[h].map(s => `
-      <div class="file-card" onclick="editJardSession('${s.id}')">
-        <div class="rtop">
-          <div><div class="rname">${s.from} → ${s.to}</div><div class="rmeta">${s.lines.length} خط<br>${s.enteredBy||'-'}</div></div>
-          <div class="ractions">
+    <div class="jhall-card">
+      <div class="jhall-title">🏭 ${h} <span class="count">(${byHall[h].length} ملف)</span></div>
+      <div class="jhall-files">
+      ${byHall[h].map(s => `
+        <div class="jfile-row" onclick="editJardSession('${s.id}')" title="${s.from} → ${s.to} — ${s.lines.length} خط — ${s.enteredBy||'-'}">
+          <span class="jfile-ico">🗂️</span>
+          <span class="jfile-name">${s.from.slice(5)} → ${s.to.slice(5)}<small>${s.from.slice(0,4)} · ${s.lines.length} خط · ${s.enteredBy||'-'}</small></span>
+          <span class="jfile-act">
             <button class="op-btn" onclick="event.stopPropagation();editJardSession('${s.id}')">✏️</button>
             <button class="op-btn" onclick="event.stopPropagation();deleteJardSession('${s.id}')">🗑️</button>
-          </div>
+          </span>
         </div>
+      `).join('')}
       </div>
-    `).join('')}
+    </div>
   `).join('');
 }
 function renderJardSessionsTab(){
@@ -9734,7 +9758,7 @@ function renderJardSessionsTab(){
         </div>
       </div>
     </div>
-    <div id="jard-sessions-list" class="files-grid"></div>
+    <div id="jard-sessions-list" class="files-grid jgrid"></div>
   `;
   renderJardSessionsList();
 }
@@ -11251,20 +11275,9 @@ function renderTargetPlansList(){
   const byHall = {};
   sorted.forEach(p => { (byHall[p.hall] = byHall[p.hall] || []).push(p); });
   const hallsSorted = Object.keys(byHall).sort();
-  list.innerHTML = hallsSorted.map(h => `
-    <div class="section-title">🏭 ${h} <span class="count">(${byHall[h].length} ملف)</span></div>
-    ${byHall[h].map(p => `
-      <div class="file-card" onclick="editTargetPlan('${p.id}')">
-        <div class="rtop">
-          <div><div class="rname">${p.from} → ${p.to}</div><div class="rmeta">${p.lines.length} خط<br>${p.enteredBy||'-'}</div></div>
-          <div class="ractions">
-            <button class="op-btn" onclick="event.stopPropagation();editTargetPlan('${p.id}')">✏️</button>
-            <button class="op-btn" onclick="event.stopPropagation();deleteTargetPlan('${p.id}')">🗑️</button>
-          </div>
-        </div>
-      </div>
-    `).join('')}
-  `).join('');
+  list.innerHTML = hallsSorted.map(h => jfCard('🏭 '+h, byHall[h].length, byHall[h].map(p =>
+    jfRow(`editTargetPlan('${p.id}')`, `${jfMD(p.from)} → ${jfMD(p.to)}`, `${jfY(p.from)} · ${p.lines.length} خط · ${p.enteredBy||'-'}`, `editTargetPlan('${p.id}')`, `deleteTargetPlan('${p.id}')`)
+  ).join(''))).join('');
 }
 function renderTargetPlansTab(){
   const main = document.getElementById('main-content');
@@ -11282,7 +11295,7 @@ function renderTargetPlansTab(){
         </div>
       </div>
     </div>
-    <div id="target-plans-list" class="files-grid"></div>
+    <div id="target-plans-list" class="files-grid jgrid"></div>
   `;
   renderTargetPlansList();
 }
@@ -11837,6 +11850,29 @@ function execLineTotals(execLine){
     completionPct: totalMin>0 ? execMin/totalMin : 0
   };
 }
+/* حالة تسليم الأرتيكل في الجرد (شاشة تنفيذ التارجت): بنقارن كود الأرتيكل (بنفس توحيد الشكل بتاع تنبيه التكرار)
+   بالأرتيكلات اللي ليها كمية > 0 في جلسات الجرد. ✅ = اتسلّم في جرد فترته انتهت بعد/في بداية فترة التارجت،
+   📦 = اتسلّم بس في جرد أقدم من التارجت، ❌ = ما اتسجّلش له تسليم في أي جرد. */
+let __execDelIdx = null;
+function execDeliveryIndex(){ return __execDelIdx || buildJardDeliveredIndex(); }
+function execDeliveryCellHtml(plan, article){
+  const key = normArticleCode(article);
+  if(!key) return '-';
+  if(!(JARD && JARD.length)) return '<span style="color:var(--muted);font-size:11px;">لا يوجد جرد</span>';
+  const periods = execDeliveryIndex().get(key);
+  if(!periods || !periods.length)
+    return '<span style="color:var(--red);font-weight:800;" title="مفيش تسليم للأرتيكل ده في أي جرد مسجّل">❌ لم يُسلَّم</span>';
+  const inPlan = periods.filter(x => !plan.from || x.to >= plan.from);
+  const tip = tdupEsc(tdupPeriodsText(periods, 10));
+  if(inPlan.length){
+    const tot = inPlan.reduce((a,x)=>a+x.qty,0), last = inPlan[0];
+    return `<span style="color:var(--green);font-weight:800;" title="${tip}">✅ اتسلّم</span>` +
+      `<div style="font-size:10.5px;color:var(--muted);font-weight:700;line-height:1.3;">${tdupEsc(last.hall)} • ${fmtNum(tot)}${inPlan.length>1?` <span title="${tip}">(+${inPlan.length-1})</span>`:''}</div>`;
+  }
+  const last = periods[0];
+  return `<span style="color:var(--amber-dark);font-weight:800;" title="${tip}">📦 اتسلّم سابقًا</span>` +
+    `<div style="font-size:10.5px;color:var(--muted);font-weight:700;line-height:1.3;">${tdupEsc(last.hall)} • ${fmtNum(last.qty)}</div>`;
+}
 function renderExecLineCard(plan, l, execLine){
   const canEdit = execCanEdit();
   const t = execLineTotals(execLine);
@@ -11875,6 +11911,7 @@ function renderExecLineCard(plan, l, execLine){
         <td id="texec-done-${it.id}">${doneCell}</td>
         <td id="texec-diff-${it.id}">${diffCell}</td>
         <td>${statusBadge}</td>
+        <td>${execDeliveryCellHtml(plan, it.article)}</td>
         <td>
           <div class="act-cell">
             ${canEdit ? `<input type="checkbox" ${it.done?'checked':''} onchange="toggleExecItem('${plan.id}',${l.line},'${it.id}',this)">` : ''}
@@ -11882,7 +11919,7 @@ function renderExecLineCard(plan, l, execLine){
           </div>
         </td>
       </tr>`;
-  }).join('') || '<tr><td colspan="9">مفيش أرتيكلات مسجلة للخط ده في خطة التارجت</td></tr>';
+  }).join('') || '<tr><td colspan="10">مفيش أرتيكلات مسجلة للخط ده في خطة التارجت</td></tr>';
 
   return `
     <div class="jline-result-card">
@@ -11893,10 +11930,10 @@ function renderExecLineCard(plan, l, execLine){
       <div class="ttab-exec-wrap">
         <table class="ttab-exec">
           <colgroup>
-            <col style="width:14%"><col style="width:7%"><col style="width:11%"><col style="width:12%">
-            <col style="width:12%"><col style="width:12%"><col style="width:11%"><col style="width:12%"><col style="width:9%">
+            <col style="width:12%"><col style="width:6%"><col style="width:9%"><col style="width:10%">
+            <col style="width:10%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:17%"><col style="width:8%">
           </colgroup>
-          <thead><tr><th>أرتيكل</th><th>عدد</th><th>أساسي</th><th>مستهدف</th><th>جديد</th><th>اشتغل</th><th>فرق</th><th>الحالة</th><th>✔️</th></tr></thead>
+          <thead><tr><th>أرتيكل</th><th>عدد</th><th>أساسي</th><th>مستهدف</th><th>جديد</th><th>اشتغل</th><th>فرق</th><th>الحالة</th><th>التسليم (الجرد)</th><th>✔️</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>
@@ -11910,12 +11947,14 @@ function renderExecLineCard(plan, l, execLine){
 }
 function execPlanInnerHtml(plan, pe){
   let hallExecMin=0, hallPendMin=0;
+  __execDelIdx = buildJardDeliveredIndex();
   const lineCards = (plan.lines||[]).map(l => {
     const le = pe.lines.find(x=>x.line===l.line) || {line:l.line, items:[]};
     const t = execLineTotals(le);
     hallExecMin += t.execMin; hallPendMin += t.pendMin;
     return renderExecLineCard(plan, l, le);
   }).join('');
+  __execDelIdx = null;
   const hallTotal = hallExecMin+hallPendMin;
   const hallDeficitPct = hallTotal>0 ? hallPendMin/hallTotal : 0;
   const ranking = (plan.lines||[]).map(l=>{
@@ -12209,7 +12248,7 @@ function renderHallPowerRegTab(){
     </div>
     <div id="hp-verify-result"></div>
     <div class="section-title">📋 السجلات المتسجلة</div>
-    <div id="hp-list" class="files-grid"></div>
+    <div id="hp-list" class="files-grid jgrid"></div>
   `;
   document.getElementById('hp-lines-container').className = 'hpx-halls';
   document.getElementById('hp-lines-container').innerHTML = HALL_POWER_HALLS.map(hall => `
@@ -12325,17 +12364,9 @@ function renderHpList(){
   let records = [...HALL_POWER];
   if(date) records = records.filter(p => p.date === date);
   const sorted = records.sort((a,b)=>(b.date).localeCompare(a.date));
-  list.innerHTML = sorted.slice(0,30).map(p => `
-    <div class="file-card" onclick="editHallPower('${p.id}')">
-      <div class="rtop">
-        <div><div class="rname">${p.date}</div><div class="rmeta">${p.halls.length} صالة<br>${p.enteredBy||'-'}</div></div>
-        <div class="ractions">
-          <button class="op-btn" onclick="event.stopPropagation();editHallPower('${p.id}')">✏️</button>
-          <button class="op-btn" onclick="event.stopPropagation();deleteHallPower('${p.id}')">🗑️</button>
-        </div>
-      </div>
-    </div>
-  `).join('') || '<div class="empty-state">مفيش سجلات لليوم ده</div>';
+  list.innerHTML = jfGroup(sorted.slice(0,30), p => String(p.date||'').slice(0,7)).map(([m, items]) => jfCard('📅 '+m, items.length, items.map(({x:p}) =>
+    jfRow(`editHallPower('${p.id}')`, jfMD(p.date), `${jfY(p.date)} · ${p.halls.length} صالة · ${p.enteredBy||'-'}`, `editHallPower('${p.id}')`, `deleteHallPower('${p.id}')`)
+  ).join(''))).join('') || '<div class="empty-state">مفيش سجلات لليوم ده</div>';
 }
 function editHallPower(id){
   const p = HALL_POWER.find(x=>x.id===id);
@@ -12758,7 +12789,7 @@ function renderNightPowerRegTab(){
     </div>
     <div id="np-verify-result"></div>
     <div class="section-title">📋 السجلات المتسجلة</div>
-    <div id="np-list" class="files-grid"></div>
+    <div id="np-list" class="files-grid jgrid"></div>
   `;
   renderNpList();
 }
@@ -12787,17 +12818,9 @@ function renderNpList(){
   let records = [...NIGHT_POWER];
   if(date) records = records.filter(p => p.date === date);
   const sorted = records.sort((a,b)=>(b.date).localeCompare(a.date));
-  list.innerHTML = sorted.slice(0,30).map(p => `
-    <div class="file-card" onclick="editNightPower('${p.id}')">
-      <div class="rtop">
-        <div><div class="rname">${p.date}</div><div class="rmeta">${p.enteredBy||'-'}</div></div>
-        <div class="ractions">
-          <button class="op-btn" onclick="event.stopPropagation();editNightPower('${p.id}')">✏️</button>
-          <button class="op-btn" onclick="event.stopPropagation();deleteNightPower('${p.id}')">🗑️</button>
-        </div>
-      </div>
-    </div>
-  `).join('') || '<div class="empty-state">مفيش سجلات لليوم ده</div>';
+  list.innerHTML = jfGroup(sorted.slice(0,30), p => String(p.date||'').slice(0,7)).map(([m, items]) => jfCard('🌙 '+m, items.length, items.map(({x:p}) =>
+    jfRow(`editNightPower('${p.id}')`, jfMD(p.date), `${jfY(p.date)} · ${p.enteredBy||'-'}`, `editNightPower('${p.id}')`, `deleteNightPower('${p.id}')`)
+  ).join(''))).join('') || '<div class="empty-state">مفيش سجلات لليوم ده</div>';
 }
 function editNightPower(id){
   const p = NIGHT_POWER.find(x=>x.id===id);
