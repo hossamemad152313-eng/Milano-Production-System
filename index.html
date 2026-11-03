@@ -2088,6 +2088,36 @@ function withTimeout(promise, label){
   ]);
 }
 
+
+/* ======== FS_HUB: قناة Realtime واحدة مشتركة لكل المراقبات ========
+   قبل كده كل مراقبة (حوالي 15 مراقبة) كانت بتفتح قناة لوحدها على جدول fs_documents كله، فأي حفظة من أي جهاز
+   كانت بتتبعت للجهاز 15 مرة (مرة لكل قناة) — وده كان بيضخّم الـ Realtime Messages والـ Egress.
+   دلوقتي فيه قناة واحدة بس، وبتوزّع الحدث على كل المراقبات جوه المتصفح. */
+const FS_HUB = (function(){
+  const subs = new Set(); let channel = null, needResync = false;
+  const dispatch = payload => { subs.forEach(x => { try{ x.onEvent(payload); }catch(e){ console.warn('fs-hub:', e); } }); };
+  function open(){
+    if(channel || !subs.size) return;
+    channel = sb.channel('fs-hub')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fs_documents' }, dispatch)
+      .subscribe(status => {
+        if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') needResync = true;   // الاتصال وقع
+        if(status === 'SUBSCRIBED' && needResync){                                    // رجع: نعوّض اللي فاتنا مرة واحدة
+          needResync = false;
+          subs.forEach(x => { try{ x.resync && x.resync(); }catch(e){} });
+        }
+      });
+  }
+  function close(){ if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; } }
+  return {
+    on(onEvent, resync){
+      const x = { onEvent, resync };
+      subs.add(x); open();
+      return () => { subs.delete(x); if(!subs.size) close(); };
+    }
+  };
+})();
+
 function fsDocRef(path){
   const id = path.split('/').pop();
   return {
@@ -2140,16 +2170,30 @@ function fsDocRef(path){
     },
 
     onSnapshot(cb, errCb){
-      let stopped = false;
+      // بياخد التغيير مباشرة من حدث Realtime (من غير ما يعيد قراءة المستند من السيرفر).
+      // لو الحدث وصل من غير بيانات (صف كبير) بنرجع للقراءة العادية كاحتياط.
+      let stopped = false, ready = false; const queue = [];
+      const mk = d => ({ exists: d !== undefined && d !== null, id, data: () => d });
       const load = () => this.get().then(snap => { if(!stopped) cb(snap); }).catch(e => errCb && errCb(e));
-      load();
-      const channel = sb.channel('doc:' + path)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'fs_documents' }, payload => {
-          const p = (payload.new && payload.new.path) || (payload.old && payload.old.path);
-          if(p === path) load();
-        })
-        .subscribe();
-      return () => { stopped = true; sb.removeChannel(channel); };
+      const apply = payload => {
+        if(stopped) return;
+        if(payload.eventType === 'DELETE'){ cb(mk(undefined)); return; }
+        const d = payload.new && payload.new.data;
+        if(d === undefined) load(); else cb(mk(d));
+      };
+      const off = FS_HUB.on(payload => {
+        if(stopped) return;
+        const p = (payload.new && payload.new.path) || (payload.old && payload.old.path);
+        if(p !== path) return;
+        if(!ready){ queue.push(payload); return; }
+        apply(payload);
+      }, () => { if(ready && !stopped) load(); });
+      this.get().then(snap => {
+        if(stopped) return;
+        ready = true; cb(snap);
+        queue.splice(0).forEach(apply);
+      }).catch(e => { ready = true; if(errCb) errCb(e); });
+      return () => { stopped = true; off(); };
     }
   };
 }
@@ -2170,13 +2214,15 @@ async function sbFetchAllByPrefix(prefix){
 // بيدّي نفس شكل Firestore snapshot (docs / empty / docChanges) عشان بوابة شئون الموظفين تشتغل بيه زي ما هي.
 function sbWatchCollection(path, cb, errCb){
   const prefix = path + '/';
-  const state = new Map(); let ready = false, stopped = false; const queue = [];
+  const state = new Map(); let ready = false, stopped = false, timer = null, pending = []; const queue = [];
   const mkDoc = (id, data) => ({ id, data: () => data, metadata: { hasPendingWrites: false } });
-  const emit = changes => {
+  const emitNow = changes => {
     if(stopped) return;
     const docs = Array.from(state, ([id, data]) => mkDoc(id, data));
     cb({ empty: docs.length === 0, size: docs.length, docs, docChanges: () => changes, metadata: { fromCache: false, hasPendingWrites: false }, forEach: fn => docs.forEach(fn) });
   };
+  // لو وصل أكتر من تغيير ورا بعض (زي حفظ دفعة) بنجمّعهم في تحديث واحد بدل ما نعيد البناء مع كل صف
+  const emit = changes => { pending = pending.concat(changes); if(timer) return; timer = setTimeout(() => { timer = null; const c = pending; pending = []; emitNow(c); }, 120); };
   const applyEvent = payload => {
     const p = (payload.new && payload.new.path) || (payload.old && payload.old.path);
     if(!p || !p.startsWith(prefix)) return null;
@@ -2186,24 +2232,40 @@ function sbWatchCollection(path, cb, errCb){
       const old = state.get(id); state.delete(id);
       return { type: 'removed', doc: mkDoc(id, old) };
     }
+    if(!payload.new || payload.new.data === undefined) return { reload: true };      // حدث من غير بيانات (صف كبير) → قراءة احتياطية
     const existed = state.has(id); const data = payload.new.data; state.set(id, data);
     return { type: existed ? 'modified' : 'added', doc: mkDoc(id, data) };
   };
-  const channel = sb.channel('watch:' + path + ':' + Math.random().toString(36).slice(2))
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'fs_documents' }, payload => {
-      if(!ready){ queue.push(payload); return; }
-      const ch = applyEvent(payload); if(ch) emit([ch]);
-    }).subscribe();
+  const reload = async () => {
+    try{
+      const rows = (await sbFetchAllByPrefix(prefix)).filter(r => !r.path.slice(prefix.length).includes('/'));
+      if(stopped) return;
+      state.clear(); rows.forEach(r => state.set(r.path.slice(prefix.length), r.data));
+      emitNow([]);
+    }catch(e){ console.warn('watch reload:', e); }
+  };
+  const handle = payload => {
+    // DELETE من غير path في old (replica identity الافتراضي) → مش عارفين مين اتمسح، نقرا من جديد
+    if(payload.eventType === 'DELETE' && !(payload.old && payload.old.path)){ if(ready) reload(); return; }
+    const ch = applyEvent(payload); if(!ch) return;
+    if(ch.reload){ reload(); return; }
+    emit([ch]);
+  };
+  const off = FS_HUB.on(payload => {
+    if(stopped) return;
+    if(!ready){ queue.push(payload); return; }
+    handle(payload);
+  }, () => { if(ready && !stopped) reload(); });
   (async () => {
     try{
       const rows = (await sbFetchAllByPrefix(prefix)).filter(r => !r.path.slice(prefix.length).includes('/'));
       rows.forEach(r => state.set(r.path.slice(prefix.length), r.data));
       ready = true;
-      queue.splice(0).forEach(applyEvent);
-      emit([]);
+      queue.splice(0).forEach(handle);
+      emitNow([]);
     }catch(e){ if(errCb) errCb(e); }
   })();
-  return () => { stopped = true; try{ sb.removeChannel(channel); }catch(e){} };
+  return () => { stopped = true; if(timer){ clearTimeout(timer); timer = null; } off(); };
 }
 
 function fsCollRef(path){
@@ -2226,16 +2288,8 @@ function fsCollRef(path){
     },
 
     onSnapshot(cb, errCb){
-      let stopped = false;
-      const load = () => this.get().then(snap => { if(!stopped) cb(snap); }).catch(e => errCb && errCb(e));
-      load();
-      const channel = sb.channel('col:' + path)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'fs_documents' }, payload => {
-          const p = (payload.new && payload.new.path) || (payload.old && payload.old.path);
-          if(p && p.startsWith(prefix)) load();
-        })
-        .subscribe();
-      return () => { stopped = true; sb.removeChannel(channel); };
+      // قراءة أولية واحدة + تغييرات تزايدية (مش إعادة قراءة الكولكشن كله مع كل تغيير)
+      return sbWatchCollection(path, cb, errCb);
     }
   };
 }
