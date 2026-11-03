@@ -1516,6 +1516,41 @@ header.top.hr-merged #subtabs-row.fit-3 .hr-sub-btn .ic{ display:none; }
 .hr-lock-proxy.unlocked{ background:#a8141a; border-color:transparent; }
 @media print{ .hr-lock-proxy{ display:none !important; } }
 </style>
+<style id="auditlog-style">
+.al-intro{ font-size:12.5px; font-weight:700; color:#000; line-height:1.8; margin-bottom:10px; }
+.al-bar{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 8px; }
+.al-bar select, .al-bar input[type=date], .al-bar input[type=text]{ flex:1 1 30%; min-width:0; width:auto !important; height:36px !important; min-height:36px !important; box-sizing:border-box !important; padding:0 10px !important; margin:0 !important; font:700 12.5px 'Cairo',sans-serif; }
+.al-chk{ flex:1 1 100%; font:800 12.5px 'Cairo',sans-serif; color:#000; display:flex; align-items:center; gap:6px; }
+.al-go{ flex:1 1 30%; height:36px; padding:0 14px; border:none; border-radius:999px; background:var(--navy); color:#fff; font:800 12.5px 'Cairo',sans-serif; cursor:pointer; white-space:nowrap; }
+.al-go.alt{ background:#3a3a42; }
+.al-status{ font-size:12.5px; font-weight:800; color:#000; margin:8px 0; line-height:1.9; }
+.al-warn{ color:#c62828; }
+.al-dim{ color:#55555c; font-weight:700; font-size:11.5px; }
+.al-test{ border-radius:12px; padding:10px 12px; font:800 12.5px/1.9 'Cairo',sans-serif; margin:6px 0 10px; }
+.al-test.ok{ background:#e6f4ea; color:#14532d; border:1px solid #86c99b; }
+.al-test.bad{ background:#fdeaea; color:#7f1d1d; border:1px solid #e59a9a; }
+.al-card{ background:#fff; border:1px solid #c9c9d0; border-right:5px solid #b45309; border-radius:12px; padding:10px 12px; margin:0 0 10px; color:#000; }
+.al-card.ins{ border-right-color:#1b7f3b; } .al-card.del{ border-right-color:#c62828; } .al-card.upd{ border-right-color:#b45309; }
+.al-card.sus{ background:#fff4f4; border-color:#e59a9a; border-right-color:#c62828; }
+.al-top{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-bottom:6px; }
+.al-badge{ font:800 11.5px 'Cairo',sans-serif; padding:2px 10px; border-radius:999px; color:#fff; background:#b45309; }
+.al-badge.ins{ background:#1b7f3b; } .al-badge.del{ background:#c62828; } .al-badge.upd{ background:#b45309; }
+.al-sec{ font:800 12.5px 'Cairo',sans-serif; color:#000; }
+.al-rec{ font:800 12.5px 'Cairo',sans-serif; color:#0b3d91; }
+.al-time{ margin-inline-start:auto; font:700 11.5px 'JetBrains Mono',monospace; color:#000; direction:ltr; }
+.al-who{ font:700 13px 'Cairo',sans-serif; margin-bottom:4px; }
+.al-meta{ display:flex; flex-wrap:wrap; gap:4px 14px; font:700 11.5px 'Cairo',sans-serif; color:#33333a; margin-bottom:6px; }
+.al-click{ cursor:pointer; text-decoration:underline; color:#0b3d91; }
+.al-body{ border-top:1px dashed #c9c9d0; padding-top:6px; }
+.al-chg{ font:700 12.5px/1.9 'Cairo',sans-serif; word-break:break-word; }
+.al-f{ font-weight:800; color:#000; background:#eef0f4; border-radius:6px; padding:1px 7px; }
+.al-old{ color:#b91c1c; font-weight:800; text-decoration:line-through; text-decoration-thickness:1px; }
+.al-new{ color:#166534; font-weight:800; }
+.al-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
+.al-path{ direction:ltr; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
+.al-btn{ border:1px solid #1b7f3b; background:#fff; color:#1b7f3b; border-radius:999px; padding:4px 12px; font:800 12px 'Cairo',sans-serif; cursor:pointer; }
+@media (max-width:760px){ .al-go{ flex:1 1 45%; } .al-time{ margin-inline-start:0; width:100%; } }
+</style>
 <style id="actlog-style">
 /* سجل النشاط: الفلاتر الستة (مستخدم / عملية / تيوب / من / إلى / اعرض) في سطر واحد بمقاسات موحّدة */
 .actlog-bar{ display:flex; flex-wrap:nowrap; gap:6px; align-items:center; margin:0 0 8px; }
@@ -1809,7 +1844,7 @@ const TAB_GROUPS = [
   {key:'grp-perf', label:'📊 أداء', children:['report','entry','records','manualcodes'], subLabels:{report:'📊 تقييم', entry:'📝 تسجيل', records:'🗂️ سجل', manualcodes:'👤 أكواد مؤقتة'}},
   {key:'grp-supervisors', label:'👩‍🏭 مشرفات المكن', children:['supervisors','supervisorsreg'], subLabels:{supervisors:'📊 شوف', supervisorsreg:'📝 تسجيل'}},
   {key:'grp-printforms', label:'🖨️ اطبع ورق', children:['printforms'], subLabels:{}},
-  {key:'grp-monitor', label:'📊 مراقبة', children:['usage','activitylog'], subLabels:{usage:'📊 الاستهلاك', activitylog:'🕵️ سجل النشاط'}}
+  {key:'grp-monitor', label:'📊 مراقبة', children:['usage','activitylog','auditlog'], subLabels:{usage:'📊 الاستهلاك', activitylog:'🕵️ سجل النشاط', auditlog:'🧾 مراقبة تفصيلية'}}
 ];
 let rankMode = false;
 
@@ -1994,8 +2029,51 @@ window.addEventListener('afterprint', () => { document.body.classList.remove('pr
 /* ---------------- SUPABASE (بديل FIREBASE) ---------------- */
 const SUPABASE_URL = 'https://blfpjwpbvqtrqvsrtlgy.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_84SL2o3Yq4CktDxS_WBvHA_RTkYRQWG';
+/* ---------------- هوية الحساب مع كل عملية كتابة (للمراقبة التفصيلية) ----------------
+   كل عملية إضافة/تعديل/حذف بتروح لـ Supabase بيتضاف معاها اسم الحساب ومعرّف الجهاز في headers،
+   والـ Trigger اللي في قاعدة البيانات (audit_setup.sql) هو اللي بيسجّل الفرق في الخانات + الـ IP + الوقت.
+   لو السيرفر رفض الـ headers لأي سبب بنعيد الطلب من غيرها فورًا — الحفظ ماينفعش يتعطّل بسبب المراقبة. */
+const AUDIT_DEVICE_ID = (function(){
+  try{
+    let d = localStorage.getItem('milano_device_id');
+    if(!d){
+      d = 'D' + ((window.crypto && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g,'').slice(0,12) : Math.random().toString(36).slice(2,14));
+      localStorage.setItem('milano_device_id', d);
+    }
+    return d;
+  }catch(e){ return 'D-nostorage'; }
+})();
+let AUDIT_HDR_OK = true;      // بيتحوّل false لو السيرفر رفض الـ headers (CORS) — وقتها الحفظ بيكمّل من غيرها
+let AUDIT_HDR_FALLBACKS = 0;
+function auditB64(s){
+  try{ return btoa(unescape(encodeURIComponent(String(s == null ? '' : s)))); }catch(e){ return ''; }
+}
+function auditFetch(url, opts){
+  try{
+    const method = String((opts && opts.method) || 'GET').toUpperCase();
+    if(AUDIT_HDR_OK && method !== 'GET' && method !== 'HEAD' && String(url).indexOf('/rest/v1/') > -1){
+      const u = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+      const h = new Headers((opts && opts.headers) || undefined);
+      h.set('x-milano-user', auditB64(u ? u.user : '(system)'));
+      h.set('x-milano-label', auditB64(u ? u.label : 'النظام (قبل تسجيل الدخول)'));
+      h.set('x-milano-device', AUDIT_DEVICE_ID);
+      h.set('x-milano-src', (typeof actSource === 'function') ? actSource() : 'web');
+      return fetch(url, Object.assign({}, opts, { headers: h })).catch(function(err){
+        // فشل شبكة: نجرّب من غير الـ headers — لو نجح يبقى الـ headers هي المشكلة (CORS) فنوقفها
+        return fetch(url, opts).then(function(res){
+          AUDIT_HDR_OK = false; AUDIT_HDR_FALLBACKS++;
+          console.warn('⚠️ المراقبة: السيرفر رفض الـ headers المخصصة — الحفظ شغال بس من غير اسم الحساب.', err);
+          return res;
+        });
+      });
+    }
+  }catch(e){ /* أي خطأ هنا يتجاهل ونكمّل عادي */ }
+  return fetch(url, opts);
+}
+
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  realtime: { params: { eventsPerSecond: 10 } }
+  realtime: { params: { eventsPerSecond: 10 } },
+  global: { fetch: auditFetch }
 });
 
 let db = null;
@@ -2386,6 +2464,277 @@ async function loadActivityLog(){
       </div>`).join('') || '<div style="color:#000;font-weight:700;font-size:13px;padding:12px 0;">مفيش عمليات في الفترة دي.</div>';
   }catch(e){
     status.textContent = '⚠️ السجل ما اتحملش: ' + (e.message||e) + ' — لو أول مرة، اتأكد إنك عملت جدول activity_log في Supabase.';
+  }
+}
+/* ================= 🧾 المراقبة التفصيلية (Audit Trail) — للأدمن بس =================
+   بتقرا جدول audit_log في Supabase (اللي بيتملي أوتوماتيك من الـ Trigger): كل إضافة/تعديل/حذف، الخانة،
+   كانت إيه واتحط فيها إيه، مين الحساب، الساعة، الـ IP والجهاز. تقدر تصدّر الأدلة Excel وترجّع أي نسخة قديمة. */
+const AUDIT_SECTIONS = {
+  hr_employees_index:'شئون الموظفين • بيانات العاملين',
+  hr_termination_index:'شئون الموظفين • التصفيات',
+  hr_monthly_index:'شئون الموظفين • الغياب الشهري',
+  hr_delays_sheets_index:'التأخيرات • الشيتات',
+  hr_delays_settings_index:'التأخيرات • الإعدادات',
+  hr_halfday_index:'نص يوم',
+  hr_bonus_sheets_index:'المكافآت • الشيتات',
+  hr_employees_chunks:'بيانات العاملين (نسخة مجمّعة)',
+  mlp_entries_index:'تسجيل الأداء',
+  mlp_entries_weeks:'تسجيل الأداء (أسبوعي)',
+  mlp_perfperiod_index:'هالك / إصلاح / مشرفات المكن',
+  mlp_targets_index:'خطط التارجت',
+  mlp_targetexec_index:'تنفيذ التارجت',
+  mlp_jard_index:'الجرد',
+  mlp_hallpower_index:'قوة الصالة',
+  mlp_nightpower_index:'قوة السهر',
+  mlp_operators_index:'العاملين (Operators)',
+  mlp_users_index:'المستخدمين والصلاحيات',
+  mlp_hallmanagers_index:'مديري الصالات',
+  mlp_printforms_index:'نماذج الطباعة',
+  manual_employees_index:'الأكواد المؤقتة',
+  _audit_selftest:'اختبار المراقبة'
+};
+const AUDIT_FIELDS = {
+  code:'الكود', name:'الاسم', job:'القسم', job2:'الوظيفة', dept:'القسم/الخط', line:'الخط',
+  hire_date:'أول ظهور/التعيين', exit_date:'تاريخ التصفية', return_date:'تاريخ العودة', status:'الحالة', exit_code:'كود التصفية',
+  absence_days:'أيام الغياب', half_day:'نص يوم', cancel_day:'إلغاء يوم', total_equiv_absence:'الإجمالي المكافئ', alert:'تنبيه',
+  h:'الساعة', m:'الدقيقة', date:'التاريخ', title:'العنوان', period:'الفترة', settings:'الإعدادات',
+  user:'اسم المستخدم', pass:'كلمة المرور', role:'الصلاحية', label:'الاسم الظاهر', hall:'الصالة', _id:'المعرّف'
+};
+const AUDIT_OPS = { INSERT:{t:'إضافة', c:'ins', i:'🟢'}, UPDATE:{t:'تعديل', c:'upd', i:'🟠'}, DELETE:{t:'حذف', c:'del', i:'🔴'} };
+let AUDIT_ROWS = [];
+let AUDIT_MIN_ID = null;
+let AUDIT_HAS_MORE = false;
+const AUDIT_PAGE = 50;
+
+function auditEsc(v){
+  return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function auditFmtVal(v){
+  if(v === null || v === undefined) return '∅';
+  if(typeof v === 'object'){
+    if(Array.isArray(v)) return JSON.stringify(v);
+    return Object.keys(v).map(k => (AUDIT_FIELDS[k] || k) + ': ' + auditFmtVal(v[k])).join(' • ');
+  }
+  if(v === '') return '(فاضي)';
+  return String(v);
+}
+function auditPathLabel(p){
+  return String(p).split('.').map(seg => {
+    const m = seg.match(/^([^\[]+)\[(\d+)\]$/);
+    if(m) return (m[1] === 'rows' ? '' : ((AUDIT_FIELDS[m[1]] || m[1]) + ' ')) + 'صف ' + (Number(m[2]) + 1);
+    return AUDIT_FIELDS[seg] || seg;
+  }).join(' ← ');
+}
+function auditUA(ua){
+  ua = String(ua || ''); if(!ua) return '—';
+  const os = /Android\s?([\d.]+)?/.test(ua) ? 'Android ' + ((ua.match(/Android\s?([\d.]+)/) || [])[1] || '')
+    : /iPhone|iPad|iPod/.test(ua) ? 'iPhone/iPad' : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  const br = /SamsungBrowser/.test(ua) ? 'Samsung Browser' : /Edg\//.test(ua) ? 'Edge' : /Firefox/.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  const wv = /; wv\)/.test(ua) ? ' (تطبيق)' : '';
+  return (os + ' • ' + br + wv).replace(/^ • | • $/g, '').trim() || ua.slice(0, 40);
+}
+function auditTime(at){
+  try{
+    return new Date(at).toLocaleString('ar-EG-u-nu-latn', { timeZone:'Africa/Cairo', weekday:'long', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true });
+  }catch(e){ return String(at); }
+}
+function auditCardHtml(r){
+  const op = AUDIT_OPS[r.op] || {t:r.op, c:'upd', i:'•'};
+  const sec = AUDIT_SECTIONS[r.section] || r.section || '—';
+  const who = r.via_app
+    ? `<b>${auditEsc(r.actor_label || r.actor)}</b> <span class="al-dim">(${auditEsc(r.actor)})</span>`
+    : `<b class="al-warn">⚠️ مجهول — العملية جت من خارج التطبيق</b>`;
+  let body = '';
+  if(r.op === 'UPDATE' && Array.isArray(r.changes)){
+    body = r.changes.map(c => {
+      const lbl = auditEsc(auditPathLabel(c.p)) + (c.l ? ` <span class="al-dim">[${auditEsc(c.l)}]</span>` : '');
+      if(c.t === 'add') return `<div class="al-chg"><span class="al-f">${lbl}</span> اتضاف: <span class="al-new">${auditEsc(auditFmtVal(c.n))}</span></div>`;
+      if(c.t === 'del') return `<div class="al-chg"><span class="al-f">${lbl}</span> اتشال — كان: <span class="al-old">${auditEsc(auditFmtVal(c.o))}</span></div>`;
+      return `<div class="al-chg"><span class="al-f">${lbl}</span> كان: <span class="al-old">${auditEsc(auditFmtVal(c.o))}</span> ← بقى: <span class="al-new">${auditEsc(auditFmtVal(c.n))}</span></div>`;
+    }).join('');
+  }else if(r.op === 'INSERT'){
+    body = r.new_data ? `<div class="al-chg">اتضاف: <span class="al-new">${auditEsc(auditFmtVal(r.new_data))}</span></div>` : '<div class="al-dim">تمت إضافة مستند جديد</div>';
+  }else if(r.op === 'DELETE'){
+    body = r.old_data ? `<div class="al-chg">اتمسح — كان فيه: <span class="al-old">${auditEsc(auditFmtVal(r.old_data))}</span></div>` : '<div class="al-dim">تم مسح مستند</div>';
+  }
+  const canRestore = (r.op === 'DELETE' || r.op === 'UPDATE') && r.old_data && r.section !== 'mlp_users_index';
+  const rest = canRestore ? `<button class="al-btn" onclick="auditRestore(${r.id})">↩️ ${r.op === 'DELETE' ? 'استرجع المحذوف' : 'رجّع النسخة القديمة'}</button>` : '';
+  return `
+  <div class="al-card ${op.c}${r.via_app ? '' : ' sus'}">
+    <div class="al-top">
+      <span class="al-badge ${op.c}">${op.i} ${op.t}</span>
+      <span class="al-sec">${auditEsc(sec)}</span>
+      ${r.record_label ? `<span class="al-rec">${auditEsc(r.record_label)}</span>` : ''}
+      <span class="al-time">${auditEsc(auditTime(r.at))}</span>
+    </div>
+    <div class="al-who">👤 ${who}</div>
+    <div class="al-meta">
+      <span>📱 ${auditEsc(auditUA(r.user_agent))}</span>
+      <span>🆔 جهاز: <b class="al-click" data-dev="${auditEsc(r.device_id || '')}">${auditEsc(r.device_id || '—')}</b></span>
+      <span>🌐 IP: <b>${auditEsc(r.ip || '—')}</b></span>
+      ${r.source ? `<span>${r.source === 'app' ? 'تطبيق' : 'ويب'}</span>` : ''}
+    </div>
+    <div class="al-body">${body}${r.note ? `<div class="al-dim">ℹ️ ${auditEsc(r.note)}</div>` : ''}</div>
+    <div class="al-foot"><span class="al-dim al-path">${auditEsc(r.path)}</span>${rest}</div>
+  </div>`;
+}
+
+async function renderAuditTab(){
+  const main = document.getElementById('main-content');
+  main.innerHTML = `
+    <div class="card-box">
+      <div class="section-title">🧾 المراقبة التفصيلية</div>
+      <div class="al-intro">كل إضافة وتعديل وحذف في النظام (وبوابة شئون الموظفين كمان): <b>الخانة</b> اللي اتعدلت، <b>كانت إيه</b> واتحط فيها <b>إيه</b>، <b>مين الحساب</b>، <b>الساعة</b>، والـ <b>IP والجهاز</b>. التسجيل بيحصل جوه قاعدة البيانات نفسها فمفيش حد يقدر يتخطاه أو يمسحه.</div>
+      <div class="al-bar">
+        <select id="al-user" title="الحساب"><option value="">كل الحسابات</option><option value="__none__">⚠️ مجهول (خارج التطبيق)</option>${USERS.map(u=>`<option value="${auditEsc(u.user)}">${auditEsc(u.label)}</option>`).join('')}</select>
+        <select id="al-section" title="القسم"><option value="">كل الأقسام</option>${Object.keys(AUDIT_SECTIONS).filter(k=>k!=='_audit_selftest').map(k=>`<option value="${k}">${auditEsc(AUDIT_SECTIONS[k])}</option>`).join('')}</select>
+        <select id="al-op" title="العملية"><option value="">كل العمليات</option><option value="UPDATE">🟠 تعديل</option><option value="INSERT">🟢 إضافة</option><option value="DELETE">🔴 حذف</option></select>
+      </div>
+      <div class="al-bar">
+        <input type="date" id="al-from" title="من"><input type="date" id="al-to" title="إلى">
+        <input type="text" id="al-q" placeholder="🔎 كود أو اسم الموظف" title="بحث بكود أو اسم السجل">
+        <input type="text" id="al-dev" placeholder="🆔 معرّف جهاز" title="معرّف جهاز معيّن">
+      </div>
+      <div class="al-bar">
+        <label class="al-chk"><input type="checkbox" id="al-sus"> ⚠️ المشبوه بس (من خارج التطبيق)</label>
+        <button class="al-go" onclick="loadAuditLog(false)">🔍 اعرض</button>
+        <button class="al-go alt" onclick="auditExportXlsx()">📥 تصدير Excel (أدلة)</button>
+        <button class="al-go alt" onclick="auditSelfTest()">🧪 اختبار المراقبة</button>
+      </div>
+      <div id="al-status" class="al-status"></div>
+      <div id="al-selftest"></div>
+      <div id="al-list"></div>
+      <div id="al-more" style="text-align:center;margin:10px 0;"></div>
+    </div>`;
+  const today = new Date(); const iso = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  document.getElementById('al-from').value = iso;
+  document.getElementById('al-to').value = iso;
+  await loadAuditLog(false);
+}
+function auditSetDevice(id){
+  const el = document.getElementById('al-dev'); if(!el || !id) return;
+  el.value = id; loadAuditLog(false);
+}
+async function loadAuditLog(more){
+  const status = document.getElementById('al-status');
+  const list = document.getElementById('al-list');
+  const moreBox = document.getElementById('al-more');
+  if(!status || !list) return;
+  status.textContent = '⏳ بيحمّل...';
+  const user = document.getElementById('al-user').value;
+  const section = document.getElementById('al-section').value;
+  const op = document.getElementById('al-op').value;
+  const from = document.getElementById('al-from').value;
+  const to = document.getElementById('al-to').value;
+  const dev = document.getElementById('al-dev').value.trim();
+  const qtxt = document.getElementById('al-q').value.replace(/[,()*%\\"']/g, ' ').trim();
+  const sus = document.getElementById('al-sus').checked;
+  try{
+    let q = sb.from('audit_log').select('*').order('id', {ascending:false}).limit(AUDIT_PAGE + 1);
+    if(user === '__none__') q = q.is('actor', null); else if(user) q = q.eq('actor', user);
+    if(section) q = q.eq('section', section); else q = q.neq('section', '_audit_selftest');
+    if(op) q = q.eq('op', op);
+    if(dev) q = q.eq('device_id', dev);
+    if(sus) q = q.eq('via_app', false);
+    if(qtxt) q = q.or('record_label.ilike.%' + qtxt + '%,doc_id.ilike.%' + qtxt + '%');
+    if(from) q = q.gte('at', new Date(from + 'T00:00:00').toISOString());
+    if(to) q = q.lte('at', new Date(to + 'T23:59:59').toISOString());
+    if(more && AUDIT_MIN_ID) q = q.lt('id', AUDIT_MIN_ID);
+    const { data, error } = await withTimeout(q, 'audit_log');
+    if(error) throw error;
+    let rows = data || [];
+    AUDIT_HAS_MORE = rows.length > AUDIT_PAGE;
+    if(AUDIT_HAS_MORE) rows = rows.slice(0, AUDIT_PAGE);
+    AUDIT_ROWS = more ? AUDIT_ROWS.concat(rows) : rows;
+    AUDIT_MIN_ID = AUDIT_ROWS.length ? AUDIT_ROWS[AUDIT_ROWS.length - 1].id : null;
+    const dels = AUDIT_ROWS.filter(r => r.op === 'DELETE').length;
+    const susN = AUDIT_ROWS.filter(r => !r.via_app).length;
+    status.innerHTML = `📋 ${AUDIT_ROWS.length} عملية${AUDIT_HAS_MORE ? '+' : ''} &nbsp;•&nbsp; 🔴 ${dels} حذف &nbsp;•&nbsp; ${susN ? '<b class="al-warn">⚠️ ' + susN + ' من خارج التطبيق</b>' : '✅ مفيش عمليات مشبوهة'}${AUDIT_HDR_OK ? '' : ' &nbsp;•&nbsp; <b class="al-warn">⚠️ السيرفر رافض هوية الحساب — جرّب 🧪 اختبار المراقبة</b>'}`;
+    list.onclick = function(ev){ const t = ev.target.closest && ev.target.closest('[data-dev]'); if(t && t.dataset.dev) auditSetDevice(t.dataset.dev); };
+    list.innerHTML = AUDIT_ROWS.map(auditCardHtml).join('') || '<div class="al-dim" style="padding:14px 0;">مفيش عمليات في الفترة دي بالفلتر ده.</div>';
+    moreBox.innerHTML = AUDIT_HAS_MORE ? '<button class="al-go alt" onclick="loadAuditLog(true)">⬇️ حمّل أقدم</button>' : '';
+  }catch(e){
+    status.innerHTML = '⚠️ السجل ما اتحملش: ' + auditEsc(e.message || e) + ' — لو أول مرة، شغّل ملف audit_setup.sql في Supabase (SQL Editor) الأول.';
+  }
+}
+
+/* تصدير الأدلة Excel: صف لكل خانة اتغيّرت (تعديل) أو لكل إضافة/حذف */
+function auditExportXlsx(){
+  if(typeof XLSX === 'undefined'){ alert('مكتبة Excel لسه ما اتحملتش — جرّب بعد ثواني.'); return; }
+  if(!AUDIT_ROWS.length){ alert('مفيش بيانات معروضة للتصدير.'); return; }
+  const out = [];
+  AUDIT_ROWS.forEach(r => {
+    const d = new Date(r.at);
+    const base = {
+      'التاريخ': d.toLocaleDateString('en-GB', {timeZone:'Africa/Cairo'}),
+      'الساعة': d.toLocaleTimeString('en-GB', {timeZone:'Africa/Cairo', hour12:true}),
+      'الحساب': r.via_app ? (r.actor_label || r.actor) : 'مجهول (خارج التطبيق)',
+      'اسم المستخدم': r.actor || '',
+      'العملية': (AUDIT_OPS[r.op] || {}).t || r.op,
+      'القسم': AUDIT_SECTIONS[r.section] || r.section || '',
+      'السجل': r.record_label || r.doc_id || ''
+    };
+    const tail = { 'IP': r.ip || '', 'الجهاز': auditUA(r.user_agent), 'معرّف الجهاز': r.device_id || '' };
+    if(r.op === 'UPDATE' && Array.isArray(r.changes) && r.changes.length){
+      r.changes.forEach(c => out.push(Object.assign({}, base, {
+        'الخانة': auditPathLabel(c.p) + (c.l ? ' [' + c.l + ']' : ''),
+        'كان مكتوب': c.t === 'add' ? '' : auditFmtVal(c.o),
+        'اتحط': c.t === 'del' ? '(اتشال)' : auditFmtVal(c.n)
+      }, tail)));
+    }else{
+      out.push(Object.assign({}, base, {
+        'الخانة': r.op === 'DELETE' ? '(حذف سجل كامل)' : '(إضافة سجل جديد)',
+        'كان مكتوب': r.op === 'DELETE' && r.old_data ? auditFmtVal(r.old_data) : '',
+        'اتحط': r.op === 'INSERT' && r.new_data ? auditFmtVal(r.new_data) : ''
+      }, tail));
+    }
+  });
+  const ws = XLSX.utils.json_to_sheet(out);
+  ws['!cols'] = [12,12,24,16,9,26,24,26,34,34,14,22,16].map(w => ({wch:w}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'مراقبة');
+  wb.Workbook = { Views: [{ RTL: true }] };
+  const n = new Date();
+  XLSX.writeFile(wb, 'Milano_Audit_' + n.getFullYear() + String(n.getMonth()+1).padStart(2,'0') + String(n.getDate()).padStart(2,'0') + '_' + String(n.getHours()).padStart(2,'0') + String(n.getMinutes()).padStart(2,'0') + '.xlsx');
+}
+
+/* استرجاع نسخة قديمة (محذوف أو قبل تعديل) — العملية نفسها بتتسجّل باسمك */
+async function auditRestore(id){
+  const r = AUDIT_ROWS.find(x => x.id === id);
+  if(!r || !r.old_data){ alert('مفيش نسخة قديمة محفوظة للعملية دي.'); return; }
+  const what = r.op === 'DELETE' ? 'هترجّع السجل المحذوف ده' : 'هترجّع السجل ده لنسخته القديمة (قبل التعديل)';
+  const ok = await uiConfirm(what + ' (' + (r.record_label || r.doc_id) + ') — أي تعديلات اتعملت عليه بعد كده هتتلغي. تكمّل؟', { title:'استرجاع نسخة قديمة', icon:'↩️', yes:'أيوه، رجّعه', no:'لا' });
+  if(!ok) return;
+  try{
+    const { error } = await withTimeout(sb.from('fs_documents').upsert({ path: r.path, data: r.old_data }), 'audit.restore');
+    if(error) throw error;
+    alert('✅ اتسترجع. العملية دي اتسجّلت باسمك في المراقبة.');
+    loadAuditLog(false);
+  }catch(e){ alert('⚠️ الاسترجاع فشل: ' + (e.message || e)); }
+}
+
+/* 🧪 اختبار شامل: بيكتب مستند تجريبي ويتأكد إن الـ Trigger شغّال وإن اسم حسابك وصل للسيرفر */
+async function auditSelfTest(){
+  const box = document.getElementById('al-selftest'); if(!box) return;
+  const show = (ok, msg) => { box.innerHTML = `<div class="al-test ${ok ? 'ok' : 'bad'}">${msg}</div>`; };
+  show(true, '⏳ بيختبر...');
+  const ref = db.collection(FS_COLLECTION).doc('_audit_selftest');
+  try{
+    await ref.set({ ping: Date.now(), by: currentUser.user });
+    await new Promise(r => setTimeout(r, 900));
+    const { data, error } = await withTimeout(sb.from('audit_log').select('*').eq('doc_id', '_audit_selftest').order('id', {ascending:false}).limit(1), 'selftest');
+    if(error) throw error;
+    try{ await ref.delete(); }catch(e){}
+    const row = data && data[0];
+    if(!row){ show(false, '❌ <b>الـ Trigger مش شغّال:</b> العملية اتنفذت بس ماتسجّلتش. شغّل ملف <b>audit_setup.sql</b> في Supabase → SQL Editor (مرة واحدة) وجرّب تاني.'); return; }
+    if(!row.via_app || row.actor !== currentUser.user){
+      show(false, '⚠️ <b>التسجيل شغّال لكن اسم الحساب ماوصلش للسيرفر</b> (السيرفر رفض الـ headers المخصصة). الحفظ شغال عادي، بس العمليات هتتسجّل "مجهول". ابعتلي رسالة الخطأ اللي في الـ Console وهنحلها.');
+      return;
+    }
+    show(true, `✅ <b>المراقبة شغّالة 100%</b> — اتسجّلت العملية باسم <b>${auditEsc(row.actor_label || row.actor)}</b> • جهاز <b>${auditEsc(row.device_id)}</b> • IP <b>${auditEsc(row.ip || '—')}</b>`);
+  }catch(e){
+    show(false, '❌ الاختبار فشل: ' + auditEsc(e.message || e) + ' — لو جدول audit_log لسه ما اتعملش شغّل audit_setup.sql.');
   }
 }
 let USAGE_LIMIT_DOC = null;
@@ -4179,7 +4528,7 @@ function initApp(){
       ['nightpower','🌙 قوة سهر'],['nightpowerreg','📝 تسجيل قوة سهر'],
       ['supervisors','👩‍🏭 مشرفات المكن'],['supervisorsreg','📝 تسجيل مشرفات المكن'],
       ['delays','⏰ تأخيرات'],['halfday','🌓 نص يوم'],['hrportal','👤 شئون الموظفين'],['printforms','🖨️ اطبع ورق'],
-      ['usage','📊 استهلاك Supabase'],['activitylog','🕵️ سجل النشاط']
+      ['usage','📊 استهلاك Supabase'],['activitylog','🕵️ سجل النشاط'],['auditlog','🧾 مراقبة تفصيلية']
     ];
   }
   else if(currentUser.role === 'entry') tabs = [['entry','📝 تسجيل أداء'],['records','🗂️ سجل'],['manualcodes','👤 الأكواد المسجلة مؤقتًا'],['report','📊 تقييم أداء'],['supervisorsreg','📝 تسجيل مشرفات المكن'],['supervisors','👩‍🏭 مشرفات المكن'],['printforms','🖨️ اطبع ورق']];
@@ -4282,6 +4631,7 @@ function __switchTabOrig(key){
   if(key === 'printforms') renderPrintFormsTab();
   if(key === 'usage') renderUsageTab();
   if(key === 'activitylog') renderActivityLogTab();
+  if(key === 'auditlog' && currentUser && currentUser.role === 'admin') renderAuditTab();
 }
 
 
