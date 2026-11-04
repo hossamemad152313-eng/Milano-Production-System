@@ -1518,6 +1518,17 @@ header.top.hr-merged #subtabs-row.fit-3 .hr-sub-btn .ic{ display:none; }
 </style>
 <style id="auditlog-style">
 .al-intro{ font-size:12.5px; font-weight:700; color:#000; line-height:1.8; margin-bottom:10px; }
+.al-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 12px}
+.al-tab{padding:7px 12px;border-radius:99px;border:1px solid #b9bfc6;background:#fff;color:#000;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit}
+.al-tab.on{background:#0a7d4b;border-color:#0a7d4b;color:#fff}
+.al-live{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;margin:4px 0}
+.al-live.on{background:#e3f6ec;color:#0a6b40}.al-live.off{background:#eceef1;color:#555}
+.al-ctx{background:#eef4ff;color:#0b2a55;font-weight:700;border-radius:8px;padding:6px 10px;margin:2px 0 8px;font-size:13px}
+.al-ex{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-inline-start:3px solid #0a7d4b;background:rgba(10,125,75,.06);border-radius:6px;margin:5px 0;color:#000;font-weight:700;line-height:1.8;font-size:13.5px}
+.al-ex-i{flex:0 0 auto}
+.al-raw{margin-top:8px}.al-raw summary{cursor:pointer;color:#555;font-size:12px;font-weight:700}
+.al-fresh{animation:alfresh 2.4s ease-out}
+@keyframes alfresh{from{box-shadow:0 0 0 3px #2fbf7f;background:#effbf4}to{box-shadow:none}}
 .al-bar{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 8px; }
 .al-bar select, .al-bar input[type=date], .al-bar input[type=text]{ flex:1 1 30%; min-width:0; width:auto !important; height:36px !important; min-height:36px !important; box-sizing:border-box !important; padding:0 10px !important; margin:0 !important; font:700 12.5px 'Cairo',sans-serif; }
 .al-chk{ flex:1 1 100%; font:800 12.5px 'Cairo',sans-serif; color:#000; display:flex; align-items:center; gap:6px; }
@@ -2559,6 +2570,276 @@ let AUDIT_ROWS = [];
 let AUDIT_MIN_ID = null;
 let AUDIT_HAS_MORE = false;
 const AUDIT_PAGE = 50;
+/* AUDIT_X_BEGIN ===== طبقة التفسير + التبويبات + التحديث اللحظي للمراقبة التفصيلية ===== */
+const AUDIT_FIELDS_BY_SEC = {
+  mlp_targets_index:{ hall:'الصالة', from:'بداية الفترة', to:'نهاية الفترة', hallManager:'مدير الصالة', hallTargetDeliveries:'تارجت تسليمات الصالة', enteredBy:'اتسجّل بواسطة', lineTarget:'تارجت الخط', supervisor:'المشرف', line:'رقم الخط', article:'الأرتكل', qty:'الكمية/البيان', h:'ساعة البدء', m:'دقيقة البدء', rows:'جدول الأرتكلات', lineWork:'شغل الخط', floorWork:'شغل الأرضية' },
+  mlp_targetexec_index:{ planId:'الخطة', done:'اتنفّذ', doneAt:'وقت التنفيذ', doneBy:'نفّذه', actualH:'الساعة الفعلية', actualM:'الدقيقة الفعلية', article:'الأرتكل', qty:'الكمية/البيان', h:'ساعة البدء', m:'دقيقة البدء', parentId:'اتقسّم من', splitChildId:'اتقسّم إلى', items:'البنود' },
+  mlp_entries_index:{ c:'الكود', d:'اليوم', h:'الصالة', l:'الخط', n:'الاسم', p:'الإنتاج', t:'التارجت', es:'إصلاح', hk:'هالك', at:'الحضور', by:'سجّله' },
+  mlp_operators_index:{ c:'الكود', n:'الاسم', a:'نشط', hd:'تاريخ التعيين' },
+  mlp_jard_index:{ hall:'الصالة', from:'بداية الفترة', to:'نهاية الفترة', needles:'عدد الإبر', production:'الإنتاج الفعلي', targetProduction:'التارجت', deficitMinutes:'دقائق العجز', maintOther:'صيانة أخرى', supervisor:'المشرف', hallManager:'مدير الصالة', articles:'الأرتكلات', eslah:'إصلاح', halak:'هالك', qty:'الكمية', code:'كود الأرتكل' },
+  mlp_hallpower_index:{ date:'اليوم', halls:'الصالات', basic:'الأساسي', absence:'الغياب', clearance:'التصفية' },
+  mlp_nightpower_index:{ date:'اليوم', halls:'الصالات', count:'العدد' },
+  hr_halfday_index:{ date:'اليوم', period:'الفترة', enteredBy:'سجّله', job:'القسم', line:'الخط' }
+};
+function auditLbl(sec, k){ return (AUDIT_FIELDS_BY_SEC[sec] || {})[k] || AUDIT_FIELDS[k] || k; }
+function auditV(v){
+  if(v === null || v === undefined || v === '') return 'فاضي';
+  if(typeof v === 'number') return v.toLocaleString('en');
+  if(typeof v === 'boolean') return v ? 'نعم' : 'لا';
+  if(typeof v === 'object') return auditFmtVal(v);
+  return String(v);
+}
+const auditHM = (h, m) => String(h == null ? '--' : h).padStart(2, '0') + ':' + String(m == null ? '--' : m).padStart(2, '0');
+function auditParsePath(p){
+  return String(p || '').split('.').map(seg => { const m = seg.match(/^([^\[]+)\[(\d+)\]$/); return m ? { k:m[1], i:Number(m[2]) } : { k:seg, i:null }; });
+}
+function auditLine(icon, html){ return '<div class="al-ex"><span class="al-ex-i">' + icon + '</span><span>' + html + '</span></div>'; }
+function auditChg(lbl, c){
+  const o = '<span class="al-old">' + auditEsc(auditV(c.o)) + '</span>', n = '<span class="al-new">' + auditEsc(auditV(c.n)) + '</span>';
+  if(c.t === 'add') return lbl + ' اتضاف: ' + n;
+  if(c.t === 'del') return lbl + ' اتشال — كان: ' + o;
+  return lbl + ': كان ' + o + ' ← بقى ' + n;
+}
+function auditPlanCtx(d){
+  if(!d) return '';
+  const parts = [];
+  if(d.hall) parts.push('🏭 ' + auditEsc(d.hall));
+  if(d.from || d.to) parts.push('📅 الفترة ' + auditEsc(d.from || '؟') + ' ← ' + auditEsc(d.to || '؟'));
+  if(d.hallManager) parts.push('👔 مدير الصالة ' + auditEsc(d.hallManager));
+  return parts.length ? '<div class="al-ctx">' + parts.join(' &nbsp;•&nbsp; ') + '</div>' : '';
+}
+function auditLineSummary(L){
+  if(!L) return '';
+  const n = (L.rows || []).length;
+  return 'خط ' + auditEsc(L.line != null ? L.line : '؟') + (L.supervisor ? ' (المشرف ' + auditEsc(L.supervisor) + ')' : '') + (L.lineTarget != null ? ' • تارجت ' + auditEsc(auditV(L.lineTarget)) : '') + (n ? ' • ' + n + ' أرتكل' : '');
+}
+/* ---------- خطط التارجت ---------- */
+function auditExplainTargets(r, doc, oldDoc){
+  const ctx = auditPlanCtx(doc), out = [];
+  if(r.op === 'INSERT'){
+    out.push(auditLine('➕', 'خطة تارجت جديدة — ' + (doc && doc.lines ? doc.lines.length : 0) + ' خط'));
+    (doc && doc.lines || []).forEach(L => out.push(auditLine('🎯', auditLineSummary(L))));
+    return ctx + out.join('');
+  }
+  if(r.op === 'DELETE'){
+    out.push(auditLine('🗑️', 'اتمسحت خطة التارجت دي — كان فيها ' + (doc && doc.lines ? doc.lines.length : 0) + ' خط'));
+    return ctx + out.join('');
+  }
+  const seenTime = new Set();
+  for(const c of (Array.isArray(r.changes) ? r.changes : [])){
+    const P = auditParsePath(c.p), li = P[0].k === 'lines' ? P[0].i : null;
+    const L = li != null ? (((doc || {}).lines || [])[li] || ((oldDoc || {}).lines || [])[li]) : null;
+    const lt = li != null ? 'خط ' + auditEsc(L && L.line != null ? L.line : li + 1) + (L && L.supervisor ? ' (المشرف ' + auditEsc(L.supervisor) + ')' : '') : '';
+    if(P.length === 1 && P[0].i == null){ out.push(auditLine('📋', auditChg(auditEsc(auditLbl(r.section, P[0].k)), c))); continue; }
+    if(P.length === 1 && P[0].k === 'lines'){
+      out.push(auditLine(c.t === 'del' ? '➖' : '➕', (c.t === 'del' ? 'اتشال ' : 'اتضاف ') + auditLineSummary(c.t === 'del' ? c.o : c.n))); continue;
+    }
+    if(li != null && P.length === 2 && P[1].i == null){
+      const f = P[1].k;
+      if(f === 'lineTarget') out.push(auditLine('🎯', lt + ' — ' + auditChg('تارجت الخط', c)));
+      else out.push(auditLine('📋', lt + ' — ' + auditChg(auditEsc(auditLbl(r.section, f)), c)));
+      continue;
+    }
+    if(li != null && P[1] && P[1].i != null){
+      const arr = P[1].k, j = P[1].i;
+      const el = (((L || {})[arr]) || [])[j] || ((((oldDoc || {}).lines || [])[li] || {})[arr] || [])[j] || {};
+      const art = el.article != null && el.article !== '' ? el.article : '؟';
+      const grp = arr === 'rows' ? 'أرتكل' : (arr === 'lineWork' ? 'شغل الخط' : 'شغل الأرضية');
+      if(P.length === 2){
+        const o = c.t === 'del' ? c.o : c.n || {};
+        const tm = arr === 'rows' && o && o.h != null ? ' يبدأ الساعة ' + auditHM(o.h, o.m) : '';
+        out.push(auditLine(c.t === 'del' ? '➖' : '➕', lt + ' — ' + (c.t === 'del' ? 'اتشال' : 'اتضاف') + ' ' + grp + ' ' + auditEsc((o && o.article) || '؟') + tm + (o && o.qty ? ' • ' + auditEsc(o.qty) : '')));
+        continue;
+      }
+      const f = P[2].k;
+      if(arr === 'rows' && (f === 'h' || f === 'm')){
+        const key = li + '|' + j; if(seenTime.has(key)) continue; seenTime.add(key);
+        const orow = (((oldDoc || {}).lines || [])[li] || {}).rows; const nrow = (((doc || {}).lines || [])[li] || {}).rows;
+        const o = orow && orow[j], n = nrow && nrow[j];
+        const oldT = o ? auditHM(o.h, o.m) : auditV(c.o), newT = n ? auditHM(n.h, n.m) : auditV(c.n);
+        out.push(auditLine('⏰', lt + ' • أرتكل ' + auditEsc(art) + ' — ميعاد البدء كان <span class="al-old">' + auditEsc(oldT) + '</span> ← بقى <span class="al-new">' + auditEsc(newT) + '</span>'));
+        continue;
+      }
+      if(f === 'article'){ out.push(auditLine('🔁', lt + ' — اتغيّر ' + grp + ' من <span class="al-old">' + auditEsc(auditV(c.o)) + '</span> لـ <span class="al-new">' + auditEsc(auditV(c.n)) + '</span>')); continue; }
+      out.push(auditLine('📦', lt + ' • ' + grp + ' ' + auditEsc(art) + ' — ' + auditChg(auditEsc(auditLbl(r.section, f)), c)));
+      continue;
+    }
+    out.push(auditLine('📝', (lt ? lt + ' — ' : '') + auditChg(auditEsc(auditPathLabel(c.p, doc, r.section)), c)));
+  }
+  return ctx + out.join('');
+}
+/* ---------- تنفيذ التارجت ---------- */
+function auditExplainTexec(r, doc, oldDoc){
+  const d = doc || {};
+  const plan = (typeof TARGET_PLANS !== 'undefined' && Array.isArray(TARGET_PLANS)) ? TARGET_PLANS.find(p => p.id === d.planId) : null;
+  const ctx = plan ? auditPlanCtx(plan) : '';
+  if(r.op !== 'UPDATE') return ctx + auditLine(r.op === 'INSERT' ? '➕' : '🗑️', r.op === 'INSERT' ? 'اتفتح تنفيذ لخطة تارجت (' + ((d.lines || []).length) + ' خط)' : 'اتمسح تنفيذ خطة تارجت');
+  const out = [], groups = new Map(), rest = [];
+  for(const c of (Array.isArray(r.changes) ? r.changes : [])){
+    const P = auditParsePath(c.p);
+    if(P[0].k === 'lines' && P[1] && P[1].k === 'items' && P[1].i != null){
+      const key = P[0].i + '|' + P[1].i;
+      if(P.length === 2){ rest.push({ c, P, whole:true }); continue; }
+      if(!groups.has(key)) groups.set(key, { li:P[0].i, j:P[1].i, f:{} });
+      groups.get(key).f[P[2].k] = c;
+    } else rest.push({ c, P });
+  }
+  const getIt = (dd, li, j) => ((((dd || {}).lines || [])[li] || {}).items || [])[j];
+  groups.forEach(g => {
+    const it = getIt(d, g.li, g.j) || getIt(oldDoc, g.li, g.j) || {};
+    const L = ((d.lines || [])[g.li]) || {};
+    const lt = 'خط ' + auditEsc(L.line != null ? L.line : g.li + 1) + ' • أرتكل ' + auditEsc(it.article != null ? it.article : '؟');
+    const f = g.f, keys = Object.keys(f);
+    if(f.done){
+      const nowDone = f.done.n === true;
+      let t = nowDone ? '✅ ' + lt + ' — اتسجّل إنه اتنفّذ' : '↩️ ' + lt + ' — اتلغى تسجيل التنفيذ';
+      if(nowDone){ if(it.actualH != null) t += ' الساعة ' + auditHM(it.actualH, it.actualM); if(it.doneBy) t += ' بواسطة ' + auditEsc(it.doneBy); }
+      out.push(auditLine(nowDone ? '✅' : '↩️', t.replace(/^[^ ]+ /, '')));
+      keys.filter(k => ['done', 'doneAt', 'doneBy', 'actualH', 'actualM'].indexOf(k) < 0).forEach(k => out.push(auditLine('📝', lt + ' — ' + auditChg(auditEsc(auditLbl(r.section, k)), f[k]))));
+      return;
+    }
+    if(f.actualH || f.actualM){
+      const oi = getIt(oldDoc, g.li, g.j) || {};
+      out.push(auditLine('🕒', lt + ' — الوقت الفعلي كان <span class="al-old">' + auditEsc(oi.actualH != null ? auditHM(oi.actualH, oi.actualM) : 'فاضي') + '</span> ← بقى <span class="al-new">' + auditEsc(it.actualH != null ? auditHM(it.actualH, it.actualM) : 'فاضي') + '</span>'));
+    }
+    if(f.h || f.m){
+      const oi = getIt(oldDoc, g.li, g.j) || {};
+      out.push(auditLine('⏰', lt + ' — ميعاد البدء كان <span class="al-old">' + auditEsc(auditHM(oi.h, oi.m)) + '</span> ← بقى <span class="al-new">' + auditEsc(auditHM(it.h, it.m)) + '</span>'));
+    }
+    keys.filter(k => ['actualH', 'actualM', 'h', 'm', 'doneAt', 'doneBy'].indexOf(k) < 0).forEach(k => out.push(auditLine('📝', lt + ' — ' + auditChg(auditEsc(auditLbl(r.section, k)), f[k]))));
+  });
+  rest.forEach(x => {
+    const li = x.P[0].k === 'lines' ? x.P[0].i : null, L = li != null ? ((d.lines || [])[li] || {}) : null;
+    const lt = L ? 'خط ' + auditEsc(L.line != null ? L.line : li + 1) + ' — ' : '';
+    if(x.whole){ const o = x.c.t === 'del' ? x.c.o : x.c.n || {}; out.push(auditLine(x.c.t === 'del' ? '➖' : '➕', lt + (x.c.t === 'del' ? 'اتشال' : 'اتضاف') + ' بند أرتكل ' + auditEsc((o && o.article) || '؟') + (o && o.h != null ? ' يبدأ ' + auditHM(o.h, o.m) : '') + (o && o.qty ? ' • ' + auditEsc(o.qty) : ''))); return; }
+    out.push(auditLine('📝', lt + auditChg(auditEsc(auditPathLabel(x.c.p, d, r.section)), x.c)));
+  });
+  return ctx + out.join('');
+}
+/* ---------- التعيينات / التعديلات / التصفيات ---------- */
+function auditKind(r){
+  if(r.section === 'hr_termination_index') return 'term';
+  if(r.section !== 'hr_employees_index' && r.section !== 'hr_employees_chunks') return null;
+  if(r.op === 'INSERT') return 'hire';
+  if(r.op === 'DELETE') return 'hire_edit';
+  const ps = (Array.isArray(r.changes) ? r.changes : []).map(c => String(c.p).split('.')[0]);
+  if(ps.indexOf('return_date') > -1 || ps.indexOf('_rehired') > -1) return 'rehire';
+  if(ps.indexOf('exit_date') > -1 || ps.indexOf('exit_code') > -1 || ps.indexOf('status') > -1) return 'term';
+  return 'hire_edit';
+}
+function auditExplainEmp(r, doc){
+  const d = doc || {};
+  const who = '<b>' + auditEsc(d.name || r.record_label || '؟') + '</b>' + (d.code != null ? ' • كود ' + auditEsc(d.code) : '');
+  const ch = Array.isArray(r.changes) ? r.changes : [];
+  const get = key => ch.find(c => String(c.p).split('.')[0] === key);
+  if(r.op === 'INSERT') return auditLine('👤', 'تعيين جديد: ' + who + (d.job || d.job2 ? ' • ' + auditEsc([d.job, d.job2].filter(Boolean).join(' / ')) : '') + (d.dept ? ' • القسم/الخط ' + auditEsc(d.dept) : '') + (d.hire_date ? ' • تاريخ التعيين ' + auditEsc(d.hire_date) : ''));
+  if(r.op === 'DELETE') return auditLine('🗑️', 'اتمسح ملف العامل ' + who);
+  const k = auditKind(r);
+  if(k === 'term'){
+    const ex = get('exit_date'), st = get('status'), ec = get('exit_code');
+    let t = 'تصفية: ' + who;
+    if(ex) t += ' — تاريخ التصفية <span class="al-new">' + auditEsc(auditV(ex.n)) + '</span>' + (ex.o ? ' (كان ' + auditEsc(auditV(ex.o)) + ')' : '');
+    if(st) t += ' • الحالة: <span class="al-old">' + auditEsc(auditV(st.o)) + '</span> ← <span class="al-new">' + auditEsc(auditV(st.n)) + '</span>';
+    if(ec) t += ' • كود التصفية: ' + auditEsc(auditV(ec.o)) + ' ← ' + auditEsc(auditV(ec.n));
+    return auditLine('🚪', t);
+  }
+  if(k === 'rehire'){
+    const rd = get('return_date'), st = get('status');
+    return auditLine('↩️', 'عودة للعمل: ' + who + (rd ? ' — تاريخ العودة <span class="al-new">' + auditEsc(auditV(rd.n)) + '</span>' : '') + (st ? ' • الحالة: ' + auditEsc(auditV(st.o)) + ' ← ' + auditEsc(auditV(st.n)) : ''));
+  }
+  return ch.map(c => auditLine('✏️', who + ' — ' + auditChg(auditEsc(auditLbl(r.section, String(c.p).split('.')[0])), c))).join('');
+}
+/* ---------- تسجيل الأداء ---------- */
+function auditExplainEntry(r, doc){
+  const d = doc || {};
+  const head = '<b>' + auditEsc(d.n || r.record_label || '؟') + '</b> • كود ' + auditEsc(d.c != null ? d.c : '؟') + ' • ' + auditEsc(d.h || '') + ' • خط ' + auditEsc(d.l != null ? d.l : '؟') + ' • يوم ' + auditEsc(d.d || '؟');
+  if(r.op === 'INSERT') return auditLine('📝', 'تسجيل أداء جديد: ' + head + ' — الإنتاج ' + auditEsc(auditV(d.p)) + ' من تارجت ' + auditEsc(auditV(d.t)));
+  if(r.op === 'DELETE') return auditLine('🗑️', 'اتمسح تسجيل أداء: ' + head);
+  return (Array.isArray(r.changes) ? r.changes : []).map(c => {
+    const P = auditParsePath(c.p), lbl = P[0].k === 'at' && P[1] ? 'حضور (' + auditEsc(P[1].k) + ')' : auditEsc(auditLbl(r.section, P[0].k));
+    return auditLine('📝', head + '<br>' + auditChg(lbl, c));
+  }).join('');
+}
+function auditExplainHtml(r){
+  const doc = r.new_data || r.old_data || null, oldDoc = r.old_data || null;
+  try{
+    if(r.section === 'mlp_targets_index') return auditExplainTargets(r, doc, oldDoc);
+    if(r.section === 'mlp_targetexec_index') return auditExplainTexec(r, doc, oldDoc);
+    if(r.section === 'hr_employees_index') return auditExplainEmp(r, doc);
+    if(r.section === 'mlp_entries_index') return auditExplainEntry(r, doc);
+  }catch(e){ console.warn('audit explain:', e); }
+  return '';
+}
+function auditBodyWithExplain(r, rawBody){
+  const ex = auditExplainHtml(r);
+  return ex ? ex + '<details class="al-raw"><summary>التفاصيل الخام (للأدمن)</summary>' + rawBody + '</details>' : rawBody;
+}
+/* ---------- التبويبات ---------- */
+const AUDIT_TABS = [
+  { id:'all',       t:'📋 الكل' },
+  { id:'targets',   t:'🎯 خطط التارجت',   sec:['mlp_targets_index'] },
+  { id:'texec',     t:'⏱️ تنفيذ التارجت', sec:['mlp_targetexec_index'] },
+  { id:'entries',   t:'📝 تسجيل الأداء',  sec:['mlp_entries_index', 'mlp_entries_weeks', 'mlp_perfperiod_index'] },
+  { id:'hire',      t:'👥 التعيينات',      sec:['hr_employees_index', 'hr_employees_chunks'], op:'INSERT', kinds:['hire'] },
+  { id:'hire_edit', t:'✏️ تعديل التعيينات', sec:['hr_employees_index', 'hr_employees_chunks'], kinds:['hire_edit'] },
+  { id:'term',      t:'🚪 التصفيات',       sec:['hr_employees_index', 'hr_termination_index'], kinds:['term', 'rehire'] },
+  { id:'hrsheets',  t:'📅 غياب / تأخيرات / مكافآت', sec:['hr_monthly_index', 'hr_halfday_index', 'hr_delays_sheets_index', 'hr_delays_settings_index', 'hr_bonus_sheets_index'] },
+  { id:'prod',      t:'🏭 الصالات والجرد', sec:['mlp_hallpower_index', 'mlp_nightpower_index', 'mlp_jard_index', 'mlp_operators_index', 'mlp_hallmanagers_index', 'mlp_printforms_index'] },
+  { id:'users',     t:'🔐 المستخدمين',     sec:['mlp_users_index'] }
+];
+let AUDIT_TAB = 'all', AUDIT_RAW_MIN = null;
+function auditKindOk(r, tab){ if(!tab || !tab.kinds) return true; const k = auditKind(r); return k != null && tab.kinds.indexOf(k) > -1; }
+function auditTabsHtml(){ return '<div class="al-tabs" id="al-tabs">' + AUDIT_TABS.map(t => '<button type="button" class="al-tab' + (t.id === AUDIT_TAB ? ' on' : '') + '" data-tab="' + t.id + '" onclick="auditSetTab(\'' + t.id + '\')">' + t.t + '</button>').join('') + '</div>'; }
+function auditSetTab(id){
+  AUDIT_TAB = id;
+  document.querySelectorAll('#al-tabs .al-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
+  const sel = document.getElementById('al-section'); if(sel) sel.value = '';
+  loadAuditLog(false);
+}
+/* ---------- التحديث اللحظي (بيشتغل والتاب مفتوح بس) ---------- */
+let AUDIT_LIVE_CH = null;
+function auditLiveStop(){ if(AUDIT_LIVE_CH){ try{ sb.removeChannel(AUDIT_LIVE_CH); }catch(e){} AUDIT_LIVE_CH = null; } }
+function auditLiveStart(){
+  auditLiveStop();
+  AUDIT_LIVE_CH = sb.channel('audit-live-' + Math.random().toString(36).slice(2))
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'audit_log' }, payload => { auditLiveRow(payload.new); })
+    .subscribe(status => {
+      const b = document.getElementById('al-live'); if(!b) return;
+      const ok = status === 'SUBSCRIBED';
+      b.className = 'al-live ' + (ok ? 'on' : 'off'); b.textContent = ok ? '🟢 مباشر — أي تعديل بيظهر لحظيًا' : '⚪ غير متصل بالتحديث اللحظي';
+    });
+}
+function auditRowMatches(r){
+  const g = id => (document.getElementById(id) || {});
+  const user = g('al-user').value, section = g('al-section').value, op = g('al-op').value, dev = (g('al-dev').value || '').trim(), sus = g('al-sus').checked;
+  const qtxt = (g('al-q').value || '').trim().toLowerCase(), from = g('al-from').value, to = g('al-to').value;
+  const tab = AUDIT_TABS.find(t => t.id === AUDIT_TAB) || AUDIT_TABS[0];
+  if(user === '__none__'){ if(r.actor) return false; } else if(user && r.actor !== user) return false;
+  if(section){ if(r.section !== section) return false; } else if(tab.sec){ if(tab.sec.indexOf(r.section) < 0) return false; } else if(r.section === '_audit_selftest') return false;
+  const opF = op || tab.op || ''; if(opF && r.op !== opF) return false;
+  if(dev && r.device_id !== dev) return false;
+  if(sus && r.via_app !== false) return false;
+  if(qtxt && !(String(r.record_label || '').toLowerCase().indexOf(qtxt) > -1 || String(r.doc_id || '').toLowerCase().indexOf(qtxt) > -1)) return false;
+  const t = new Date(r.at).getTime();
+  if(from && t < new Date(from + 'T00:00:00').getTime()) return false;
+  if(to && t > new Date(to + 'T23:59:59').getTime()) return false;
+  return auditKindOk(r, tab);
+}
+async function auditLiveRow(row){
+  const list = document.getElementById('al-list');
+  if(!list){ auditLiveStop(); return; }                                   // الأدمن خرج من تاب المراقبة
+  if(!row || !row.id) return;
+  if((row.op === 'UPDATE' && !row.changes) || (row.op === 'INSERT' && !row.new_data)){   // الحدث وصل ناقص (صف كبير) → نقرا الصف نفسه
+    try{ const { data } = await sb.from('audit_log').select('*').eq('id', row.id).maybeSingle(); if(data) row = data; }catch(e){}
+  }
+  if(AUDIT_ROWS.some(x => x.id === row.id) || !auditRowMatches(row)) return;
+  AUDIT_ROWS.unshift(row);
+  list.insertAdjacentHTML('afterbegin', auditCardHtml(row).replace('class="al-card', 'class="al-card al-fresh'));
+  const st = document.getElementById('al-status');
+  if(st) st.innerHTML = '🆕 وصلت عملية جديدة الساعة ' + auditEsc(new Date().toLocaleTimeString('ar-EG-u-nu-latn', { timeZone:'Africa/Cairo' })) + ' &nbsp;•&nbsp; 📋 ' + AUDIT_ROWS.length + ' عملية معروضة';
+}
+/* AUDIT_X_END */
+
 
 function auditEsc(v){
   return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -2572,11 +2853,20 @@ function auditFmtVal(v){
   if(v === '') return '(فاضي)';
   return String(v);
 }
-function auditPathLabel(p){
+function auditPathLabel(p, doc, sec){
+  const map = AUDIT_FIELDS_BY_SEC[sec] || {};
+  let cur = doc || null;
   return String(p).split('.').map(seg => {
     const m = seg.match(/^([^\[]+)\[(\d+)\]$/);
-    if(m) return (m[1] === 'rows' ? '' : ((AUDIT_FIELDS[m[1]] || m[1]) + ' ')) + 'صف ' + (Number(m[2]) + 1);
-    return AUDIT_FIELDS[seg] || seg;
+    if(m){
+      const k = m[1], i = Number(m[2]);
+      const node = cur && cur[k] ? cur[k][i] : undefined; cur = node;
+      if(k === 'lines') return 'خط ' + (node && node.line != null ? node.line : i + 1);
+      if((k === 'rows' || k === 'items') && node && node.article != null && node.article !== '') return 'أرتكل ' + node.article + ' (' + (k === 'items' ? 'بند ' : 'صف ') + (i + 1) + ')';
+      return (k === 'rows' ? '' : ((map[k] || AUDIT_FIELDS[k] || k) + ' ')) + 'صف ' + (i + 1);
+    }
+    cur = cur ? cur[seg] : undefined;
+    return map[seg] || AUDIT_FIELDS[seg] || seg;
   }).join(' ← ');
 }
 function auditUA(ua){
@@ -2602,7 +2892,7 @@ function auditCardHtml(r){
   let body = '';
   if(r.op === 'UPDATE' && Array.isArray(r.changes)){
     body = r.changes.map(c => {
-      const lbl = auditEsc(auditPathLabel(c.p)) + (c.l ? ` <span class="al-dim">[${auditEsc(c.l)}]</span>` : '');
+      const lbl = auditEsc(auditPathLabel(c.p, r.new_data || r.old_data, r.section)) + (c.l ? ` <span class="al-dim">[${auditEsc(c.l)}]</span>` : '');
       if(c.t === 'add') return `<div class="al-chg"><span class="al-f">${lbl}</span> اتضاف: <span class="al-new">${auditEsc(auditFmtVal(c.n))}</span></div>`;
       if(c.t === 'del') return `<div class="al-chg"><span class="al-f">${lbl}</span> اتشال — كان: <span class="al-old">${auditEsc(auditFmtVal(c.o))}</span></div>`;
       return `<div class="al-chg"><span class="al-f">${lbl}</span> كان: <span class="al-old">${auditEsc(auditFmtVal(c.o))}</span> ← بقى: <span class="al-new">${auditEsc(auditFmtVal(c.n))}</span></div>`;
@@ -2629,7 +2919,7 @@ function auditCardHtml(r){
       <span>🌐 IP: <b>${auditEsc(r.ip || '—')}</b></span>
       ${r.source ? `<span>${r.source === 'app' ? 'تطبيق' : 'ويب'}</span>` : ''}
     </div>
-    <div class="al-body">${body}${r.note ? `<div class="al-dim">ℹ️ ${auditEsc(r.note)}</div>` : ''}</div>
+    <div class="al-body">${auditBodyWithExplain(r, body)}${r.note ? `<div class="al-dim">ℹ️ ${auditEsc(r.note)}</div>` : ''}</div>
     <div class="al-foot"><span class="al-dim al-path">${auditEsc(r.path)}</span>${rest}</div>
   </div>`;
 }
@@ -2639,6 +2929,7 @@ async function renderAuditTab(){
   main.innerHTML = `
     <div class="card-box">
       <div class="section-title">🧾 المراقبة التفصيلية</div>
+      ${auditTabsHtml()}
       <div class="al-intro">كل إضافة وتعديل وحذف في النظام (وبوابة شئون الموظفين كمان): <b>الخانة</b> اللي اتعدلت، <b>كانت إيه</b> واتحط فيها <b>إيه</b>، <b>مين الحساب</b>، <b>الساعة</b>، والـ <b>IP والجهاز</b>. التسجيل بيحصل جوه قاعدة البيانات نفسها فمفيش حد يقدر يتخطاه أو يمسحه.</div>
       <div class="al-bar">
         <select id="al-user" title="الحساب"><option value="">كل الحسابات</option><option value="__none__">⚠️ مجهول (خارج التطبيق)</option>${USERS.map(u=>`<option value="${auditEsc(u.user)}">${auditEsc(u.label)}</option>`).join('')}</select>
@@ -2656,6 +2947,7 @@ async function renderAuditTab(){
         <button class="al-go alt" onclick="auditExportXlsx()">📥 تصدير Excel (أدلة)</button>
         <button class="al-go alt" onclick="auditSelfTest()">🧪 اختبار المراقبة</button>
       </div>
+      <div><span id="al-live" class="al-live off">⚪ بيتصل بالتحديث اللحظي...</span></div>
       <div id="al-status" class="al-status"></div>
       <div id="al-selftest"></div>
       <div id="al-list"></div>
@@ -2665,6 +2957,7 @@ async function renderAuditTab(){
   document.getElementById('al-from').value = iso;
   document.getElementById('al-to').value = iso;
   await loadAuditLog(false);
+  auditLiveStart();
 }
 function auditSetDevice(id){
   const el = document.getElementById('al-dev'); if(!el || !id) return;
@@ -2676,6 +2969,7 @@ async function loadAuditLog(more){
   const moreBox = document.getElementById('al-more');
   if(!status || !list) return;
   status.textContent = '⏳ بيحمّل...';
+  if(!more) AUDIT_RAW_MIN = null;
   const user = document.getElementById('al-user').value;
   const section = document.getElementById('al-section').value;
   const op = document.getElementById('al-op').value;
@@ -2687,8 +2981,10 @@ async function loadAuditLog(more){
   try{
     let q = sb.from('audit_log').select('*').order('id', {ascending:false}).limit(AUDIT_PAGE + 1);
     if(user === '__none__') q = q.is('actor', null); else if(user) q = q.eq('actor', user);
-    if(section) q = q.eq('section', section); else q = q.neq('section', '_audit_selftest');
-    if(op) q = q.eq('op', op);
+    const tab = AUDIT_TABS.find(t => t.id === AUDIT_TAB) || AUDIT_TABS[0];
+    if(section) q = q.eq('section', section); else if(tab.sec) q = q.in('section', tab.sec); else q = q.neq('section', '_audit_selftest');
+    const opF = op || tab.op || '';
+    if(opF) q = q.eq('op', opF);
     if(dev) q = q.eq('device_id', dev);
     if(sus) q = q.eq('via_app', false);
     if(qtxt) q = q.or('record_label.ilike.%' + qtxt + '%,doc_id.ilike.%' + qtxt + '%');
@@ -2700,8 +2996,10 @@ async function loadAuditLog(more){
     let rows = data || [];
     AUDIT_HAS_MORE = rows.length > AUDIT_PAGE;
     if(AUDIT_HAS_MORE) rows = rows.slice(0, AUDIT_PAGE);
+    if(rows.length) AUDIT_RAW_MIN = rows[rows.length - 1].id;
+    rows = rows.filter(r => auditKindOk(r, tab));
     AUDIT_ROWS = more ? AUDIT_ROWS.concat(rows) : rows;
-    AUDIT_MIN_ID = AUDIT_ROWS.length ? AUDIT_ROWS[AUDIT_ROWS.length - 1].id : null;
+    AUDIT_MIN_ID = AUDIT_RAW_MIN;
     const dels = AUDIT_ROWS.filter(r => r.op === 'DELETE').length;
     const susN = AUDIT_ROWS.filter(r => !r.via_app).length;
     status.innerHTML = `📋 ${AUDIT_ROWS.length} عملية${AUDIT_HAS_MORE ? '+' : ''} &nbsp;•&nbsp; 🔴 ${dels} حذف &nbsp;•&nbsp; ${susN ? '<b class="al-warn">⚠️ ' + susN + ' من خارج التطبيق</b>' : '✅ مفيش عمليات مشبوهة'}${AUDIT_HDR_OK ? '' : ' &nbsp;•&nbsp; <b class="al-warn">⚠️ السيرفر رافض هوية الحساب — جرّب 🧪 اختبار المراقبة</b>'}`;
