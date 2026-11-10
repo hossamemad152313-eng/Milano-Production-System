@@ -11051,9 +11051,10 @@ function printJardRankingRest(){
   jardPrintPaged(`MILANO SPORT SHOES — باقي الخطوط (${jardRankHallTxt()})`, `من ${from} إلى ${to}`, pages);
 }
 
-/* ---------- مقارنة فترتين: مين فاضل كويس ومين وقع ---------- */
+/* ---------- مقارنة فترتين: مين لسة مستمر ومين وقع ---------- */
+const JCMP_DROP_PTS = 3; // نزول بالنقاط يتعدّ "وقع" حتى لو لسه فوق الحد
 const JCMP_ST = {
-  good:{t:'✅ فاضل كويس',  c:'#2E6B48'},
+  good:{t:'✅ لسة مستمر',  c:'#2E6B48'},
   drop:{t:'📉 وقع',         c:'#C0392B'},
   up:{t:'📈 اتحسن',        c:'#2563a8'},
   bad:{t:'⚠️ لسه ضعيف',    c:'#B3541E'},
@@ -11082,13 +11083,14 @@ function jardComputeCompare(){
     if(!map.has(k)) map.set(k, {hall, line:l.line, supervisor:'', a:null, b:null});
     const o = map.get(k);
     o[which] = 1 - l.halakPct - l.eslahPct;
+    o['h'+which] = l.halakPct; o['e'+which] = l.eslahPct;
     if(l.supervisor) o.supervisor = l.supervisor;
   }));
   put(A, 'a'); put(B, 'b');
   const T = JARD_RANK_THRESHOLD;
   const rows = [...map.values()].map(o => {
     if(o.a === null || o.b === null) o.st = 'only';
-    else if(o.a >= T && o.b >= T) o.st = 'good';
+    else if(o.a >= T && o.b >= T) o.st = (o.b - o.a) * 100 <= -JCMP_DROP_PTS ? 'drop' : 'good';
     else if(o.a >= T && o.b < T) o.st = 'drop';
     else if(o.a < T && o.b >= T) o.st = 'up';
     else o.st = 'bad';
@@ -11138,12 +11140,15 @@ function jardCompareBlockHtml(){
     <div class="data-note" style="margin:-4px 2px 8px;">
       الفترة 1: من ${c.s.from} إلى ${c.s.to} — الفترة 2: من ${c.s.from2} إلى ${c.s.to2}.
       النسبة = 100% − هالك − إصلاح (من التسليمات). كويس = ${T}% فأكتر.
-      <b>فاضل كويس</b> = كويس في الفترتين · <b>وقع</b> = كان كويس وبقى أقل من ${T}% · <b>اتحسن</b> = العكس · <b>لسه ضعيف</b> = أقل من ${T}% في الفترتين.
+      <b>لسة مستمر</b> = كويس في الفترتين ومن غير نزول كبير · <b>وقع</b> = بقى أقل من ${T}% أو نزل ${JCMP_DROP_PTS} نقط أو أكتر · <b>اتحسن</b> = العكس · <b>لسه ضعيف</b> = أقل من ${T}% في الفترتين.
       ${c.overlap ? '<br>⚠️ الفترتين متداخلين في بعض الأيام، فالمقارنة مش دقيقة 100%.' : ''}
     </div>
     <div class="jcmp-chips">
       ${chip('', 'الكل', '#3a3a40')}${chip('drop', JCMP_ST.drop.t, JCMP_ST.drop.c)}${chip('bad', JCMP_ST.bad.t, JCMP_ST.bad.c)}${chip('good', JCMP_ST.good.t, JCMP_ST.good.c)}${chip('up', JCMP_ST.up.t, JCMP_ST.up.c)}${c.counts.only ? chip('only', JCMP_ST.only.t, JCMP_ST.only.c) : ''}
       <button type="button" class="jcmp-chip" style="background:#1e1e22" onclick="printJardCompare()">🖨️ اطبع المقارنة</button>
+    </div>
+    <div class="jcmp-chips" style="margin-top:-2px;">
+      ${['bad','good','drop','up'].filter(k => c.counts[k]).map(k => `<button type="button" class="jcmp-chip" style="background:${JCMP_ST[k].c}" onclick="printJardCompare('${k}')">🖨️ اطبع ${JCMP_ST[k].t.replace(/^\S+\s/, '')} لوحدهم (${c.counts[k]})</button>`).join('')}
     </div>
     <div class="chart-box jcmp-wrap">
       <table class="jcmp-tbl no-cards">
@@ -11161,14 +11166,39 @@ function jardClearCompare(){
   const a = document.getElementById('jf-from'), b = document.getElementById('jf-to');
   if(a && b && a.value && b.value) applyJardFilter();
 }
-function printJardCompare(){
+/* سبب الحالة بشكل مختصر لكل خط (للطباعة المستقلة) */
+function jardCmpReason(o){
+  const T = JARD_RANK_THRESHOLD * 100, pt = v => (Math.abs(v) * 100).toFixed(1);
+  const b = o.b * 100, d = o.delta;
+  const worst = (o.hb || 0) >= (o.eb || 0) ? `الهالك ${fmtPct(o.hb || 0)}` : `الإصلاح ${fmtPct(o.eb || 0)}`;
+  if(o.st === 'bad'){
+    const trend = d > 0.0005 ? 'بتتحسن بس لسه تحت الحد' : d < -0.0005 ? 'ونازلة عن الفترة الأولى' : 'ومن غير تغيير';
+    return { why: `أقل من ${T}% في الفترتين — ناقصها ${(T - b).toFixed(1)} نقطة (${trend}). أكبر سبب: ${worst}.`,
+             todo: `قلّل الهالك + الإصلاح بمقدار ${(T - b).toFixed(1)} نقطة عشان توصل ${T}%.` };
+  }
+  if(o.st === 'good'){
+    const margin = b - T;
+    const warn = (d < -0.0005 && margin < 3);
+    return { why: `فوق ${T}% في الفترتين — هامش ${margin.toFixed(1)} نقطة فوق الحد${d < -0.0005 ? ` (نزلت ${pt(d)} نقطة)` : d > 0.0005 ? ` (زادت ${pt(d)} نقطة)` : ' (ثابتة)'}.`,
+             todo: warn ? `⚠️ قريبة من الحد — راقب ${worst}.` : `كمّل بنفس المستوى: خلّي الهالك + الإصلاح أقل من ${100 - T}%.` };
+  }
+  if(o.st === 'drop'){
+    const still = b >= T;
+    return { why: `كانت ${fmtPct(o.a)} وبقت ${fmtPct(o.b)} (نزلت ${pt(d)} نقطة)${still ? ` — لسه فوق ${T}% بس نازلة` : ` — بقت تحت ${T}%`}. أكبر سبب: ${worst}.`,
+             todo: still ? `وقّف النزول: راجع ${worst} ورجّعها لمستواها (${fmtPct(o.a)}).` : `رجّعها فوق ${T}%: محتاجة ${(T - b).toFixed(1)} نقطة.` };
+  }
+  if(o.st === 'up') return { why: `كانت تحت ${T}% وبقت ${fmtPct(o.b)} (زادت ${pt(d)} نقطة).`, todo: `كمّل — حافظ على ${worst} منخفض.` };
+  return { why: '-', todo: '-' };
+}
+function printJardCompare(only){
   const c = window.__jardCmp;
   if(!c){ showToast('⚠️ حدد الفترتين الأول عشان تطبع المقارنة'); return; }
+  if(only && JCMP_ST[only]) return printJardCompareStatus(c, only);
   const T = Math.round(JARD_RANK_THRESHOLD * 100);
   const hallTxt = (typeof jardRankHallTxt === 'function') ? jardRankHallTxt() : '';
   const cols = c.multiHall ? 8 : 7;
   const summary = ['good','drop','up','bad','only'].filter(k => c.counts[k]).map(k => `${JCMP_ST[k].t}: ${c.counts[k]}`).join(' · ');
-  const note = `<div style="font-size:10.5px;margin-top:6px;line-height:1.7;">${summary}<br>النسبة = 100% − هالك − إصلاح (من التسليمات). كويس = ${T}% فأكتر. وقع = كان كويس وبقى أقل من ${T}%. اتحسن = العكس. لسه ضعيف = أقل من ${T}% في الفترتين.</div>`;
+  const note = `<div style="font-size:10.5px;margin-top:6px;line-height:1.7;">${summary}<br>النسبة = 100% − هالك − إصلاح (من التسليمات). كويس = ${T}% فأكتر. وقع = بقى أقل من ${T}% أو نزل ${JCMP_DROP_PTS} نقط أو أكتر. اتحسن = العكس. لسه ضعيف = أقل من ${T}% في الفترتين.</div>`;
   let pos = 1;
   const pages = jardSplitEven(c.rows, 12).map(chunk => {
     const body = chunk.map((o, i) => `<tr>
@@ -11186,6 +11216,38 @@ function printJardCompare(){
     </table>${note}`;
   });
   jardPrintPaged(`MILANO SPORT SHOES — مقارنة فترتين (${hallTxt})`, `الفترة 1: ${c.s.from} → ${c.s.to} | الفترة 2: ${c.s.from2} → ${c.s.to2}`, pages);
+}
+function printJardCompareStatus(c, st){
+  const T = Math.round(JARD_RANK_THRESHOLD * 100);
+  const rows = c.rows.filter(o => o.st === st);
+  if(!rows.length){ showToast('⚠️ مفيش خطوط في الحالة دي'); return; }
+  const hallTxt = (typeof jardRankHallTxt === 'function') ? jardRankHallTxt() : '';
+  const label = JCMP_ST[st].t;
+  const meaning = {
+    bad: `أقل من ${T}% في الفترتين (100% − هالك − إصلاح). المطلوب: خفض الهالك والإصلاح.`,
+    good: `${T}% أو أكتر في الفترتين ومن غير نزول كبير (أقل من ${JCMP_DROP_PTS} نقط). المطلوب: الاستمرار على نفس المستوى.`,
+    drop: `بقى أقل من ${T}% أو نزل ${JCMP_DROP_PTS} نقط أو أكتر عن الفترة الأولى.`,
+    up: `كان أقل من ${T}% وبقى ${T}% أو أكتر.`
+  }[st];
+  const cols = c.multiHall ? 8 : 7;
+  const note = `<div style="font-size:10.5px;margin-top:6px;line-height:1.7;">${label} = ${meaning}</div>`;
+  let pos = 1;
+  const pages = jardSplitEven(rows, 12).map(chunk => {
+    const body = chunk.map((o, i) => { const r = jardCmpReason(o); return `<tr>
+        <td>${pos + i}</td>${c.multiHall ? `<td>${jardEscHtml(o.hall)}</td>` : ''}<td><b>خط ${o.line}</b></td><td>${jardEscHtml(o.supervisor || '-')}</td>
+        <td>${fmtPct(o.a)}</td><td>${fmtPct(o.b)}</td>
+        <td style="text-align:right;font-size:11px;line-height:1.5;">${r.why}<br><b>${r.todo}</b></td>
+      </tr>`; }).join('');
+    pos += chunk.length;
+    return `<table class="target-print-table">
+      <thead>
+        <tr><th colspan="${cols - 1}">${label} — ${rows.length} خط</th></tr>
+        <tr><th>م</th>${c.multiHall ? '<th>الصالة</th>' : ''}<th>الخط</th><th>مشرف الخط</th><th>الفترة 1</th><th>الفترة 2</th><th style="width:48%">ليه كده / المطلوب</th></tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>${note}`;
+  });
+  jardPrintPaged(`MILANO SPORT SHOES — ${label} (${hallTxt})`, `الفترة 1: ${c.s.from} → ${c.s.to} | الفترة 2: ${c.s.from2} → ${c.s.to2}`, pages);
 }
 document.addEventListener('change', function(e){
   const id = e.target && e.target.id;
