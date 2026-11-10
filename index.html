@@ -10702,6 +10702,9 @@ function renderJardDashboardFilters(){
         <div><label>الصالة</label><select id="jf-hall" ${hallLocked?'disabled':''}>${hallOptions}</select></div>
       </div>
       <div class="grid2 full">
+        <button class="apply-btn" style="margin-top:0;background:#B3541E;" onclick="printJardRanking()">🖨️ اطبع أعلى وأقل 5 خطوط</button>
+      </div>
+      <div class="grid2 full">
         <button class="apply-btn" style="margin-top:0;background:#3a3a40;" onclick="printJardHallDetail()">🖨️ اطبع جرد الصالة</button>
         <button class="apply-btn" style="margin-top:0;background:#1e1e22;" onclick="printJardAllHallsTotals()">🖨️ اطبع إجمالي كل الصالات</button>
       </div>
@@ -10845,9 +10848,9 @@ function applyJardFilter(){
     if(!sessions.length){ results.innerHTML = '<div class="empty-state">مفيش جرد متسجل لصالة ' + hall + ' في الفترة دي.</div>'; window.__jardLines=null; return; }
     const lines = aggregateJardLines(sessions);
     const hallManager = [...sessions].sort((a,b)=>b.from.localeCompare(a.from))[0].hallManager || '';
-    results.innerHTML = jardHallBlockHtml(hall, lines, hallManager);
     window.__jardLines = {[hall]: lines};
     window.__jardHallManagers = {[hall]: hallManager};
+    results.innerHTML = jardRankingBlockHtml() + jardHallBlockHtml(hall, lines, hallManager);
     return;
   }
 
@@ -10865,6 +10868,7 @@ function applyJardFilter(){
   perHall.forEach(h => { window.__jardLines[h.hall] = h.lines; window.__jardHallManagers[h.hall] = h.hallManager; });
 
   results.innerHTML = `
+    ${jardRankingBlockHtml()}
     <div class="section-title">🏆 ترتيب الصالات (حسب نسبة نجاح الخط = عجز الإنتاج وعجز التسليمات والهالك والإصلاح)</div>
     <div class="chart-box top">
       ${perHall.map((h,i) => `
@@ -10877,6 +10881,82 @@ function applyJardFilter(){
     </div>
     ${perHall.map(h => jardHallBlockHtml(h.hall, h.lines, h.hallManager)).join('')}
   `;
+}
+/* ---------- أعلى 5 / أقل 5 خطوط (النسبة = 100% − نسبة الهالك − نسبة الإصلاح، من التسليمات) ---------- */
+function jardComputeRanking(){
+  const src = window.__jardLines;
+  if(!src) return null;
+  const all = []; let skipped = 0;
+  Object.entries(src).forEach(([hall, lines]) => (lines||[]).forEach(l => {
+    if(!(l.deliveries > 0)){ skipped++; return; }
+    all.push({
+      hall, line:l.line, supervisor:l.supervisor||'', deliveries:l.deliveries,
+      halak:l.halak, eslah:l.eslah, halakPct:l.halakPct, eslahPct:l.eslahPct,
+      goodQty: l.deliveries - l.halak - l.eslah,
+      rate: 1 - l.halakPct - l.eslahPct
+    });
+  }));
+  if(!all.length) return null;
+  all.sort((a,b) => (b.rate - a.rate) || (b.deliveries - a.deliveries));
+  const topN = Math.min(5, all.length);
+  const top = all.slice(0, topN);
+  const bottom = all.slice(Math.max(topN, all.length - 5)).reverse();
+  return {top, bottom, total: all.length, skipped, multiHall: Object.keys(src).length > 1};
+}
+function jardRateColor(r){ return r >= 0.95 ? 'var(--green)' : r >= 0.8 ? 'var(--amber-dark)' : 'var(--red)'; }
+function jardRankingBlockHtml(){
+  const r = jardComputeRanking();
+  if(!r) return '';
+  const row = (x, i, good) => `
+    <div class="jrk-row">
+      <div class="jrk-pos ${good?'g':'r'}">${i+1}</div>
+      <div class="jrk-main">
+        <div class="jrk-name">خط ${x.line}${r.multiHall ? ` <span class="jrk-hall">— ${jardEscHtml(x.hall)}</span>` : ''}${x.supervisor ? ` <span class="jrk-hall">· ${jardEscHtml(x.supervisor)}</span>` : ''}</div>
+        <div class="jrk-sub">تسليمات ${fmtNum(x.deliveries)} · هالك ${fmtNum(x.halak)} (${fmtPct(x.halakPct)}) · إصلاح ${fmtNum(x.eslah)} (${fmtPct(x.eslahPct)})</div>
+        <div class="cbar-track" style="height:8px;"><div class="cbar-fill ${good?'g':'r'}" style="width:${Math.max(2,Math.min(100,x.rate*100))}%"></div></div>
+      </div>
+      <div class="jrk-rate" style="color:${jardRateColor(x.rate)}">${fmtPct(x.rate)}</div>
+    </div>`;
+  return `
+    <div class="section-title">🏅 أعلى ${r.top.length} وأقل ${r.bottom.length} خطوط <span class="count">من ${r.total} خط</span></div>
+    <div class="data-note" style="margin:-4px 2px 8px;">النسبة = 100% − نسبة الهالك − نسبة الإصلاح (كل نسبة من التسليمات).${r.skipped ? ` اتستبعد ${r.skipped} خط بدون تسليمات في الفترة.` : ''}${r.total < 10 ? ' عدد الخطوط أقل من 10 فتم توزيعها بين القائمتين.' : ''}</div>
+    <div class="jrk-grid">
+      <div class="chart-box top"><h4>🏆 أعلى ${r.top.length} خطوط</h4>${r.top.map((x,i)=>row(x,i,true)).join('')}</div>
+      <div class="chart-box bottom"><h4>⚠️ أقل ${r.bottom.length} خطوط</h4>${r.bottom.map((x,i)=>row(x,i,false)).join('')}</div>
+    </div>`;
+}
+function printJardRanking(){
+  const from = document.getElementById('jf-from').value;
+  const to = document.getElementById('jf-to').value;
+  if(!from || !to){ showToast('⚠️ حدد من تاريخ وإلى تاريخ الأول'); return; }
+  const r = jardComputeRanking();
+  if(!r){ showToast('⚠️ مفيش خطوط بتسليمات في الفترة دي تتطبع'); return; }
+  const hallSel = document.getElementById('jf-hall').value;
+  const tbl = (title, arr) => `
+    <table class="target-print-table" style="margin-bottom:14px;">
+      <thead>
+        <tr><th colspan="11">${title}</th></tr>
+        <tr><th>الترتيب</th><th>الصالة</th><th>الخط</th><th>مشرف الخط</th><th>التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>التسليم السليم</th><th>النسبة النهائية</th></tr>
+      </thead>
+      <tbody>
+        ${arr.map((x,i)=>`<tr>
+          <td>${i+1}</td><td>${jardEscHtml(x.hall)}</td><td><b>خط ${x.line}</b></td><td>${jardEscHtml(x.supervisor||'-')}</td>
+          <td>${fmtNum(x.deliveries)}</td><td>${fmtNum(x.halak)}</td><td>${fmtPct(x.halakPct)}</td>
+          <td>${fmtNum(x.eslah)}</td><td>${fmtPct(x.eslahPct)}</td><td>${fmtNum(x.goodQty)}</td><td><b>${fmtPct(x.rate)}</b></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  const bodyHtml = tbl(`🏆 أعلى ${r.top.length} خطوط`, r.top) + tbl(`⚠️ أقل ${r.bottom.length} خطوط`, r.bottom)
+    + `<div style="font-size:11px;margin-top:4px;">النسبة النهائية = 100% − نسبة الهالك − نسبة الإصلاح (من التسليمات)</div>`;
+  const hallTxt = hallSel === '__ALL__' ? 'كل الصالات' : hallSel;
+  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(`MILANO SPORT SHOES — أعلى وأقل 5 خطوط (${hallTxt})`, `من ${from} إلى ${to}`, bodyHtml);
+  document.body.classList.add('print-rank-only');
+  document.getElementById('print-rank-output').classList.add('landscape-mode');
+  window.print();
+  setTimeout(()=>{
+    document.body.classList.remove('print-rank-only');
+    document.getElementById('print-rank-output').classList.remove('landscape-mode');
+  }, 800);
 }
 function exportJardExcel(){
   if(!window.__jardLines){ showToast('⚠️ مفيش بيانات تتصدّر'); return; }
@@ -14969,6 +15049,19 @@ html body .hpx-lrow{ margin-top:4px; }
 html body .hpx-lrow .line-badge{ background:var(--navy); color:#fff; font-weight:800; font-size:11px; padding:5px 0; border-radius:999px; text-align:center; }
 html body .hpx-lrow input{ width:100% !important; height:28px !important; min-height:0 !important; padding:2px 4px !important; font-size:12px !important; font-weight:700; text-align:center; border-radius:999px !important; border:1.5px solid var(--amber) !important; }
 @media (max-width:700px){ html body .hpx-halls{ grid-template-columns:1fr; } }
+</style>
+<style id="jrk-css">
+.jrk-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+@media (max-width:700px){ .jrk-grid{ grid-template-columns:1fr; } }
+.jrk-row{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); }
+.jrk-row:last-child{ border-bottom:0; }
+.jrk-pos{ flex:0 0 26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; color:#fff; }
+.jrk-pos.g{ background:var(--green); } .jrk-pos.r{ background:var(--red); }
+.jrk-main{ flex:1; min-width:0; }
+.jrk-name{ font-size:13px; font-weight:800; }
+.jrk-hall{ font-weight:600; color:var(--muted); font-size:11px; }
+.jrk-sub{ font-size:10.5px; color:var(--muted); margin:2px 0 4px; }
+.jrk-rate{ flex:0 0 auto; font-size:16px; font-weight:800; font-family:'JetBrains Mono',monospace; }
 </style>
 <script>
 /* عرض النتيجة تلقائي أول ما تتغير الفترة أو الصالة في كل تابات الفلاتر (بيانات محلية، من غير قراءات زيادة) */
