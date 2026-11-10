@@ -11122,6 +11122,8 @@ function jardCompareBlockHtml(){
   if(c.bad) return '<div class="data-note jcmp-notice" id="jcmp-result">⚠️ تاريخ بداية الفترة التانية أكبر من تاريخ نهايتها.</div>';
   if(c.noB) return '<div class="data-note jcmp-notice" id="jcmp-result">⚖️ مفيش جرد متسجل في الفترة التانية (للصالة المختارة)، فبيعرض الفترة الأولى بس.</div>';
   window.__jardCmp = c;
+  window.__jcmpSel = '';
+  setTimeout(() => { try{ jardCmpFilter(''); }catch(e){} }, 0);
   const T = Math.round(JARD_RANK_THRESHOLD * 100);
   const chip = (st, label, color) => `<button type="button" class="jcmp-chip" style="background:${color}" data-st="${st}" onclick="jardCmpFilter('${st}')">${label} (${st === '' ? c.rows.length : c.counts[st]})</button>`;
   const rowsHtml = c.rows.map(o => `
@@ -11144,11 +11146,8 @@ function jardCompareBlockHtml(){
       ${c.overlap ? '<br>⚠️ الفترتين متداخلين في بعض الأيام، فالمقارنة مش دقيقة 100%.' : ''}
     </div>
     <div class="jcmp-chips">
-      ${chip('', 'الكل', '#3a3a40')}${chip('drop', JCMP_ST.drop.t, JCMP_ST.drop.c)}${chip('bad', JCMP_ST.bad.t, JCMP_ST.bad.c)}${chip('good', JCMP_ST.good.t, JCMP_ST.good.c)}${chip('up', JCMP_ST.up.t, JCMP_ST.up.c)}${c.counts.only ? chip('only', JCMP_ST.only.t, JCMP_ST.only.c) : ''}
-      <button type="button" class="jcmp-chip" style="background:#1e1e22" onclick="printJardCompare()">🖨️ اطبع المقارنة</button>
-    </div>
-    <div class="jcmp-chips" style="margin-top:-2px;">
-      ${['bad','good','drop','up'].filter(k => c.counts[k]).map(k => `<button type="button" class="jcmp-chip" style="background:${JCMP_ST[k].c}" onclick="printJardCompare('${k}')">🖨️ اطبع ${JCMP_ST[k].t.replace(/^\S+\s/, '')} لوحدهم (${c.counts[k]})</button>`).join('')}
+      ${chip('', 'الكل', '#3a3a40')}${['drop','bad','good','up'].filter(k => c.counts[k]).map(k => chip(k, JCMP_ST[k].t, JCMP_ST[k].c)).join('')}${c.counts.only ? chip('only', JCMP_ST.only.t, JCMP_ST.only.c) : ''}
+      <button type="button" class="jcmp-chip jcmp-print" title="اطبع اللي أنت محدده" aria-label="طباعة" onclick="printJardCompareSelected()">🖨️</button>
     </div>
     <div class="chart-box jcmp-wrap">
       <table class="jcmp-tbl no-cards">
@@ -11157,9 +11156,19 @@ function jardCompareBlockHtml(){
       </table>
     </div>`;
 }
+window.__jcmpSel = '';
+function printJardCompareSelected(){
+  const st = window.__jcmpSel || '';
+  if(!st) return printJardCompareSummary();            // الكل → ملخص صفحة واحدة
+  const c = window.__jardCmp;
+  if(!c){ showToast('⚠️ حدد الفترتين الأول عشان تطبع'); return; }
+  if(st === 'only') return printJardCompareSummary('only');
+  return printJardCompareStatus(c, st);                // الحالة المحددة بس
+}
 function jardCmpFilter(st){
+  window.__jcmpSel = st || '';
   document.querySelectorAll('.jcmp-tbl tbody tr').forEach(tr => { tr.style.display = (!st || tr.dataset.st === st) ? '' : 'none'; });
-  document.querySelectorAll('.jcmp-chip[data-st]').forEach(b => { b.classList.toggle('on', b.dataset.st === st); });
+  document.querySelectorAll('.jcmp-chip[data-st]').forEach(b => { b.classList.toggle('on', b.dataset.st === (st || '')); });
 }
 function jardClearCompare(){
   ['jf-cmp-from','jf-cmp-to'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
@@ -11216,6 +11225,59 @@ function printJardCompare(only){
     </table>${note}`;
   });
   jardPrintPaged(`MILANO SPORT SHOES — مقارنة فترتين (${hallTxt})`, `الفترة 1: ${c.s.from} → ${c.s.to} | الفترة 2: ${c.s.from2} → ${c.s.to2}`, pages);
+}
+/* ملخص كل الحالات في ورقة واحدة بالطول (A4 portrait) */
+function printJardCompareSummary(onlySt){
+  const c = window.__jardCmp;
+  if(!c){ showToast('⚠️ حدد الفترتين الأول عشان تطبع الملخص'); return; }
+  const T = Math.round(JARD_RANK_THRESHOLD * 100);
+  const hallTxt = (typeof jardRankHallTxt === 'function') ? jardRankHallTxt() : '';
+  const info = {
+    drop: `بقى أقل من ${T}% أو نزل ${JCMP_DROP_PTS} نقط أو أكتر — المطلوب: وقّف النزول وراجع الهالك والإصلاح`,
+    bad:  `أقل من ${T}% في الفترتين — المطلوب: خفض الهالك والإصلاح`,
+    good: `${T}% أو أكتر ومن غير نزول كبير — المطلوب: كمّل بنفس المستوى (الهالك + الإصلاح أقل من ${100 - T}%)`,
+    up:   `كان أقل من ${T}% وبقى ${T}% أو أكتر — المطلوب: حافظ على التحسن`,
+    only: 'موجود في فترة واحدة بس'
+  };
+  const groups = ['drop','bad','good','up','only'].filter(k => c.counts[k] && (!onlySt || k === onlySt));
+  const n = c.rows.length + groups.length;
+  const fs = n <= 30 ? 11.5 : n <= 40 ? 10 : n <= 52 ? 9 : 8;
+  const cols = c.multiHall ? 6 : 5;
+  const body = groups.map(k => {
+    const rs = c.rows.filter(o => o.st === k);
+    return `<tr><td colspan="${cols}" style="background:${JCMP_ST[k].c};color:#fff;text-align:right;font-weight:800;">${JCMP_ST[k].t} (${rs.length}) <span style="font-weight:600;font-size:.85em;">— ${info[k]}</span></td></tr>` +
+      rs.map(o => `<tr>${c.multiHall ? `<td>${jardEscHtml(o.hall)}</td>` : ''}<td><b>خط ${o.line}</b></td><td>${jardEscHtml(o.supervisor || '-')}</td>
+        <td>${o.a === null ? '-' : fmtPct(o.a)}</td><td>${o.b === null ? '-' : fmtPct(o.b)}</td>
+        <td style="color:${jardDeltaColor(o.delta)};"><b>${jardDeltaTxt(o.delta)}</b></td></tr>`).join('');
+  }).join('');
+  const summary = groups.map(k => `${JCMP_ST[k].t}: ${c.counts[k]}`).join(' · ');
+  const html = `<div class="jsum-page" style="--fs:${fs}px;">
+    ${buildPrintHeader(`MILANO SPORT SHOES — ملخص المقارنة (${hallTxt})`, `الفترة 1: ${c.s.from} → ${c.s.to} | الفترة 2: ${c.s.from2} → ${c.s.to2}`)}
+    <div class="jsum-count">${summary}</div>
+    <table class="target-print-table jsum-tbl"><thead><tr>${c.multiHall ? '<th>الصالة</th>' : ''}<th>الخط</th><th>مشرف الخط</th><th>الفترة 1</th><th>الفترة 2</th><th>الفرق (نقطة)</th></tr></thead><tbody>${body}</tbody></table>
+    <div class="jsum-note">النسبة = 100% − هالك − إصلاح (من التسليمات). الحد = ${T}%.</div>
+  </div>`;
+  const out = document.getElementById('print-rank-output');
+  out.innerHTML = html;
+  document.body.classList.add('print-rank-only');
+  out.classList.add('jsum-print');
+  /* ضغط تلقائي: نصغّر الخط والمسافات لحد ما كل الصفوف تدخل الورقة */
+  const pg = out.querySelector('.jsum-page');
+  out.style.display = 'block';
+  let f = fs, pad = 3;
+  /* تكبير تلقائي: نكبّر الخط والمسافات لحد ما الجدول يملا الورقة لتحت */
+  pg.style.setProperty('--fs', f + 'px'); pg.style.setProperty('--pad', pad + 'px');
+  while(pg.scrollHeight <= pg.clientHeight + 1 && f < 16){
+    f += 0.5; if(pad < 8) pad += 0.25;
+    pg.style.setProperty('--fs', f + 'px'); pg.style.setProperty('--pad', pad + 'px');
+  }
+  while(pg.scrollHeight > pg.clientHeight + 1 && f > 4){
+    f -= 0.5; if(pad > 0.5) pad -= 0.25;
+    pg.style.setProperty('--fs', f + 'px'); pg.style.setProperty('--pad', pad + 'px');
+  }
+  out.style.display = '';
+  window.print();
+  setTimeout(()=>{ document.body.classList.remove('print-rank-only'); out.classList.remove('jsum-print'); }, 800);
 }
 function printJardCompareStatus(c, st){
   const T = Math.round(JARD_RANK_THRESHOLD * 100);
@@ -15374,6 +15436,7 @@ html body .hpx-lrow input{ width:100% !important; height:28px !important; min-he
 .jcmp-head span{ font-weight:600; font-size:11px; color:var(--muted); }
 .jcmp-chips{ display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
 .jcmp-chip{ border:2px solid transparent; border-radius:999px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer; color:#fff; font-family:inherit; }
+.jcmp-print{ background:#1e1e22; font-size:16px; padding:4px 14px; margin-inline-start:auto; }
 .jcmp-chip.on{ border-color:#fff; box-shadow:0 0 0 2px #0E0E10; }
 .jcmp-wrap{ overflow-x:auto; }
 .jcmp-tbl{ width:100%; border-collapse:collapse; font-size:12px; }
@@ -15381,6 +15444,15 @@ html body .hpx-lrow input{ width:100% !important; height:28px !important; min-he
 .jcmp-st{ display:inline-block; color:#fff; border-radius:999px; padding:3px 10px; font-size:11px; font-weight:800; }
 /* ===== طباعة متعددة الأوراق (الباقي + المقارنة): كل ورقة بنفس الشكل والجدول في نصها ===== */
 @media print{
+  #print-rank-output.jsum-print{ padding:0 !important; }
+  #print-rank-output.jsum-print .jsum-page{ }
+  #print-rank-output.jsum-print .jsum-page{ box-sizing:border-box; width:190mm; max-width:100%; margin:0 auto; height:250mm; overflow:hidden; padding:2mm 4mm 0; }
+  #print-rank-output.jsum-print .print-header{ margin-bottom:6px; padding-bottom:6px; }
+  #print-rank-output.jsum-print .jsum-count{ font-size:calc(var(--fs) + 1px); font-weight:800; text-align:center; margin-bottom:6px; }
+  #print-rank-output.jsum-print table.jsum-tbl{ width:100%; margin:0 !important; box-shadow:none; }
+  #print-rank-output.jsum-print table.jsum-tbl th{ font-size:var(--fs) !important; padding:var(--pad,3px) 6px !important; }
+  #print-rank-output.jsum-print table.jsum-tbl td{ font-size:var(--fs) !important; padding:var(--pad,3px) 6px !important; font-weight:700; line-height:1.25; }
+  #print-rank-output.jsum-print .jsum-note{ font-size:10px; margin-top:5px; text-align:center; }
   #print-rank-output.jrk-paged{ padding:0 !important; }
   #print-rank-output.jrk-paged .jrk-page{ box-sizing:border-box; height:178mm; padding:4mm 9mm 0; display:flex; flex-direction:column; break-after:page; page-break-after:always; }
   #print-rank-output.jrk-paged .jrk-page:last-child{ break-after:auto; page-break-after:auto; }
