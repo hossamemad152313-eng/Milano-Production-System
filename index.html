@@ -11911,7 +11911,8 @@ async function printJardHallDetail(){
       <td class="maint-td">${fmtMaintCell(l.needles, l.maintOther)}</td>
     </tr>`).join('');
   const bodyHtml = `
-    <table class="target-print-table">
+    <table class="target-print-table jard-all-tbl">
+      <colgroup><col style="width:7%"><col style="width:9%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:5.5%"><col style="width:12.5%"></colgroup>
       <thead>
         <tr><th colspan="16">${hall}${jardHallManagerOf(hall) ? ' — مدير الصالة: ' + jardEscHtml(withOstaz(jardHallManagerOf(hall))) : ''}</th></tr>
         <tr><th>الخط</th><th>مشرف الخط</th><th>تارجت الإنتاج</th><th>الإنتاج</th><th>عجز الإنتاج</th><th>نسبة عجز الإنتاج</th><th>عجز الوقت</th><th>التسليمات</th><th>تارجت التسليم</th><th>عجز التسليمات</th><th>الهالك</th><th>نسبة الهالك</th><th>الإصلاح</th><th>نسبة الإصلاح</th><th>نسبة النجاح</th><th class="maint-th">صيانة</th></tr>
@@ -11938,7 +11939,10 @@ async function printJardHallDetail(){
     </table>`;
   const __hid = await jardPickPrintColumns('detail', bodyHtml);
   if(__hid === null) return;
-  document.getElementById('print-rank-output').innerHTML = buildPrintLayout(`MILANO SPORT SHOES — جرد ${hall}`, `من ${from} إلى ${to}`, jardPrintFilterCols(bodyHtml, __hid));
+  const __layoutHtml = buildPrintLayout(`MILANO SPORT SHOES — جرد ${hall}`, `من ${from} إلى ${to}`, jardPrintFilterCols(bodyHtml, __hid));
+  const __fitPx = await jardFitAllHallsFont(__layoutHtml);
+  document.getElementById('print-rank-output').innerHTML = __layoutHtml;
+  if(__fitPx){ const __t = document.querySelector('#print-rank-output table.jard-all-tbl'); if(__t) __t.style.setProperty('--jf', __fitPx + 'px'); }
   document.body.classList.add('print-rank-only');
   document.getElementById('print-rank-output').classList.add('landscape-mode');
   window.print();
