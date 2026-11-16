@@ -1018,8 +1018,12 @@ input[type="number"], input[type="text"], input[type="date"], select{
   #conn-banner, #login-help, .login-err, #saving-indicator, .saving-indicator, .toast{ display:none !important; }
 }
 #print-rank-output table.target-print-table.jard-all-tbl{ table-layout:fixed !important; width:100% !important; min-width:0 !important; }
-#print-rank-output table.jard-all-tbl th, #print-rank-output table.jard-all-tbl td{ min-width:0 !important; overflow-wrap:anywhere; font-size:var(--jf,11px) !important; padding:calc(var(--jf,11px)*.42) calc(var(--jf,11px)*.3) !important; line-height:1.3 !important; }
+#print-rank-output table.jard-all-tbl th, #print-rank-output table.jard-all-tbl td{ min-width:0 !important; overflow-wrap:normal !important; word-break:keep-all !important; hyphens:none !important; font-size:var(--jf,11px) !important; padding:calc(var(--jf,11px)*.42*var(--jv,1)) calc(var(--jf,11px)*.3) !important; line-height:1.3 !important; }
 #print-rank-output table.jard-all-tbl thead tr:first-child th{ font-size:calc(var(--jf,11px)*1.1) !important; }
+/* أرقام الجدول أكبر وأتقل من العناوين (الأرقام قصيرة فبتتسع، والعناوين هي اللي بتحدد المقاس) */
+#print-rank-output table.jard-all-tbl td{ font-size:calc(var(--jf,11px)*1.28) !important; font-weight:800 !important; color:#000 !important; }
+#print-rank-output table.jard-all-tbl thead tr:nth-child(2) th{ font-size:var(--jf,11px) !important; font-weight:800 !important; }
+#print-rank-output table.jard-all-tbl td b{ font-weight:900 !important; }
 #print-rank-output table.jard-all-tbl th.hall-th, #print-rank-output table.jard-all-tbl td.hall-td,
 #print-rank-output table.jard-all-tbl th.maint-th, #print-rank-output table.jard-all-tbl td.maint-td{ min-width:0 !important; width:auto !important; }
 #print-rank-output table.jard-all-tbl .hall-mgr, #print-rank-output table.jard-all-tbl td.maint-td .maint-extra{ font-size:calc(var(--jf,11px)*.82) !important; margin-top:1px !important; }
@@ -11942,7 +11946,7 @@ async function printJardHallDetail(){
   const __layoutHtml = buildPrintLayout(`MILANO SPORT SHOES — جرد ${hall}`, `من ${from} إلى ${to}`, jardPrintFilterCols(bodyHtml, __hid));
   const __fitPx = await jardFitAllHallsFont(__layoutHtml);
   document.getElementById('print-rank-output').innerHTML = __layoutHtml;
-  if(__fitPx){ const __t = document.querySelector('#print-rank-output table.jard-all-tbl'); if(__t) __t.style.setProperty('--jf', __fitPx + 'px'); }
+  if(__fitPx){ const __t = document.querySelector('#print-rank-output table.jard-all-tbl'); if(__t){ __t.style.setProperty('--jf', __fitPx + 'px'); __t.style.setProperty('--jv', window.__jardFitV || 1); } }
   document.body.classList.add('print-rank-only');
   document.getElementById('print-rank-output').classList.add('landscape-mode');
   window.print();
@@ -11972,14 +11976,38 @@ async function jardFitAllHallsFont(layoutHtml){
     try{ await Promise.race([fdoc.fonts ? fdoc.fonts.ready : Promise.resolve(), new Promise(r => setTimeout(r, 600))]); }catch(e){}
     const out = fdoc.getElementById('print-rank-output'), tbl = fdoc.querySelector('table.jard-all-tbl');
     if(!out || !tbl) return null;
-    const heightAt = v => { tbl.style.setProperty('--jf', v + 'px'); return out.getBoundingClientRect().height; };
-    if(heightAt(MAX) <= MAXH) return MAX;
+    // الشرط: الجدول يتسع في الورقة + ولا كلمة (عنوان أو رقم) تتقطع أو تطلع بره عمودها
+    const cells = Array.from(tbl.querySelectorAll('th, td'));
+    const fitsAt = v => {
+      tbl.style.setProperty('--jf', v + 'px');
+      if(out.getBoundingClientRect().height > MAXH) return false;
+      for(const c of cells){ if(c.scrollWidth > c.clientWidth + 0.5) return false; }
+      return true;
+    };
+    window.__jardFitV = 1;
+    // بعد ما نختار الخط: لو الجدول أقصر من الصفحة (صفوف قليلة) بنمد ارتفاع الصفوف (--jv) عشان الجدول ياخد الصفحة بدل الفراغ الأبيض
+    const stretch = fontPx => {
+      tbl.style.setProperty('--jf', fontPx + 'px');
+      const SH = 640; // سيب مكان للوجو اللي تحت
+      let a = 1, b = 3.2, bestV = 1;
+      tbl.style.setProperty('--jv', 1);
+      if(out.getBoundingClientRect().height >= SH) return;
+      for(let i = 0; i < 9; i++){
+        const m = (a + b) / 2;
+        tbl.style.setProperty('--jv', m);
+        if(out.getBoundingClientRect().height <= SH){ bestV = m; a = m; } else { b = m; }
+      }
+      window.__jardFitV = Math.round(bestV * 100) / 100;
+    };
+    if(fitsAt(MAX)){ stretch(MAX); return MAX; }
     let lo = MIN, hi = MAX, best = MIN;
-    for(let i = 0; i < 7; i++){
+    for(let i = 0; i < 9; i++){
       const mid = (lo + hi) / 2;
-      if(heightAt(mid) <= MAXH){ best = mid; lo = mid; } else { hi = mid; }
+      if(fitsAt(mid)){ best = mid; lo = mid; } else { hi = mid; }
     }
-    return Math.floor(best * 4) / 4;
+    const fin = Math.floor(best * 4) / 4;
+    stretch(fin);
+    return fin;
   }catch(e){ return null; }
   finally{ if(frame) frame.remove(); }
 }
@@ -12058,7 +12086,7 @@ async function printJardAllHallsTotals(){
   const layoutHtml = buildPrintLayout('MILANO SPORT SHOES — إجمالي الجرد لكل الصالات', `من ${from} إلى ${to}`, jardPrintFilterCols(bodyHtml, __hid));
   const fitPx = await jardFitAllHallsFont(layoutHtml);
   document.getElementById('print-rank-output').innerHTML = layoutHtml;
-  if(fitPx){ const tblEl = document.querySelector('#print-rank-output table.jard-all-tbl'); if(tblEl) tblEl.style.setProperty('--jf', fitPx + 'px'); }
+  if(fitPx){ const tblEl = document.querySelector('#print-rank-output table.jard-all-tbl'); if(tblEl){ tblEl.style.setProperty('--jf', fitPx + 'px'); tblEl.style.setProperty('--jv', window.__jardFitV || 1); } }
   document.body.classList.add('print-rank-only');
   document.getElementById('print-rank-output').classList.add('landscape-mode');
   window.print();
