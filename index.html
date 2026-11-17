@@ -7279,7 +7279,7 @@ function bpFitPage(out){
   }catch(e){}
 }
 function bpRibbon(){ return '<div class="bp-ribbon"><em>ميلانو .. دائماً في القمة</em><b>أداء متميز ... استمروا في تحقيق المزيد من النجاح</b><span class="bp-rb-star">' + BP_STAR + '</span></div>'; }
-function printBestPerf(){
+function printBestPerfLegacy(){
   const from = document.getElementById('bf-from').value;
   const to = document.getElementById('bf-to').value;
   const hall = document.getElementById('bf-hall').value;
@@ -7380,6 +7380,7 @@ function printBestPerf(){
       ${bpRibbon()}
     </section>
   `;
+  if(window.__ppBuildOnly){ window.__ppData = {rankedDelivery, deliveryRanks, from, to, hallLabel, n:rows.length, totalTarget, totalActual, totalHalak, totalEslah, halakTotPct, eslahTotPct, totalAchPct, totalQualityPct, rankedQuality, qualityRanks}; return; }
   if(window.__bpShot){ window.__bpShot = false; jardShotCapture(out, 'أداء-الصالات').finally(() => { out.className = ''; }); return; }
   bpFitPage(out);
   document.body.classList.add('print-rank-only');
@@ -7387,15 +7388,134 @@ function printBestPerf(){
   setTimeout(()=>{ document.body.classList.remove('print-rank-only'); out.className = ''; }, 800);
 }
 
+
+/* ===== طباعة أفضل أداء بنفس تصميم بوستر 🏆 داخل الإطار (ورقة واحدة) + الشرائح والـKPIs ===== */
+function ppDetails(chips, kpis){
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const ch = chips.map(c => `<span class="pp-chip"><em>${c[0]}</em>${esc(c[1])}</span>`).join('');
+  const kp = kpis.map(k => k.ring != null
+    ? `<div class="pp-kpi"><div class="pp-ring"><svg viewBox="0 0 74 74" width="74" height="74"><circle cx="37" cy="37" r="33" fill="#0a0a0b" stroke="#3a3a42" stroke-width="8"/><circle cx="37" cy="37" r="33" fill="none" stroke="#fbc443" stroke-width="8" stroke-dasharray="${(Math.max(0,Math.min(1,k.ring||0))*207.35).toFixed(2)} 207.35" transform="rotate(-90 37 37)"/></svg><span>${fmtPct(k.ring)}</span></div><div class="pp-kpi-l">${k.l}</div></div>`
+    : `<div class="pp-kpi"><div class="pp-kpi-v">${k.v}</div><div class="pp-kpi-l">${k.l}${k.sub ? ` <u>${k.sub}</u>` : ''}</div></div>`).join('');
+  return `<div class="pp-chips">${ch}</div><div class="pp-kpis" style="grid-template-columns:repeat(${kpis.length},1fr)">${kp}</div>`;
+}
+function ppQualityHtml(rows, ranks){
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const pill = l => `<span class="pq-pill pq-t-${bpTier(l)}">${bpRankInner(l)}</span>`;
+  const clamp = v => Math.max(0, Math.min(1, v || 0));
+  const top = rows.slice(0,3);
+  const order = top.length === 3 ? [1,0,2] : top.map((_,i)=>i);
+  const pod = top.length ? `<div class="pq-podium">${order.map(i => `<div class="pq-pod pq-p${i+1}"><div class="pq-medal">${i+1}</div><div class="pq-ph">${esc(bpHallName(top[i].hall))}</div><div class="pq-pp">${fmtPct(top[i].qualityPct)}</div><div class="pq-ps">هالك <bdi dir="ltr">${fmtPct(top[i].halakPct)}</bdi> · إصلاح <bdi dir="ltr">${fmtPct(top[i].eslahPct)}</bdi></div>${pill(ranks[i])}</div>`).join('')}</div>` : '';
+  const body = rows.map((r,i) => `<tr class="${bpTier(ranks[i]) === 'ex' ? 'pq-ex' : ''}"><td>${pill(ranks[i])}</td><td>${esc(bpHallName(r.hall))}</td><td>${fmtNum(r.actualDeliveries)}</td><td class="pq-neg">${fmtNum(r.totalHalak)}</td><td class="pq-neg">${fmtNum(r.totalEslah)}</td><td>${fmtPct(r.halakPct)}</td><td>${fmtPct(r.eslahPct)}</td><td class="pq-m"><div class="pq-bar"><i style="width:${(clamp(r.qualityPct)*100).toFixed(1)}%"></i></div><b>${fmtPct(r.qualityPct)}</b></td></tr>`).join('');
+  return `<div class="pq"><div class="pq-title"><span>✅</span> أفضل أداء للجودة</div>${pod}<table class="pq-table"><thead><tr><th>المركز</th><th>الصالة</th><th>التسليمات</th><th>الهالك</th><th>الإصلاح</th><th>نسبة الهالك</th><th>نسبة الإصلاح</th><th>نسبة الجودة</th></tr></thead><tbody>${body || '<tr><td colspan="8">مفيش بيانات جودة</td></tr>'}</tbody></table></div>`;
+}
+function ppStretch(box, extra){
+  const trs = [...box.querySelectorAll('.dp-tr')];
+  const qn = box.querySelectorAll('.pq-table tbody tr').length;
+  const dAdd = trs.length ? Math.max(0, Math.min(44, Math.floor(extra * 0.5 / trs.length))) : 0;
+  const qAdd = qn ? Math.max(0, Math.min(44, Math.floor(extra * 0.5 / qn))) : 0;
+  if(dAdd){
+    const dp = box.querySelector('.dp'), tb = box.querySelector('.dp-tb'), d = dAdd * trs.length;
+    trs.forEach(tr => { tr.style.height = (tr.offsetHeight + dAdd) + 'px'; });
+    if(dp) dp.style.height = (dp.offsetHeight + d) + 'px';
+    if(tb) tb.style.height = (tb.offsetHeight + d) + 'px';
+    box.querySelectorAll('.dp-side').forEach(el => { el.style.height = (el.offsetHeight + d) + 'px'; });
+  }
+  if(qAdd) box.style.setProperty('--qa', qAdd + 'px');
+}
+async function ppPrintSheets(posterHtml, extraHtml, details, footHtml, shotName){
+  const out = document.getElementById('print-rank-output');
+  out.className = 'pp-print';
+  out.innerHTML = `<section class="pp-sheet"><div class="pp-box">${posterHtml}${extraHtml || ''}<div class="pp-det">${details}</div>${footHtml || ''}</div></section>`;
+  try{ if(document.fonts && document.fonts.ready) await document.fonts.ready; }catch(e){}
+  await Promise.all([...out.querySelectorAll('img')].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; setTimeout(r, 1500); })));
+  const box = out.querySelector('.pp-box');
+  const prev = out.getAttribute('style');
+  out.style.cssText = 'display:block !important;position:absolute;left:-99999px;top:0;width:1536px;';
+  const h = box.offsetHeight;
+  const zW = 752/1536, z = Math.min(zW, 1076/h);
+  if(z === zW && 1080/zW > h) ppStretch(box, 1080/zW - h); // نكبّر صفوف الجداول الأول عشان الفراغات الأبيض تقلّ، والباقي يتوزع بين الأقسام
+  if(prev === null) out.removeAttribute('style'); else out.setAttribute('style', prev);
+  if(shotName){ await ppShotSheet(out, box, h, 1080/zW, shotName); return; }
+  if(z === zW){ // فاضل مساحة في الطول: نمدّ الصندوق على ارتفاع الإطار كله ونوزّع الفراغ بين الأقسام، والبانر يلزق في آخر الإطار
+    box.classList.add('pp-fill');
+    box.style.height = (1080/z) + 'px';
+  }
+  box.style.zoom = String(z);
+  document.body.classList.add('print-rank-only');
+  window.print();
+  setTimeout(()=>{ document.body.classList.remove('print-rank-only'); out.className = ''; }, 800);
+}
+/* نفس ورقة الطباعة بالظبط (الإطار المنحني + نفس الترتيب + نفس ملء الفراغات) لكن كصورة PNG للواتساب */
+async function ppShotSheet(out, box, h, fillH, name){
+  const sheet = out.querySelector('.pp-sheet');
+  const prevStyle = out.getAttribute('style');
+  const reset = () => { out.className = ''; out.innerHTML = ''; if(prevStyle === null) out.removeAttribute('style'); else out.setAttribute('style', prevStyle); };
+  showToast('📸 بجهّز الصورة...');
+  try{
+    const innerH = Math.max(h, fillH);
+    if(h < fillH){ box.classList.add('pp-fill'); box.style.height = fillH + 'px'; }
+    box.style.zoom = '';
+    out.classList.add('pp-shot');
+    out.style.cssText = 'display:block !important;position:fixed;left:-30000px;top:0;width:1560px;padding:0;';
+    sheet.style.cssText = 'width:1544px;height:' + (innerH + 8) + 'px;margin:0;border:4px solid #0E0E10;border-radius:54px;overflow:hidden;box-sizing:border-box;background:#fff;display:flex;justify-content:center;align-items:flex-start;direction:ltr;';
+    await new Promise(r => setTimeout(r, 120));
+    const canvas = await html2canvas(sheet, { scale: 1.5, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if(!blob) throw new Error('empty');
+    const res = await jardShotDeliver([blob], name);
+    if(res === 'download') showToast('✅ الصورة اتحفظت — ابعتها من المعرض أو الداونلودز');
+    else if(res === 'download+copy') showToast('✅ الصورة اتحفظت واتنسخت — الصقها في الواتساب (Ctrl+V)');
+    else if(res === 'share') showToast('✅ تمام');
+  }catch(e){
+    console.error(e);
+    showToast('❌ مقدرتش أعمل الصورة — جرّب تاني', true);
+  }finally{
+    reset();
+  }
+}
+async function printBestPerfDeficit(shot){
+  window.__ppBuildOnly = true; window.__ppData = null;
+  try{ printBestPerfDeficitLegacy(); } finally { window.__ppBuildOnly = false; }
+  const d = window.__ppData; window.__ppData = null; if(!d) return;
+  let last = ''; try{ last = localStorage.getItem('hp_poster_txt') || ''; }catch(e){}
+  const defH = 'معاً .. نحقق الأفضل';
+  const ans = await uiPrompt('اكتب النص اللي هيظهر تحت عنوان الورقة\n(سيبه فاضي عشان يطلع النص الأصلي)', last || defH, { title:'نص الورقة', icon:'🖨️' });
+  if(ans === null) return;
+  const custom = ans.trim() === defH ? '' : ans.trim();
+  try{ localStorage.setItem('hp_poster_txt', custom); }catch(e){}
+  const poster = bpPosterHtml(d.deficitRows, d.deficitRanks, d.from, d.to, custom);
+  const det = ppDetails([['الصالة', d.hallLabel], ['من', d.from], ['إلى', d.to], ['عدد الخطوط', fmtNum(d.n)]], [
+    {l:'وقت التارجت', v:fmtMinutes(d.totalTargetMinutes)}, {l:'إجمالي العجز بالوقت', v:fmtMinutes(d.totalDeficitMinutes)},
+    {l:'عدد الخطوط', v:fmtNum(d.n)}, {ring:d.overallSuccessPct, l:'نسبة النجاح الإجمالية'}]);
+  ppPrintSheets(poster, '', det, '', shot === true ? `milano-nesbet-el-agz-${d.from}_${d.to}` : undefined);
+}
+async function printBestPerf(shot){
+  window.__ppBuildOnly = true; window.__ppData = null;
+  try{ printBestPerfLegacy(); } finally { window.__ppBuildOnly = false; }
+  const d = window.__ppData; window.__ppData = null; if(!d) return;
+  let last = ''; try{ last = localStorage.getItem('dl_poster_txt') || ''; }catch(e){}
+  const defTxt = d.from === d.to ? d.from : `من ${d.from} إلى ${d.to}`;
+  const ans = await uiPrompt('اكتب النص اللي هيظهر تحت عنوان الورقة\n(سيبه فاضي عشان يطلع التاريخ)', last || defTxt, { title:'نص الورقة', icon:'🖨️' });
+  if(ans === null) return;
+  const custom = ans.trim() === defTxt ? '' : ans.trim();
+  try{ localStorage.setItem('dl_poster_txt', custom); }catch(e){}
+  const poster = dlPosterHtml(d.rankedDelivery, d.deliveryRanks, d.from, d.to, custom, true);
+  const footImg = (window.DL_ART && window.DL_ART.foot) || '';
+  const banner = footImg ? `<div class="pp-banner" style="height:165px;overflow:hidden;position:relative;background:#fff"><img src="${footImg}" style="display:block;position:absolute;left:0;top:-36px;width:1536px;height:201px;max-width:none" alt=""></div>` : '';
+  const det = ppDetails([['الصالة', d.hallLabel], ['من', d.from], ['إلى', d.to], ['عدد الصالات', d.n]], [
+    {l:'المستهدف', v:fmtNum(d.totalTarget)}, {l:'ما تم إنجازه', v:fmtNum(d.totalActual)}, {ring:d.totalAchPct, l:'تحقيق الهدف'},
+    {l:'الهالك', v:fmtNum(d.totalHalak), sub:fmtPct(d.halakTotPct)}, {l:'الإصلاح', v:fmtNum(d.totalEslah), sub:fmtPct(d.eslahTotPct)},
+    {ring:d.totalQualityPct, l:'نسبة الجودة'}]);
+  ppPrintSheets(poster, ppQualityHtml(d.rankedQuality, d.qualityRanks), det, banner, shot === true ? `milano-afdal-adaa-${d.from}_${d.to}` : undefined);
+}
+
 function shotBestPerfDeficitSheet(){
   if(typeof html2canvas !== 'function'){ showToast('⚠️ مكتبة الصور لسه ما اتحملتش — جرّب بعد ثواني', true); return; }
-  window.__bpShot = true;
-  try{ printBestPerfDeficit(); } catch(e){ console.error(e); showToast('❌ حصلت مشكلة في تجهيز الورقة', true); } finally { window.__bpShot = false; }
+  printBestPerfDeficit(true); // نفس ورقة الطباعة بالظبط، لكن صورة
 }
 function shotBestPerf(){
   if(typeof html2canvas !== 'function'){ showToast('⚠️ مكتبة الصور لسه ما اتحملتش — جرّب بعد ثواني', true); return; }
-  window.__bpShot = true;
-  try{ printBestPerf(); } catch(e){ console.error(e); showToast('❌ حصلت مشكلة في تجهيز الورقة', true); } finally { window.__bpShot = false; }
+  printBestPerf(true); // نفس ورقة الطباعة بالظبط، لكن صورة
 }
 /* ===== بوستر "أبطال عجز الوقت": الخطوط اللي وصلت لمركز "الأول" (100% فأكتر) بس، بتصميم البوستر، وبعدها "حفظ باسم" ===== */
 async function bpSavePicker(filename){
@@ -7558,7 +7678,7 @@ async function shotBestPerfDeficit(){
 }
 
 /* ===== بوستر "أفضل أداء للتسليمات": بنفس تصميم البوستر (الهيدر والفوتر صور، والبوديوم والجدول من البيانات الحقيقية) ===== */
-function dlPosterHtml(rows, labels, from, to, custom){
+function dlPosterHtml(rows, labels, from, to, custom, noFoot){
   const A = window.DL_ART || {};
   const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const tierOf = lbl => { const t = String(lbl); if(t.includes('استثنائي')) return 'ex'; if(t.includes('سوبر')) return 'sup'; if(t.includes('سبيشيال')) return 'spe'; return 'n'; };
@@ -7573,7 +7693,7 @@ function dlPosterHtml(rows, labels, from, to, custom){
   const TB_TOP = 569;
   const tableBottom = TB_TOP + rowsH + 2;
   const footTop = Math.round(tableBottom - 36.5);
-  const H = footTop + 201;
+  const H = noFoot ? (tableBottom + 14) : (footTop + 201);
   const sub = (r) => `<bdi dir="ltr">${esc(fmtNum(r.actualDeliveries))}</bdi> من <bdi dir="ltr">${esc(fmtNum(r.targetDeliveries))}</bdi>`;
   const body = rows.map((r,i) => {
     const t = tierOf(labels[i]);
@@ -7606,8 +7726,11 @@ function dlPosterHtml(rows, labels, from, to, custom){
   .dp *{box-sizing:border-box;margin:0;padding:0;letter-spacing:0}
   .dp img{position:absolute;left:0;display:block;max-width:none}
   .dp-side{position:absolute;top:${TB_TOP}px;height:${rowsH + 2}px;width:52px;background:#fdfdfd}
-  .dp-tb{position:absolute;left:50px;top:${TB_TOP}px;width:1437px;height:${rowsH + 2}px;border:1.5px solid #cbc7cc;border-top:0;border-bottom:2px solid #d3cfd4;border-radius:0 0 22px 22px;overflow:hidden;background:#fff}
+  .dp-tb{position:absolute;left:${noFoot ? 14 : 50}px;top:${TB_TOP}px;width:${noFoot ? 1508 : 1437}px;height:${rowsH + 2}px;border:1.5px solid #cbc7cc;border-top:0;border-bottom:2px solid #d3cfd4;border-radius:0 0 22px 22px;overflow:hidden;background:#fff}
   .dp-tr{display:grid;grid-template-columns:341px 243px 210px 233px 1fr;border-bottom:1px solid #dcd8dc;direction:rtl}
+  .dp-th{position:absolute;left:14px;top:514px;width:1508px;height:55px;padding:0 1.5px;box-sizing:border-box;display:grid;grid-template-columns:341px 243px 210px 233px 1fr;direction:rtl;background:linear-gradient(180deg,#1d1d20 0%,#070708 100%);border-radius:22px 22px 0 0;border-bottom:4px solid #b5160b;color:#fff;font-size:25px;font-weight:800}
+  .dp-th>div{display:flex;align-items:center;justify-content:center;border-left:1px solid #2f2f33;line-height:1;padding-bottom:2px}
+  .dp-th>div:last-child{border-left:0}
   .dp-tr.l{border-bottom:0}
   .dp-tr.b1{background:#fee88c}.dp-tr.b2{background:#fcf3f1}.dp-tr.b3{background:#fefefe}
   .dp-tr>div{display:flex;align-items:center;justify-content:center;border-left:1px solid #dddade;font-size:25px;font-weight:800;color:#141414;line-height:1;white-space:nowrap;overflow:hidden;padding-bottom:2px}
@@ -7650,8 +7773,9 @@ function dlPosterHtml(rows, labels, from, to, custom){
   return css + `<div class="dp">
     <img src="${A.top || ''}" style="top:0;width:1536px;height:569px" alt="">
     <div class="dp-period" style="font-size:${pfs}px">${periodTxt}</div>
+    ${noFoot ? '<div class="dp-th"><div>المركز</div><div>الصالة</div><div>التارجت</div><div>التسليمات</div><div>نسبة التحقيق</div></div>' : ''}
     <div class="dp-side" style="left:0"></div><div class="dp-side" style="left:1484px"></div>
-    <img src="${A.foot || ''}" style="top:${footTop}px;width:1536px;height:201px" alt="">
+    ${noFoot ? '' : `<img src="${A.foot || ''}" style="top:${footTop}px;width:1536px;height:201px" alt="">`}
     <div class="dp-tb">${body}</div>
     ${pods}
   </div>`;
@@ -7699,7 +7823,7 @@ async function shotBestPerfDelivery(){
     host.remove();
   }
 }
-function printBestPerfDeficit(){
+function printBestPerfDeficitLegacy(){
   const from = document.getElementById('bf-from').value;
   const to = document.getElementById('bf-to').value;
   const hall = document.getElementById('bf-hall').value;
@@ -7772,6 +7896,7 @@ function printBestPerfDeficit(){
       ${bpRibbon()}
     </section>
   `;
+  if(window.__ppBuildOnly){ window.__ppData = {deficitRows, deficitRanks, from, to, hallLabel, n, totalTargetMinutes, totalDeficitMinutes, overallSuccessPct}; return; }
   if(window.__bpShot){ window.__bpShot = false; jardShotCapture(out, 'نسبة-العجز').finally(() => { out.className = ''; }); return; }
   bpFitPage(out);
   document.body.classList.add('print-rank-only');
@@ -16902,6 +17027,78 @@ html body #jard-dashboard .jd-note[hidden]{ display:none !important; }
 .jcmp-bar .jcmp-chips{ flex:1 1 auto; margin:0 !important; align-items:center; }
 .jcmp-shot{ font-size:16px !important; padding:4px 14px !important; }
 
+/* ===== طباعة بتصميم البوستر (أفضل أداء): ورقة واحدة جوه إطار بحواف منحنية ===== */
+@media print{
+  @page pp-a4{ size:A4 portrait; margin:0; }
+  #print-rank-output.pp-print, body.print-rank-only:has(#print-rank-output.pp-print){ page:pp-a4; }
+  body.print-rank-only:has(#print-rank-output.pp-print)::before{ display:none !important; }
+  #print-rank-output.pp-print{ padding:0 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+}
+#print-rank-output.pp-print{ padding:0; text-align:center; }
+.pp-print .pp-sheet{ width:200mm; height:287mm; margin:5mm auto 0; border:1.4pt solid #0E0E10; border-radius:7mm; overflow:hidden; display:flex; justify-content:center; align-items:flex-start; background:#fff; box-sizing:border-box; direction:ltr; }
+.pp-print .pp-box{ width:1536px; flex:none; background:#fff; direction:rtl; font-family:'Cairo',Tahoma,Arial,sans-serif; }
+.pp-print .pp-det{ padding:26px 50px 40px; background:#fff; }
+.pp-print .pp-box.pp-fill{ display:flex; flex-direction:column; }
+.pp-print .pp-box.pp-fill > *{ flex:none; }
+.pp-print .pp-box.pp-fill > .pq{ flex:1 1 auto; display:flex; flex-direction:column; justify-content:space-evenly; padding-top:10px; padding-bottom:10px; }
+.pp-print .pp-box.pp-fill > .pq > *{ margin-top:0 !important; margin-bottom:0 !important; }
+#print-rank-output.pp-print .pp-box.pp-fill .pq-table td{ height:calc(46px + var(--qa, 0px)) !important; }
+.pp-print .pp-box.pp-fill > .pp-det{ padding:14px 14px 20px; }
+#print-rank-output.pp-print .pp-box.pp-fill > .pq{ padding:10px 14px; }
+#print-rank-output.pp-print .pp-box.pp-fill .pq-podium{ margin-left:34px !important; margin-right:34px !important; }
+.pp-print .pp-box.pp-fill > .pp-banner{ margin-top:auto; }
+@media print{ body.print-rank-only:has(#print-rank-output.pp-print) #milano-print-logo{ display:none !important; } }
+.pp-shot .pq-pill{ display:inline-block !important; line-height:34px !important; text-align:center; }
+.pp-shot .pq-pill svg{ display:inline-block !important; vertical-align:middle; margin-left:8px; }
+.pp-shot .pq-pill b{ display:inline-block; vertical-align:middle; }
+.pp-shot .pq-bar{ position:relative; }
+.pp-shot .pq-bar i{ position:absolute !important; left:0; top:0; height:16px !important; }
+.pp-print .pp-chips{ display:flex; justify-content:center; gap:16px; margin-bottom:22px; direction:rtl; }
+.pp-print .pp-chip{ display:inline-flex; align-items:center; gap:10px; padding:6px 26px; border:2px solid #e3dede; border-radius:99px; background:#fff; font-size:23px; font-weight:800; color:#0E0E10; box-shadow:0 2px 0 rgba(0,0,0,.06); }
+.pp-print .pp-chip em{ font-style:normal; color:#c8101a; }
+.pp-print .pp-kpis{ display:grid; gap:18px; direction:rtl; }
+.pp-print .pp-kpi{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-height:128px; padding:14px 8px; border-radius:36px; border-bottom:6px solid #e31e24; background:linear-gradient(180deg,#2b2b2e 0%,#0a0a0b 45%,#050506 100%); color:#fff; text-align:center; }
+.pp-print .pp-kpi-v{ font-size:44px; font-weight:900; color:#fbc443; line-height:1; direction:ltr; }
+.pp-print .pp-kpi-l{ font-size:22px; font-weight:700; line-height:1.2; }
+.pp-print .pp-kpi-l u{ text-decoration:none; color:#fbc443; direction:ltr; unicode-bidi:isolate; }
+.pp-print .pp-ring{ position:relative; width:74px; height:74px; display:flex; align-items:center; justify-content:center; }
+.pp-print .pp-ring svg{ position:absolute; left:0; top:0; }
+.pp-print .pp-ring span{ position:relative; font-size:16px; font-weight:900; color:#fff; direction:ltr; }
+#print-rank-output.pp-print .pq{ padding:34px 58px 6px; background:#fff; direction:rtl; }
+#print-rank-output.pp-print .pq-title{ width:640px; margin:0 auto 22px; padding:8px 0; text-align:center; font-size:44px; font-weight:900; color:#fff; border-radius:99px; border:3px solid #e31e24; background:linear-gradient(180deg,#2b2b2e 0%,#0a0a0b 45%,#050506 100%); }
+#print-rank-output.pp-print .pq-podium{ display:flex; gap:26px; align-items:flex-end; margin:0 60px 24px; }
+#print-rank-output.pp-print .pq-pod{ flex:1; text-align:center; padding:12px 10px 16px; border-radius:34px; border:2px solid #cfcfd8; background:linear-gradient(180deg,#f4f4f8,#d9dae4); display:flex; flex-direction:column; align-items:center; gap:6px; }
+#print-rank-output.pp-print .pq-p1{ padding-top:20px; padding-bottom:22px; border-color:#e6aa2a; background:linear-gradient(180deg,#ffeaa0,#f8c545); }
+#print-rank-output.pp-print .pq-p3{ border-color:#d9a073; background:linear-gradient(180deg,#fbe0c8,#eab68c); }
+#print-rank-output.pp-print .pq-medal{ width:52px; height:52px; border-radius:50%; background:#0E0E10; color:#fbc443; font-size:30px; font-weight:900; line-height:52px; }
+#print-rank-output.pp-print .pq-ph{ font-size:36px; font-weight:900; line-height:1.1; }
+#print-rank-output.pp-print .pq-pp{ font-size:62px; font-weight:900; color:#c8101a; line-height:1.05; direction:ltr; }
+#print-rank-output.pp-print .pq-ps{ font-size:22px; font-weight:700; }
+#print-rank-output.pp-print .pq-pill{ display:inline-flex; align-items:center; justify-content:center; gap:8px; height:38px; min-width:150px; padding:0 20px; border-radius:99px; font-size:22px; font-weight:800; white-space:nowrap; line-height:1; }
+#print-rank-output.pp-print .pq-pill svg{ height:28px; width:auto; }
+#print-rank-output.pp-print .pq-t-ex{ background:linear-gradient(180deg,#ffe382,#f8b92f); border:2px solid #e6aa2a; color:#14110a; }
+#print-rank-output.pp-print .pq-t-sup{ background:linear-gradient(180deg,#2b2b2e,#050506); border:1.5px solid #b4b2b8; color:#f7d96b; }
+#print-rank-output.pp-print .pq-t-spe{ background:linear-gradient(180deg,#ee3b3b,#c40000); border:2px solid #b50008; color:#fff; }
+#print-rank-output.pp-print .pq-t-n{ background:linear-gradient(180deg,#f1f1f6,#cdcedb); border:2px solid #bdbfd0; color:#1c1c1f; }
+#print-rank-output.pp-print .pq-table{ width:100%; border-collapse:separate; border-spacing:0; border:1.5px solid #cbc7cc; border-radius:24px; overflow:hidden; }
+#print-rank-output.pp-print .pq-table th{ background:#0E0E10; color:#fff; font-size:23px; font-weight:800; padding:12px 6px; border-bottom:4px solid #e31e24; }
+#print-rank-output.pp-print .pq-table td{ font-size:25px; font-weight:800; text-align:center; padding:5px 6px; height:46px; border-bottom:1px solid #dcd8dc; border-left:1px solid #dddade; }
+#print-rank-output.pp-print .pq-table tr:nth-child(even) td{ background:#f9f1f1; }
+#print-rank-output.pp-print .pq-table tr.pq-ex td{ background:#fee88c; }
+#print-rank-output.pp-print .pq-table tr:last-child td{ border-bottom:0; }
+#print-rank-output.pp-print .pq-table td:last-child{ border-left:0; }
+#print-rank-output.pp-print .pq-neg{ color:#d1121a; }
+#print-rank-output.pp-print .pq-m{ direction:ltr; white-space:nowrap; }
+#print-rank-output.pp-print .pq-bar{ display:inline-block; vertical-align:middle; width:170px; height:16px; border-radius:99px; background:#dcdbe1; overflow:hidden; margin-right:12px; }
+#print-rank-output.pp-print .pq-bar i{ display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,#8e0b0e,#d3150f 55%,#ff6a13); }
+#print-rank-output.pp-print .pq-m b{ vertical-align:middle; font-weight:800; }
+/* تصفير ستايل جداول الطباعة العامة (#print-rank-output table/th/td) عن جدول الجودة عشان ياخد عرض الإطار كله وخطه الكبير */
+#print-rank-output.pp-print .pq-table{ width:100% !important; min-width:0 !important; max-width:none !important; margin:0 !important; box-shadow:none !important; table-layout:auto; }
+#print-rank-output.pp-print .pq-table th, #print-rank-output.pp-print .pq-table td{ border-radius:0 !important; }
+#print-rank-output.pp-print .pq-table th{ color:#fff !important; font-size:23px !important; padding:12px 6px !important; background:#0E0E10 !important; }
+#print-rank-output.pp-print .pq-table td{ font-size:25px !important; padding:5px 6px !important; color:#0E0E10; }
+#print-rank-output.pp-print .pq-table td.pq-neg{ color:#d1121a; }
+#print-rank-output.pp-print .pq-table td:first-child{ padding-right:10px !important; }
 /* ===== زر أسود مقسوم: 🖨️ | الكلمة | 📸 (أفضل أداء) ===== */
 .pb-split{ flex:1 1 150px; min-width:150px; display:flex; align-items:stretch; justify-content:center; min-height:40px; overflow:hidden;
   background:linear-gradient(180deg,#2a2a30 0%,#0E0E10 55%,#000 100%); border:1.5px solid #b3262c; border-radius:999px;
