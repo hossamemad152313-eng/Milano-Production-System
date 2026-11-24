@@ -532,6 +532,10 @@
   .ttab-exec .act-cell input[type="checkbox"]:hover{ border-color:var(--green); }
   .ttab-exec .act-cell .op-btn{ padding:2px 5px; font-size:11px; }
   .ttab-exec tr:nth-child(even){ background:#faf9f9; }
+  /* جدول "اتسلّمت في جرد الخط ومش مكتوبة في التارجت": نفس شكل جدول التنفيذ (حدود منحنية) بس بهيدر أسود وكتابة حمرا */
+  .ttab-exec.ttab-exec-x{ min-width:0; }
+  .ttab-exec.ttab-exec-x th{ background:#0e0e10; color:#ff4d4d; }
+  .ttab-exec.ttab-exec-x td:first-child b{ color:var(--text,inherit); }
   .pct-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:80px; padding:4px 10px; border-radius:999px; background:#F9F0D8; color:#8A5A12; font-weight:800; font-size:11px; border:1px solid rgba(240,120,125,0.5); }
   .twork-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:8px; }
   .twork-grid input{ padding:6px 4px; font-size:10.5px; border-radius:999px; border:1px solid var(--line); text-align:center; transition:box-shadow .2s ease; }
@@ -2310,7 +2314,20 @@ function buildPrintLayout(title, periodText, bodyHtml){
 }
 function fmtPct(n){ return (n*100).toFixed(1) + '%'; }
 function normalizeNumber(value){ const n = parseFloat(String(value).replace(/,/g,'').trim()); return isNaN(n) ? 0 : n; }
-function rankLabel(idx){ const labels = ['الأول','الثاني','الثالث','الرابع','الخامس','السادس','السابع','الثامن','التاسع','العاشر']; return labels[idx] || `${idx+1}`; }
+const RANK_LABELS = ['الأول','الثاني','الثالث','الرابع','الخامس','السادس','السابع','الثامن','التاسع','العاشر'];
+(function(){
+  /* من 11 لحد 99: الحادي عشر ... التاسع عشر، العشرون، الحادي والعشرون ... (بدل ما كان بيقف عند العاشر وتطلع الخانة فاضية) */
+  const unitsF = ['','الحادي','الثاني','الثالث','الرابع','الخامس','السادس','السابع','الثامن','التاسع'];
+  const teens = ['العاشر','الحادي عشر','الثاني عشر','الثالث عشر','الرابع عشر','الخامس عشر','السادس عشر','السابع عشر','الثامن عشر','التاسع عشر'];
+  const tens = {2:'العشرون',3:'الثلاثون',4:'الأربعون',5:'الخمسون',6:'الستون',7:'السبعون',8:'الثمانون',9:'التسعون'};
+  for(let n = 11; n <= 99; n++){
+    const t = Math.floor(n/10), u = n % 10;
+    if(t === 1) RANK_LABELS.push(teens[u]);
+    else if(u === 0) RANK_LABELS.push(tens[t]);
+    else RANK_LABELS.push(unitsF[u] + ' و' + tens[t]);
+  }
+})();
+function rankLabel(idx){ return RANK_LABELS[idx] || `المركز ${idx+1}`; }
 /* ترتيب أفضل التسليمات وأفضل جودة: لو صالتين نفس النسبة (ونفس المركز) بنفصل بينهم بترتيب كل واحدة في الجدول التاني.
    - تعادل في التسليمات → الأفضل في ترتيب الجودة هو الأعلى.
    - تعادل في الجودة → الأفضل في ترتيب التسليمات هو الأعلى.
@@ -7025,7 +7042,7 @@ async function applyFilters(){
       <div class="kpi"><div class="lbl">التارجت المستحق</div><div class="val num">${fmtNum(agg.dueTarget)}</div><div class="sub">بعد خصم ${fmtNum(agg.downtimeMin)} دقيقة أعطال</div></div>
       <div class="kpi"><div class="lbl">الإنتاج الفعلي</div><div class="val num">${fmtNum(agg.production)}</div></div>
       <div class="kpi ${agg.pAch>=0.95?'good':(agg.pAch>=0.8?'amber':'bad')}"><div class="lbl">نسبة تحقيق التارجت</div><div class="val num">${fmtPct(agg.pAch)}</div><div class="sub">الإنتاج ÷ التارجت المستحق</div></div>
-      <div class="kpi ${agg.deficit>0?'bad':'good'}"><div class="lbl">العجز</div><div class="val num">${fmtNum(agg.deficit)}</div><div class="sub">${fmtPct(agg.pDeficit)}</div></div>
+      <div class="kpi ${agg.deficit>0?'bad':'good'}"><div class="lbl">العجز</div><div class="val num">${fmtNumDef(agg.deficit)}</div><div class="sub">${fmtPctDef(agg.pDeficit)}</div></div>
       <div class="kpi amber"><div class="lbl">عدد العاملات</div><div class="val num">${workers.length}</div></div>
       <div class="kpi bad"><div class="lbl">الهالك</div><div class="val num">${fmtNum(agg.halak)}</div><div class="sub">${fmtPct(agg.pHalak)}</div></div>
       <div class="kpi bad"><div class="lbl">الإصلاح</div><div class="val num">${fmtNum(agg.eslah)}</div><div class="sub">${fmtPct(agg.pEslah)}</div></div>
@@ -7136,7 +7153,7 @@ function printPerformanceSummary(){
           <td><b>${fmtNum(agg.dueTarget)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">خصم ${fmtNum(agg.downtimeMin)} د</span></td>
           <td><b>${fmtNum(agg.production)}</b></td>
           <td><b>${fmtPct(agg.pAch)}</b></td>
-          <td><b>${fmtNum(agg.deficit)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pDeficit)}</span></td>
+          <td><b>${fmtNumDef(agg.deficit)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPctDef(agg.pDeficit)}</span></td>
           <td><b>${fmtNum(agg.halak)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pHalak)}</span></td>
           ${showEsl ? `<td><b>${fmtNum(agg.eslah)}</b><br><span style="color:#8A8A8A;font-size:10.5px;">${fmtPct(agg.pEslah)}</span></td>` : ''}
           <td><b>${workers.length}</b></td>
@@ -7209,7 +7226,7 @@ function workerCardHtml(w){
         <div class="wm"><div class="l">تارجت مستحق</div><div class="v num">${fmtNum(w.agg.dueTarget)}</div></div>
         <div class="wm"><div class="l">إنتاج فعلي</div><div class="v num">${fmtNum(w.agg.production)}</div></div>
         <div class="wm"><div class="l">نسبة التحقيق</div><div class="v num">${fmtPct(w.agg.pAch)}</div></div>
-        <div class="wm"><div class="l">عجز</div><div class="v num">${fmtNum(w.agg.deficit)}</div><div class="p">${fmtPct(w.agg.pDeficit)}</div></div>
+        <div class="wm"><div class="l">عجز</div><div class="v num">${fmtNumDef(w.agg.deficit)}</div><div class="p">${fmtPctDef(w.agg.pDeficit)}</div></div>
         <div class="wm"><div class="l">هالك</div><div class="v num">${fmtNum(w.agg.halak)}</div><div class="p">${fmtPct(w.agg.pHalak)}</div></div>
         <div class="wm"><div class="l">إصلاح</div><div class="v num">${fmtNum(w.agg.eslah)}</div><div class="p">${fmtPct(w.agg.pEslah)}</div></div>
         <div class="wm"><div class="l">أعطال</div><div class="v num">${fmtNum(w.agg.aatal)}</div></div>
@@ -7244,7 +7261,7 @@ function exportExcel(){
     'الإنتاج': Math.round(w.agg.production),
     'نسبة التحقيق': fmtPct(w.agg.pAch),
     'العجز': Math.round(w.agg.deficit),
-    'نسبة العجز': fmtPct(w.agg.pDeficit),
+    'نسبة العجز': fmtPctDef(w.agg.pDeficit),
     'الهالك': Math.round(w.agg.halak),
     'نسبة الهالك': fmtPct(w.agg.pHalak),
     'الإصلاح': Math.round(w.agg.eslah),
@@ -7259,7 +7276,7 @@ function exportExcel(){
     'الكود':'', 'الاسم':'الإجمالي', 'الخطوط':'',
     'التارجت': Math.round(totalAgg.target), 'دقائق الأعطال المعتمدة': Math.round(totalAgg.downtimeMin),
     'التارجت المستحق': Math.round(totalAgg.dueTarget), 'الإنتاج': Math.round(totalAgg.production), 'نسبة التحقيق': fmtPct(totalAgg.pAch),
-    'العجز': Math.round(totalAgg.deficit), 'نسبة العجز': fmtPct(totalAgg.pDeficit),
+    'العجز': Math.round(totalAgg.deficit), 'نسبة العجز': fmtPctDef(totalAgg.pDeficit),
     'الهالك': Math.round(totalAgg.halak), 'نسبة الهالك': fmtPct(totalAgg.pHalak),
     'الإصلاح': Math.round(totalAgg.eslah), 'نسبة الإصلاح': fmtPct(totalAgg.pEslah),
     'الأعطال': Math.round(totalAgg.aatal), 'نسبة الأداء النهائية': fmtPct(totalAgg.pAada)
@@ -7573,7 +7590,7 @@ async function printBestPerfDeficit(shot){
   try{ localStorage.setItem('hp_poster_txt', custom); localStorage.setItem('hp_ribbon1', r1 === defR1 ? '' : r1); localStorage.setItem('hp_ribbon2', r2 === defR2 ? '' : r2); }catch(e){}
   const poster = bpPosterHtml(d.deficitRows, d.deficitRanks, d.from, d.to, custom, r1, r2);
   const det = ppDetails([['الصالة', d.hallLabel], ['من', d.from], ['إلى', d.to], ['عدد الخطوط', fmtNum(d.n)]], [
-    {l:'وقت التارجت', v:fmtMinutes(d.totalTargetMinutes)}, {l:'إجمالي العجز بالوقت', v:fmtMinutes(d.totalDeficitMinutes)},
+    {l:'وقت التارجت', v:fmtMinutes(d.totalTargetMinutes)}, {l:'إجمالي العجز بالوقت', v:fmtMinDef(d.totalDeficitMinutes)},
     {l:'عدد الخطوط', v:fmtNum(d.n)}, {ring:d.overallSuccessPct, l:'نسبة النجاح الإجمالية'}]);
   ppPrintSheets(poster, '', det, '', shot === true ? `milano-nesbet-el-agz-${d.from}_${d.to}` : undefined);
 }
@@ -7646,14 +7663,14 @@ function bpPosterHtml(rows, labels, from, to, custom, rb1, rb2){
   const clean = lbl => String(lbl).replace(/[^\u0600-\u06FF\s]/g,'').trim();
   const STAR = '<svg viewBox="0 0 32 32"><defs><radialGradient id="sg" cx="50%" cy="56%" r="62%"><stop offset="0" stop-color="#fff39a"/><stop offset=".5" stop-color="#ffd824"/><stop offset="1" stop-color="#f2a900"/></radialGradient></defs><path d="M16 3l3.6 8 8.6.9-6.4 5.8 1.9 8.5L16 21.8 8.3 26.2l1.9-8.5-6.4-5.8 8.6-.9z" fill="url(#sg)" stroke="#f4b400" stroke-width="3.4" stroke-linejoin="round"/></svg>';
   const CUP = '<svg viewBox="0 0 32 36"><defs><linearGradient id="cg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset=".55" stop-color="#f6b910"/><stop offset="1" stop-color="#d98a00"/></linearGradient></defs><path d="M8 6H3c0 6.5 2 9.5 6.5 10.6M24 6h5c0 6.5-2 9.5-6.5 10.6" fill="none" stroke="#e9a200" stroke-width="2.4" stroke-linecap="round"/><path d="M7 2.5h18v9.5c0 6.3-3.9 10-9 10s-9-3.7-9-10z" fill="url(#cg)" stroke="#d98a00" stroke-width="1"/><rect x="13.6" y="21" width="4.8" height="6" fill="#eaa300"/><path d="M8.5 27h15l2.2 8.5H6.3z" fill="#a53a4b"/><rect x="12.6" y="29.6" width="6.8" height="3.2" rx=".5" fill="#fbe7e2"/></svg>';
-  const pill = (lbl, cls) => { const t = tierOf(lbl); const ico = t === 'ex' ? CUP : (t === 'n' ? '' : STAR); return `<span class="hp-pw2 hp-w-${t} ${cls}"><i class="hp-sd"></i><span class="hp-pill hp-t-${t}">${ico}<b>${esc(clean(lbl))}</b></span></span>`; };
+  const pill = (lbl, cls) => { const t = tierOf(lbl); const ico = t === 'ex' ? CUP : (t === 'n' ? '' : STAR); const _l = clean(lbl).length; const _fs = (t === 'n' && _l > 9) ? ` style="font-size:${_l > 14 ? 0.62 : _l > 11 ? 0.74 : 0.86}em"` : ''; return `<span class="hp-pw2 hp-w-${t} ${cls}"><i class="hp-sd"></i><span class="hp-pill hp-t-${t}"${_fs}>${ico}<b>${esc(clean(lbl))}</b></span></span>`; };
   const n = rows.length;
   const R1 = 49, RH = 44;                       // ارتفاع أول صف / باقي الصفوف (زي البوستر)
   const rowsH = R1 + (n - 1) * RH;
   const tableBottom = 579 + rowsH + 2;
   const H = tableBottom + 174;                  // 1024 لما الصفوف = 6
   const maxPct = Math.max(...rows.map(r => r.successPct));
-  const defCell = m => { const s = fmtMinutes(m); return s.startsWith('-') ? `<span class="hp-neg"><i>${esc(s.slice(1))}</i><i>-</i></span>` : `<span class="hp-neg"><i>${esc(s)}</i></span>`; };
+  const defCell = m => { const s = fmtMinutes(m); return s.startsWith('-') ? `<span class="hp-neg" style="direction:rtl"><i>زيادة&nbsp;${esc(s.slice(1))}</i></span>` : `<span class="hp-neg"><i>${esc(s)}</i></span>`; };
   const body = rows.map((r,i) => {
     const bg = i === 0 ? 'b1' : (i % 2 === 0 ? 'b2' : 'b3');
     const fill = Math.max(10, Math.min(100, r.successPct / maxPct * 100));
@@ -7745,12 +7762,17 @@ async function shotBestPerfDeficit(){
   const rows = computeLineDeficitPerformance(from, to).filter(r => r.successPct >= 1);
   if(!rows.length){ showToast('⚠️ مفيش خطوط وصلت لمركز "الأول" (100% فأكتر) في الفترة دي'); return; }
   const labels = computeTieRankLabels(rows, r => r.successPct, null, true);
-  let lastH = ''; try{ lastH = localStorage.getItem('hp_poster_txt') || ''; }catch(e){}
-  const defH = 'معاً .. نحقق الأفضل';
-  const ansH = await uiPrompt('اكتب النص اللي هيظهر تحت عنوان البوستر\n(سيبه فاضي عشان يطلع النص الأصلي)', lastH || defH, { title:'نص البوستر', icon:'🏆' });
-  if(ansH === null) return;
-  const customH = ansH.trim() === defH ? '' : ansH.trim();
-  try{ localStorage.setItem('hp_poster_txt', customH); }catch(e){}
+  let lastH = '', lastR1 = '', lastR2 = ''; try{ lastH = localStorage.getItem('hp_poster_txt') || ''; lastR1 = localStorage.getItem('hp_ribbon1') || ''; lastR2 = localStorage.getItem('hp_ribbon2') || ''; }catch(e){}
+  const defH = 'معاً .. نحقق الأفضل', defR1 = 'ميلانو .. دائماً في القمة', defR2 = 'أداء متميز ... وروح فريق أقوى';
+  const ans = await uiPromptMulti('اكتب النصوص اللي هتظهر في البوستر\n(سيب أي خانة فاضية عشان يطلع النص الأصلي)', [
+    {label:'النص تحت عنوان البوستر', def: lastH || defH, maxLength:60},
+    {label:'الجملة اليمين في الشريط', def: lastR1 || defR1, maxLength:40},
+    {label:'الجملة الوسط في الشريط', def: lastR2 || defR2, maxLength:70}
+  ], { title:'نص البوستر', icon:'🏆' });
+  if(ans === null) return;
+  const t0 = ans[0].trim(), r1 = ans[1].trim() || defR1, r2 = ans[2].trim() || defR2;
+  const customH = t0 === defH ? '' : t0;
+  try{ localStorage.setItem('hp_poster_txt', customH); localStorage.setItem('hp_ribbon1', r1 === defR1 ? '' : r1); localStorage.setItem('hp_ribbon2', r2 === defR2 ? '' : r2); }catch(e){}
   const filename = `milano-abtal-ajz-alwaqt-${from}_${to}.png`;
   // نافذة "حفظ باسم" بتتفتح فورًا (قبل تجهيز الصورة) عشان المتصفح يسمح بيها
   const handle = await bpSavePicker(filename);
@@ -7758,13 +7780,14 @@ async function shotBestPerfDeficit(){
   showToast('🏆 بجهّز البوستر...');
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-30000px;top:0;z-index:-1;pointer-events:none;';
-  host.innerHTML = bpPosterHtml(rows, labels, from, to, customH);
+  host.innerHTML = bpPosterHtml(rows, labels, from, to, customH, r1, r2);
   document.body.appendChild(host);
   try{
     if(document.fonts && document.fonts.load){ try{ await Promise.all([document.fonts.load('900 40px Cairo','أبطال 0123'), document.fonts.load('800 26px Cairo','أبطال 0123'), document.fonts.load('700 23px Cairo','أبطال 0123')]); }catch(e){} }
     if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
     await Promise.all([...host.querySelectorAll('img')].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; setTimeout(r, 1500); })));
     await new Promise(r => setTimeout(r, 120));
+    rbFit(host); // بيصغّر جمل الشريط اللي تحت (ميلانو دائماً في القمة / أداء متميز) عشان ما يتداخلوش
     const el = host.querySelector('.hp');
     const canvas = await html2canvas(el, { scale: rows.length > 12 ? 1.5 : 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
@@ -7782,7 +7805,7 @@ async function shotBestPerfDeficit(){
 }
 
 /* ===== بوستر "أفضل أداء للتسليمات": بنفس تصميم البوستر (الهيدر والفوتر صور، والبوديوم والجدول من البيانات الحقيقية) ===== */
-function dlPosterHtml(rows, labels, from, to, custom, noFoot){
+function dlPosterHtml(rows, labels, from, to, custom, noFoot, rb1, rb2){
   const A = window.DL_ART || {};
   const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const tierOf = lbl => { const t = String(lbl); if(t.includes('استثنائي')) return 'ex'; if(t.includes('سوبر')) return 'sup'; if(t.includes('سبيشيال')) return 'spe'; return 'n'; };
@@ -7790,7 +7813,7 @@ function dlPosterHtml(rows, labels, from, to, custom, noFoot){
   const hallName = h => { const m = String(h).match(/^([A-Za-z0-9]+)\s*صالة$/); return m ? 'صالة ' + m[1] : String(h); };
   const STAR = '<svg viewBox="0 0 32 32"><defs><radialGradient id="sg" cx="50%" cy="56%" r="62%"><stop offset="0" stop-color="#fff39a"/><stop offset=".5" stop-color="#ffd824"/><stop offset="1" stop-color="#f2a900"/></radialGradient></defs><path d="M16 3l3.6 8 8.6.9-6.4 5.8 1.9 8.5L16 21.8 8.3 26.2l1.9-8.5-6.4-5.8 8.6-.9z" fill="url(#sg)" stroke="#f4b400" stroke-width="3.4" stroke-linejoin="round"/></svg>';
   const CUP = '<svg viewBox="0 0 32 36"><defs><linearGradient id="cg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset=".55" stop-color="#f6b910"/><stop offset="1" stop-color="#d98a00"/></linearGradient></defs><path d="M8 6H3c0 6.5 2 9.5 6.5 10.6M24 6h5c0 6.5-2 9.5-6.5 10.6" fill="none" stroke="#e9a200" stroke-width="2.4" stroke-linecap="round"/><path d="M7 2.5h18v9.5c0 6.3-3.9 10-9 10s-9-3.7-9-10z" fill="url(#cg)" stroke="#d98a00" stroke-width="1"/><rect x="13.6" y="21" width="4.8" height="6" fill="#eaa300"/><path d="M8.5 27h15l2.2 8.5H6.3z" fill="#a53a4b"/><rect x="12.6" y="29.6" width="6.8" height="3.2" rx=".5" fill="#fbe7e2"/></svg>';
-  const pill = (lbl, cls) => { const t = tierOf(lbl); const ico = t === 'ex' ? CUP : (t === 'n' ? '' : STAR); return `<span class="dp-pw2 dp-w-${t} ${cls}"><i class="dp-sd"></i><span class="dp-pill dp-t-${t}">${ico}<b>${esc(clean(lbl))}</b></span></span>`; };
+  const pill = (lbl, cls) => { const t = tierOf(lbl); const ico = t === 'ex' ? CUP : (t === 'n' ? '' : STAR); const _l = clean(lbl).length; const _fs = (t === 'n' && _l > 9) ? ` style="font-size:${_l > 14 ? 0.62 : _l > 11 ? 0.74 : 0.86}em"` : ''; return `<span class="dp-pw2 dp-w-${t} ${cls}"><i class="dp-sd"></i><span class="dp-pill dp-t-${t}"${_fs}>${ico}<b>${esc(clean(lbl))}</b></span></span>`; };
   const n = rows.length;
   const R1 = 56, RH = 46.4;
   const rowsH = R1 + Math.max(0, n - 1) * RH;
@@ -7871,6 +7894,7 @@ function dlPosterHtml(rows, labels, from, to, custom, noFoot){
   .dp-pg svg{height:38px;width:auto}.dp-ps svg{height:32px;width:auto}
   .dp-period{position:absolute;left:628px;top:166px;width:280px;height:44px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900;font-size:25px;color:#0d0d0d;white-space:nowrap;direction:rtl;line-height:1;gap:8px}
   </style>`;
+  const dpRb = 'position:absolute;display:flex;align-items:center;justify-content:center;white-space:nowrap;direction:rtl;font-family:Cairo,sans-serif;font-weight:900;color:#fff;transform:skewX(-9deg);text-shadow:0 3px 3px rgba(0,0,0,.65),0 0 10px rgba(0,0,0,.45);line-height:1;';
   const cl = custom ? custom.length : 0;
   const pfs = custom ? (cl <= 12 ? 30 : cl <= 20 ? 25 : cl <= 28 ? 20 : 16) : (from === to ? 28 : 21);
   const periodTxt = custom ? `<span>${esc(custom)}</span>` : from === to ? `<bdi dir="ltr">${esc(from)}</bdi>` : `<span>من</span><bdi dir="ltr">${esc(from)}</bdi><span>إلى</span><bdi dir="ltr">${esc(to)}</bdi>`;
@@ -7879,7 +7903,10 @@ function dlPosterHtml(rows, labels, from, to, custom, noFoot){
     <div class="dp-period" style="font-size:${pfs}px">${periodTxt}</div>
     ${noFoot ? '<div class="dp-th"><div>المركز</div><div>الصالة</div><div>التارجت</div><div>التسليمات</div><div>نسبة التحقيق</div></div>' : ''}
     <div class="dp-side" style="left:0"></div><div class="dp-side" style="left:1484px"></div>
-    ${noFoot ? '' : `<img src="${A.foot || ''}" style="top:${footTop}px;width:1536px;height:201px" alt="">`}
+    ${noFoot ? '' : `<img src="${A.foot || ''}" style="top:${footTop}px;width:1536px;height:201px" alt="">
+    <div data-rbfit="1" data-fs="50" style="${dpRb}left:480px;width:660px;top:${footTop + 94}px;height:78px;font-size:50px"><span style="display:inline-block;white-space:nowrap">${esc(rb2 || 'أداء متميز ... استمروا في تحقيق المزيد من النجاح')}</span></div>
+    <div data-rbfit="1" data-fs="42" style="${dpRb}left:1200px;width:320px;top:${footTop + 98}px;height:70px;font-size:42px"><span style="display:inline-block;white-space:nowrap">${esc(rb1 || 'ميلانو .. دائماً في القمة')}</span></div>
+    <svg style="position:absolute;left:1318px;top:${footTop + 140}px" width="140" height="33" viewBox="0 0 170 40" preserveAspectRatio="none"><defs><linearGradient id="rbsw3" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".35" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity=".85"/></linearGradient></defs><path d="M6 34 C 60 28 120 16 164 4 C 124 22 64 36 6 34 Z" fill="url(#rbsw3)"/></svg>`}
     <div class="dp-tb">${body}</div>
     ${pods}
   </div>`;
@@ -7892,26 +7919,33 @@ async function shotBestPerfDelivery(){
   const data = currentBestPerfFilteredData().filter(r => r.hasData);
   const { rankedDelivery, deliveryRanks } = bestPerfRankings(data);
   if(!rankedDelivery.length){ showToast('⚠️ مفيش صالات بمستهدف تسليمات في الفترة دي'); return; }
-  // النص اللي تحت العنوان (مكان التواريخ): بيتكتب بمعرفتك، وآخر نص كتبته بيفضل متذكّره. لو سيبته فاضي بيطلع التاريخ
-  let last = ''; try{ last = localStorage.getItem('dl_poster_txt') || ''; }catch(e){}
+  // 3 جمل: النص تحت العنوان (مكان التواريخ) + جملتين الشريط اللي تحت. آخر نص كتبته بيفضل متذكّره، ولو سيبت خانة فاضية بيطلع النص الأصلي
+  let last = '', lastR1 = '', lastR2 = ''; try{ last = localStorage.getItem('dl_poster_txt') || ''; lastR1 = localStorage.getItem('dl_ribbon1') || ''; lastR2 = localStorage.getItem('dl_ribbon2') || ''; }catch(e){}
   const defTxt = from === to ? from : `من ${from} إلى ${to}`;
-  const ans = await uiPrompt('اكتب النص اللي هيظهر تحت عنوان البوستر\n(سيبه فاضي عشان يطلع التاريخ)', last || defTxt, { title:'نص البوستر', icon:'🏆' });
+  const defR1 = 'ميلانو .. دائماً في القمة', defR2 = 'أداء متميز ... استمروا في تحقيق المزيد من النجاح';
+  const ans = await uiPromptMulti('اكتب النصوص اللي هتظهر في البوستر\n(سيب أي خانة فاضية عشان يطلع النص الأصلي)', [
+    {label:'النص تحت عنوان البوستر', def: last || defTxt, maxLength:60},
+    {label:'الجملة اليمين في الشريط', def: lastR1 || defR1, maxLength:40},
+    {label:'الجملة الوسط في الشريط', def: lastR2 || defR2, maxLength:70}
+  ], { title:'نص البوستر', icon:'🏆' });
   if(ans === null) return;
-  const custom = ans.trim() === defTxt ? '' : ans.trim();
-  try{ localStorage.setItem('dl_poster_txt', custom); }catch(e){}
+  const t0 = ans[0].trim(), r1 = ans[1].trim() || defR1, r2 = ans[2].trim() || defR2;
+  const custom = t0 === defTxt ? '' : t0;
+  try{ localStorage.setItem('dl_poster_txt', custom); localStorage.setItem('dl_ribbon1', r1 === defR1 ? '' : r1); localStorage.setItem('dl_ribbon2', r2 === defR2 ? '' : r2); }catch(e){}
   const filename = `milano-afdal-adaa-altaslimat-${from}_${to}.png`;
   const handle = await bpSavePicker(filename);
   if(handle === 'cancel') return;
   showToast('🏆 بجهّز البوستر...');
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-30000px;top:0;z-index:-1;pointer-events:none;';
-  host.innerHTML = dlPosterHtml(rankedDelivery, deliveryRanks, from, to, custom);
+  host.innerHTML = dlPosterHtml(rankedDelivery, deliveryRanks, from, to, custom, false, r1, r2);
   document.body.appendChild(host);
   try{
     if(document.fonts && document.fonts.load){ try{ await Promise.all([document.fonts.load('900 40px Cairo','أفضل 0123'), document.fonts.load('800 26px Cairo','أفضل 0123'), document.fonts.load('700 23px Cairo','أفضل 0123')]); }catch(e){} }
     if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
     await Promise.all([...host.querySelectorAll('img')].map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; setTimeout(r, 1500); })));
     await new Promise(r => setTimeout(r, 120));
+    rbFit(host);
     const el = host.querySelector('.dp');
     const canvas = await html2canvas(el, { scale: rankedDelivery.length > 12 ? 1.5 : 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
@@ -7951,7 +7985,7 @@ function printBestPerfDeficitLegacy(){
     const top = deficitRows.slice(0,3);
     if(!top.length) return '';
     const order = top.length === 3 ? [1,0,2] : top.map((_,i)=>i);
-    return `<div class="bp-podium">${order.map(i => `<div class="bp-pod bp-pod-${i+1}"><div class="bp-medal">${medals[i]}</div><div class="bp-pod-hall">${esc(top[i].line)}</div><div class="bp-pod-pct">${fmtPct(top[i].successPct)}</div><div class="bp-pod-sub">${esc(top[i].supervisor || '-')}<br>عجز ${esc(fmtMinutes(top[i].deficitMinutes))} من ${esc(fmtMinutes(top[i].targetMinutes))}</div><div class="bp-pod-rank bp-b-${tierOf(deficitRanks[i])}">${bpRankInner(deficitRanks[i])}</div></div>`).join('')}</div>`;
+    return `<div class="bp-podium">${order.map(i => `<div class="bp-pod bp-pod-${i+1}"><div class="bp-medal">${medals[i]}</div><div class="bp-pod-hall">${esc(top[i].line)}</div><div class="bp-pod-pct">${fmtPct(top[i].successPct)}</div><div class="bp-pod-sub">${esc(top[i].supervisor || '-')}<br>عجز ${esc(fmtMinDef(top[i].deficitMinutes))} من ${esc(fmtMinutes(top[i].targetMinutes))}</div><div class="bp-pod-rank bp-b-${tierOf(deficitRanks[i])}">${bpRankInner(deficitRanks[i])}</div></div>`).join('')}</div>`;
   };
   const hallLabel = hall === '__ALL__' ? 'كل الصالات' : hall;
 
@@ -7961,7 +7995,7 @@ function printBestPerfDeficitLegacy(){
         <td class="bp-hall">${esc(row.line)}</td>
         <td>${esc(row.supervisor || '-')}</td>
         <td>${fmtMinutes(row.targetMinutes)}</td>
-        <td class="bp-neg">${fmtMinutes(row.deficitMinutes)}</td>
+        <td class="bp-neg">${fmtMinDef(row.deficitMinutes)}</td>
         <td>${meter(row.successPct)}</td>
       </tr>`).join('');
 
@@ -7985,7 +8019,7 @@ function printBestPerfDeficitLegacy(){
       </div>
       <div class="bp-kpis" style="grid-template-columns:repeat(4,1fr);">
         ${kpi('وقت التارجت', fmtMinutes(totalTargetMinutes))}
-        ${kpi('إجمالي العجز بالوقت', fmtMinutes(totalDeficitMinutes))}
+        ${kpi('إجمالي العجز بالوقت', fmtMinDef(totalDeficitMinutes))}
         ${kpi('عدد الخطوط', fmtNum(n))}
         ${ring(overallSuccessPct, 'نسبة النجاح الإجمالية')}
       </div>
@@ -8182,7 +8216,7 @@ function applyBestPerfFilter(){
         <td>${row.line}</td>
         <td>${row.supervisor||'-'}</td>
         <td>${fmtMinutes(row.targetMinutes)}</td>
-        <td>${fmtMinutes(row.deficitMinutes)}</td>
+        <td>${fmtMinDef(row.deficitMinutes)}</td>
         <td><span class="pct-pill ${cls}">${fmtPct(row.successPct)}</span></td>
       </tr>
     `;
@@ -10759,6 +10793,11 @@ function fmtSignedMinutes(m){
   const r = Math.round(m);
   return r > 0 ? '+'+fmtMinutes(r) : fmtMinutes(r);
 }
+/* عرض العجز: لو القيمة بالسالب يبقى معناها زيادة (تسليم/إنتاج/وقت أكتر من التارجت) فبتتكتب "زيادة X" بدل الرقم السالب.
+   الدوال دي بتتستخدم في أماكن العجز بس (الجرد وتنفيذ التارجت والجداول والطباعة). */
+function fmtNumDef(n){ return n < 0 ? 'زيادة ' + fmtNum(Math.abs(n)) : fmtNum(n); }
+function fmtMinDef(m){ return Math.round(m) < 0 ? 'زيادة ' + fmtMinutes(Math.abs(m)) : fmtMinutes(m); }
+function fmtPctDef(p){ return p < 0 ? 'زيادة ' + fmtPct(Math.abs(p)) : fmtPct(p); }
 function jardCanEdit(){ return currentUser.role === 'admin' || currentUser.role === 'jardentry'; }
 
 function renderJardRegTab(){
@@ -10920,6 +10959,7 @@ function jardLineHtml(id, lineNum){
       <div class="mrow jc-row4">
         <div class="mf"><label>عجز — ساعات</label><input type="number" id="jline-deficit-h-${id}" placeholder="- للفايض"></div>
         <div class="mf"><label>عجز — دقائق</label><input type="number" id="jline-deficit-m-${id}" placeholder="0-59"></div>
+        <div class="mf"><label>زيادة؟</label><div class="jsw-wrap"><input type="checkbox" class="jsw" id="jline-surplus-${id}" title="لو شغّلتها، العجز اللي كتبته بيتسجّل زيادة (فايض) بدل عجز"></div></div>
         <div class="mf"><label>عدد الإبر</label><input type="number" id="jline-needles-${id}"></div>
         <div class="mf"><label>صيانة إضافية</label><input type="text" id="jline-maint-${id}" placeholder="مثال: 2 ريشة مكوك"></div>
       </div>
@@ -11440,7 +11480,8 @@ async function saveJardSession(){
     const articles = flatRows.filter(r=>r.line===lineNum).map(r=>({code:r.code, qty:r.qty, halak:r.halak, eslah:r.eslah}));
     const dH = Number(document.getElementById('jline-deficit-h-'+id).value)||0;
     const dM = Number(document.getElementById('jline-deficit-m-'+id).value)||0;
-    const dSign = (dH<0 || dM<0) ? -1 : 1;
+    const surplusOn = !!(document.getElementById('jline-surplus-'+id) && document.getElementById('jline-surplus-'+id).checked);
+    const dSign = (surplusOn || dH<0 || dM<0) ? -1 : 1;
     const deficitMinutes = dSign * (Math.abs(dH)*60 + Math.abs(dM));
     return {
       line: lineNum,
@@ -11633,8 +11674,9 @@ function editJardSession(id){
     document.getElementById('jline-prod-'+lid).value = _src.production||'';
     const dm = _src.deficitMinutes||0;
     const dsign = dm < 0 ? -1 : 1;
-    document.getElementById('jline-deficit-h-'+lid).value = dsign * Math.floor(Math.abs(dm)/60);
+    document.getElementById('jline-deficit-h-'+lid).value = Math.floor(Math.abs(dm)/60);
     document.getElementById('jline-deficit-m-'+lid).value = Math.abs(dm)%60;
+    const swEl = document.getElementById('jline-surplus-'+lid); if(swEl) swEl.checked = dsign < 0;
     document.getElementById('jline-needles-'+lid).value = _src.needles||'';
     document.getElementById('jline-maint-'+lid).value = _src.maintOther||'';
   });
@@ -11774,12 +11816,12 @@ function jardDelivMetricsHtml(x){
   const color = x.deficitDeliveries > 0 ? 'var(--red)' : 'var(--green)';
   return `
         <div class="wm"><div class="l">تارجت التسليم</div><div class="v">${has ? fmtNum(x.targetDeliveries) : '-'}</div></div>
-        <div class="wm"><div class="l">عجز التسليمات</div>${has ? `<div class="v" style="color:${color}">${fmtNum(x.deficitDeliveries)}</div><div class="p">${fmtPct(x.deficitDeliveriesPct)}</div>` : '<div class="v">-</div>'}</div>`;
+        <div class="wm"><div class="l">عجز التسليمات</div>${has ? `<div class="v" style="color:${color}">${fmtNumDef(x.deficitDeliveries)}</div><div class="p">${fmtPctDef(x.deficitDeliveriesPct)}</div>` : '<div class="v">-</div>'}</div>`;
 }
 function jardDelivPrintTds(x, bold){
   const has = x.targetDeliveries > 0;
   const b = v => bold ? `<b>${v}</b>` : v;
-  return `<td>${b(has ? fmtNum(x.targetDeliveries) : '-')}</td><td>${has ? b(fmtNum(x.deficitDeliveries)) + `<div style="font-size:.85em;font-weight:600;">${fmtPct(x.deficitDeliveriesPct)}</div>` : b('-')}</td>`;
+  return `<td>${b(has ? fmtNum(x.targetDeliveries) : '-')}</td><td>${has ? b(fmtNumDef(x.deficitDeliveries)) + `<div style="font-size:.85em;font-weight:600;">${fmtPctDef(x.deficitDeliveriesPct)}</div>` : b('-')}</td>`;
 }
 function jardHallBlockHtml(hall, lines, hallManager){
   const t = hallTotals(lines);
@@ -11792,11 +11834,11 @@ function jardHallBlockHtml(hall, lines, hallManager){
       <div class="jr-metrics">
         <div class="wm"><div class="l">تارجت الإنتاج</div><div class="v">${fmtNum(l.targetProduction)}</div></div>
         <div class="wm"><div class="l">الإنتاج</div><div class="v">${fmtNum(l.production)}</div></div>
-        <div class="wm"><div class="l">عجز الإنتاج</div><div class="v">${fmtNum(l.deficitProduction)}</div><div class="p">${fmtPct(l.deficitProductionPct)}</div></div>
+        <div class="wm"><div class="l">عجز الإنتاج</div><div class="v">${fmtNumDef(l.deficitProduction)}</div><div class="p">${fmtPctDef(l.deficitProductionPct)}</div></div>
         <div class="wm"><div class="l">التسليمات</div><div class="v">${fmtNum(l.deliveries)}</div></div>${jardDelivMetricsHtml(l)}
         <div class="wm"><div class="l">الهالك</div><div class="v">${fmtNum(l.halak)}</div><div class="p">${fmtPct(l.halakPct)}</div></div>
         <div class="wm"><div class="l">الإصلاح</div><div class="v">${fmtNum(l.eslah)}</div><div class="p">${fmtPct(l.eslahPct)}</div></div>
-        <div class="wm"><div class="l">عجز الوقت</div><div class="v" style="color:${l.deficitMinutes<0?'var(--green)':'var(--red)'}">${fmtMinutes(l.deficitMinutes)}</div></div>
+        <div class="wm"><div class="l">عجز الوقت</div><div class="v" style="color:${l.deficitMinutes<0?'var(--green)':'var(--red)'}">${fmtMinDef(l.deficitMinutes)}</div></div>
       </div>
       ${(l.needles || l.maintOther.length) ? `<div class="data-note" style="margin-top:6px;">صيانة: ${l.needles?fmtNum(l.needles)+' إبرة':''} ${l.maintOther.length?'· '+l.maintOther.join('، '):''}</div>` : ''}
     </div>
@@ -11809,11 +11851,11 @@ function jardHallBlockHtml(hall, lines, hallManager){
       <div class="jr-metrics">
         <div class="wm"><div class="l">تارجت الإنتاج</div><div class="v">${fmtNum(t.targetProduction)}</div></div>
         <div class="wm"><div class="l">الإنتاج</div><div class="v">${fmtNum(t.production)}</div></div>
-        <div class="wm"><div class="l">عجز الإنتاج</div><div class="v">${fmtNum(t.deficitProduction)}</div></div>
+        <div class="wm"><div class="l">عجز الإنتاج</div><div class="v">${fmtNumDef(t.deficitProduction)}</div></div>
         <div class="wm"><div class="l">التسليمات</div><div class="v">${fmtNum(t.deliveries)}</div></div>${jardDelivMetricsHtml(t)}
         <div class="wm"><div class="l">الهالك</div><div class="v">${fmtNum(t.halak)}</div></div>
         <div class="wm"><div class="l">الإصلاح</div><div class="v">${fmtNum(t.eslah)}</div></div>
-        <div class="wm"><div class="l">عجز الوقت</div><div class="v" style="color:${t.deficitMinutes<0?'var(--green)':'var(--red)'}">${fmtMinutes(t.deficitMinutes)}</div></div>
+        <div class="wm"><div class="l">عجز الوقت</div><div class="v" style="color:${t.deficitMinutes<0?'var(--green)':'var(--red)'}">${fmtMinDef(t.deficitMinutes)}</div></div>
       </div>
       <div class="data-note">إبر الصيانة: ${fmtNum(t.needles)}${t.maintOther.length ? ' · صيانة إضافية: ' + t.maintOther.join('، ') : ''}</div>
     </div>
@@ -12393,14 +12435,14 @@ function exportJardExcel(){
   Object.entries(window.__jardLines).forEach(([hall, lines]) => {
     lines.forEach(l => rows.push({
       'الصالة': hall, 'الخط': l.line, 'مشرف الخط': l.supervisor,
-      'تارجت الإنتاج': l.targetProduction, 'الإنتاج': l.production, 'عجز الإنتاج': l.deficitProduction, 'نسبة عجز الإنتاج': fmtPct(l.deficitProductionPct),
+      'تارجت الإنتاج': l.targetProduction, 'الإنتاج': l.production, 'عجز الإنتاج': l.deficitProduction, 'نسبة عجز الإنتاج': fmtPctDef(l.deficitProductionPct),
       'التسليمات': l.deliveries,
-      'تارجت التسليم': l.targetDeliveries > 0 ? l.targetDeliveries : '', 'عجز التسليمات': l.targetDeliveries > 0 ? l.deficitDeliveries : '', 'نسبة عجز التسليمات': l.targetDeliveries > 0 ? fmtPct(l.deficitDeliveriesPct) : '',
+      'تارجت التسليم': l.targetDeliveries > 0 ? l.targetDeliveries : '', 'عجز التسليمات': l.targetDeliveries > 0 ? l.deficitDeliveries : '', 'نسبة عجز التسليمات': l.targetDeliveries > 0 ? fmtPctDef(l.deficitDeliveriesPct) : '',
       'الهالك': l.halak, 'الإصلاح': l.eslah, 'نسبة نجاح الخط': fmtPct(l.successPct),
-      'عجز بالوقت': fmtMinutes(l.deficitMinutes), 'عدد الإبر': l.needles, 'صيانة إضافية': l.maintOther.join('، ')
+      'عجز بالوقت': fmtMinDef(l.deficitMinutes), 'عدد الإبر': l.needles, 'صيانة إضافية': l.maintOther.join('، ')
     }));
     const t = hallTotals(lines);
-    rows.push({'الصالة': hall, 'الخط':'الإجمالي', 'مشرف الخط':'', 'تارجت الإنتاج':t.targetProduction, 'الإنتاج':t.production, 'عجز الإنتاج':t.deficitProduction, 'نسبة عجز الإنتاج':'', 'التسليمات':t.deliveries, 'تارجت التسليم': t.targetDeliveries > 0 ? t.targetDeliveries : '', 'عجز التسليمات': t.targetDeliveries > 0 ? t.deficitDeliveries : '', 'نسبة عجز التسليمات': t.targetDeliveries > 0 ? fmtPct(t.deficitDeliveriesPct) : '', 'الهالك':t.halak, 'الإصلاح':t.eslah, 'نسبة نجاح الخط':fmtPct(t.successPct), 'عجز بالوقت':fmtMinutes(t.deficitMinutes), 'عدد الإبر':t.needles, 'صيانة إضافية':t.maintOther.join('، ')});
+    rows.push({'الصالة': hall, 'الخط':'الإجمالي', 'مشرف الخط':'', 'تارجت الإنتاج':t.targetProduction, 'الإنتاج':t.production, 'عجز الإنتاج':t.deficitProduction, 'نسبة عجز الإنتاج':'', 'التسليمات':t.deliveries, 'تارجت التسليم': t.targetDeliveries > 0 ? t.targetDeliveries : '', 'عجز التسليمات': t.targetDeliveries > 0 ? t.deficitDeliveries : '', 'نسبة عجز التسليمات': t.targetDeliveries > 0 ? fmtPctDef(t.deficitDeliveriesPct) : '', 'الهالك':t.halak, 'الإصلاح':t.eslah, 'نسبة نجاح الخط':fmtPct(t.successPct), 'عجز بالوقت':fmtMinDef(t.deficitMinutes), 'عدد الإبر':t.needles, 'صيانة إضافية':t.maintOther.join('، ')});
     rows.push({});
   });
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -12519,9 +12561,9 @@ async function printJardHallDetail(){
       <td>${l.supervisor||'-'}</td>
       <td>${fmtNum(l.targetProduction)}</td>
       <td>${fmtNum(l.production)}</td>
-      <td>${fmtNum(l.deficitProduction)}</td>
-      <td>${fmtPct(l.deficitProductionPct)}</td>
-      <td>${fmtMinutes(l.deficitMinutes)}</td>
+      <td>${fmtNumDef(l.deficitProduction)}</td>
+      <td>${fmtPctDef(l.deficitProductionPct)}</td>
+      <td>${fmtMinDef(l.deficitMinutes)}</td>
       <td>${fmtNum(l.deliveries)}</td>
       ${jardDelivPrintTds(l,false)}
       <td>${fmtNum(l.halak)}</td>
@@ -12544,9 +12586,9 @@ async function printJardHallDetail(){
           <td colspan="2"><b>إجمالي الصالة</b></td>
           <td><b>${fmtNum(t.targetProduction)}</b></td>
           <td><b>${fmtNum(t.production)}</b></td>
-          <td><b>${fmtNum(t.deficitProduction)}</b></td>
-          <td><b>${fmtPct(t.deficitProductionPct)}</b></td>
-          <td><b>${fmtMinutes(t.deficitMinutes)}</b></td>
+          <td><b>${fmtNumDef(t.deficitProduction)}</b></td>
+          <td><b>${fmtPctDef(t.deficitProductionPct)}</b></td>
+          <td><b>${fmtMinDef(t.deficitMinutes)}</b></td>
           <td><b>${fmtNum(t.deliveries)}</b></td>
           ${jardDelivPrintTds(t,true)}
           <td><b>${fmtNum(t.halak)}</b></td>
@@ -12659,9 +12701,9 @@ async function printJardAllHallsTotals(){
       <td class="hall-td"><b>${h.hall}</b>${jardHallManagerOf(h.hall) ? `<div class="hall-mgr">مدير الصالة: ${jardEscHtml(withOstaz(jardHallManagerOf(h.hall)))}</div>` : ''}</td>
       <td>${fmtNum(h.totals.targetProduction)}</td>
       <td>${fmtNum(h.totals.production)}</td>
-      <td>${fmtNum(h.totals.deficitProduction)}</td>
-      <td>${fmtPct(h.totals.deficitProductionPct)}</td>
-      <td>${fmtMinutes(h.totals.deficitMinutes)}</td>
+      <td>${fmtNumDef(h.totals.deficitProduction)}</td>
+      <td>${fmtPctDef(h.totals.deficitProductionPct)}</td>
+      <td>${fmtMinDef(h.totals.deficitMinutes)}</td>
       <td>${fmtNum(h.totals.deliveries)}</td>
       ${jardDelivPrintTds(h.totals,false)}
       <td>${fmtNum(h.totals.halak)}</td>
@@ -12684,9 +12726,9 @@ async function printJardAllHallsTotals(){
           <td><b>الإجمالي العام</b></td>
           <td><b>${fmtNum(grand.targetProduction)}</b></td>
           <td><b>${fmtNum(grand.production)}</b></td>
-          <td><b>${fmtNum(grand.deficitProduction)}</b></td>
-          <td><b>${fmtPct(grandDeficitPct)}</b></td>
-          <td><b>${fmtMinutes(grand.deficitMinutes)}</b></td>
+          <td><b>${fmtNumDef(grand.deficitProduction)}</b></td>
+          <td><b>${fmtPctDef(grandDeficitPct)}</b></td>
+          <td><b>${fmtMinDef(grand.deficitMinutes)}</b></td>
           <td><b>${fmtNum(grand.deliveries)}</b></td>
           ${jardDelivPrintTds(grand,true)}
           <td><b>${fmtNum(grand.halak)}</b></td>
@@ -14257,8 +14299,9 @@ function execLineTotals(execLine){
     const a = execItemAmounts(it);
     execMin += a.execMin; pendMin += a.pendMin;
   });
-  // أرتيكلات اتسلّمت في الجرد ومش في التارجت، واتعلّم عليها "احسبه" — وقتها بيتضاف على اللي اتعلّم عليه
-  (execLine.extras||[]).forEach(x => { if(x && x.counted) execMin += (Number(x.h)||0)*60 + (Number(x.m)||0); });
+  // أرتيكلات اتسلّمت في الجرد ومش في التارجت، واتعلّم عليها "احسبه" — هو اشتغلها فعلاً، فوقتها
+  // بيتضاف على اللي اتعلّم عليه وبينقص من العجز المتبقي بنفس المقدار (إجمالي التارجت ثابت)
+  (execLine.extras||[]).forEach(x => { if(x && x.counted){ const xm = (Number(x.h)||0)*60 + (Number(x.m)||0); execMin += xm; pendMin -= xm; } });
   const totalMin = execMin + pendMin;
   return {
     execMin, pendMin, totalMin,
@@ -14353,7 +14396,7 @@ function execExtraSectionsHtml(plan, l, execLine){
             : `${h}:${String(m).padStart(2,'0')}`)
         : '<span class="texec-x-muted">-</span>';
       const cbCell = canEdit
-        ? `<input type="checkbox" ${counted?'checked':''} data-article="${tdupEsc(it.article)}" onchange="toggleExecExtra('${plan.id}',${l.line},'${enc}',this)">`
+        ? `<div class="act-cell"><input type="checkbox" ${counted?'checked':''} data-article="${tdupEsc(it.article)}" onchange="toggleExecExtra('${plan.id}',${l.line},'${enc}',this)"></div>`
         : (counted ? '✅' : '-');
       return `<tr>
         <td><b>${tdupEsc(it.article)}</b>${it.inJard ? '' : '<div class="texec-x-sub">مش موجود في الجرد حاليًا</div>'}</td>
@@ -14364,11 +14407,11 @@ function execExtraSectionsHtml(plan, l, execLine){
     }).join('');
     extrasHtml = `<div class="texec-x">
       <div class="texec-x-title">📦 اتسلّمت في جرد الخط ومش مكتوبة في التارجت (${list.length})</div>
-      <div class="texec-x-wrapt"><table class="texec-x-tbl">
+      <div class="ttab-exec-wrap"><table class="ttab-exec ttab-exec-x">
         <thead><tr><th>أرتيكل</th><th>اللي اتسلّم</th><th>احسبه؟</th><th>الوقت (س:د)</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
-      <div class="texec-x-note">لو علّمت "احسبه" واكتبت وقته، بيتضاف على "إجمالي اللي اتعلّم عليه" وعلى تارجت الخط. من غير تعليم: مش بيدخل في الحساب. (محتاج 💾 احفظ التنفيذ)</div>
+      <div class="texec-x-note">لو علّمت "احسبه" واكتبت وقته، بيتضاف على "إجمالي اللي اتعلّم عليه" وبينقص من "العجز (المتبقي)". من غير تعليم: مش بيدخل في الحساب. (محتاج 💾 احفظ التنفيذ)</div>
     </div>`;
   } else if(!hasJard){
     extrasHtml = `<div class="texec-x"><div class="texec-x-muted">📦 مفيش جرد مسجّل لصالة ${tdupEsc(plan.hall)} في الفترة دي — الأرتيكلات الزيادة هتظهر أول ما الجرد يتسجّل.</div></div>`;
@@ -14484,7 +14527,7 @@ function renderExecLineCard(plan, l, execLine){
       <div class="jr-metrics" style="margin-top:8px;">
         <div class="wm"><div class="l">تارجت الخط</div><div class="v">${fmtMinutes(t.totalMin)}</div></div>
         <div class="wm"><div class="l">إجمالي اللي اتعلّم عليه</div><div class="v" style="color:var(--green);">${fmtMinutes(t.execMin)}</div></div>
-        <div class="wm"><div class="l">العجز (المتبقي)</div><div class="v" style="color:var(--red);">${fmtMinutes(t.pendMin)}</div><div class="p">${fmtPct(t.deficitPct)}</div></div>
+        <div class="wm"><div class="l">العجز (المتبقي)</div><div class="v" style="color:var(--red);">${fmtMinDef(t.pendMin)}</div><div class="p">${fmtPctDef(t.deficitPct)}</div></div>
       </div>
     </div>`;
 }
@@ -14508,7 +14551,7 @@ function execPlanInnerHtml(plan, pe){
   const rankingHtml = ranking.map((r,i)=>`
     <div class="record-row">
       <div class="rtop">
-        <div><div class="rname">${i+1}. خط ${r.line} — ${r.supervisor}</div><div class="rmeta">العجز: ${fmtMinutes(r.pendMin)} (${fmtPct(r.deficitPct)})</div></div>
+        <div><div class="rname">${i+1}. خط ${r.line} — ${r.supervisor}</div><div class="rmeta">العجز: ${fmtMinDef(r.pendMin)} (${fmtPctDef(r.deficitPct)})</div></div>
       </div>
     </div>`).join('') || '<div class="empty-state">مفيش خطوط</div>';
 
@@ -14520,7 +14563,7 @@ function execPlanInnerHtml(plan, pe){
       <div class="jr-metrics">
         <div class="wm"><div class="l">التارجت</div><div class="v">${fmtMinutes(hallTotal)}</div></div>
         <div class="wm"><div class="l">إجمالي اللي اتعلّم عليه</div><div class="v" style="color:var(--green);">${fmtMinutes(hallExecMin)}</div></div>
-        <div class="wm"><div class="l">العجز</div><div class="v" style="color:var(--red);">${fmtMinutes(hallPendMin)}</div><div class="p">${fmtPct(hallDeficitPct)}</div></div>
+        <div class="wm"><div class="l">العجز</div><div class="v" style="color:var(--red);">${fmtMinDef(hallPendMin)}</div><div class="p">${fmtPctDef(hallDeficitPct)}</div></div>
       </div>
     </div>
     ${lineCards}
@@ -14743,7 +14786,7 @@ function printTargetExecDetails(){
             <tbody>
               ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${r.baseTime||'-'}</td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtMinutes(execItemAmounts(r).execMin) : '-'}</td><td>${r.done? (()=>{const _a=execItemAmounts(r); return fmtSignedMinutes(_a.diffMin)+(_a.usingBase?'⚡':'');})() : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="7">مفيش</td></tr>'}
               <tr class="total-row"><td colspan="3">إجمالي اللي اتعلّم عليه</td><td colspan="4"><b>${fmtMinutes(t.execMin)}</b></td></tr>
-              <tr class="total-row"><td colspan="3">إجمالي العجز</td><td colspan="4"><b>${fmtMinutes(t.pendMin)} (${fmtPct(t.deficitPct)})</b></td></tr>
+              <tr class="total-row"><td colspan="3">إجمالي العجز</td><td colspan="4"><b>${fmtMinDef(t.pendMin)} (${fmtPctDef(t.deficitPct)})</b></td></tr>
             </tbody>
           </table>
         </div>`;
@@ -14752,7 +14795,7 @@ function printTargetExecDetails(){
     const hallDeficitPct = hallTotal>0 ? hallPendMin/hallTotal : 0;
     return `
       <h2>${p.hall}${p.hallManager? ` <span style="font-size:13px;font-weight:600;">— مدير الصالة: ${withOstaz(p.hallManager)}</span>` : ''}</h2>
-      <h3>الفترة: ${p.from} إلى ${p.to} — إجمالي عجز الصالة: ${fmtMinutes(hallPendMin)} (${fmtPct(hallDeficitPct)})</h3>
+      <h3>الفترة: ${p.from} إلى ${p.to} — إجمالي عجز الصالة: ${fmtMinDef(hallPendMin)} (${fmtPctDef(hallDeficitPct)})</h3>
       <div class="power-print-grid" style="display:grid;grid-template-columns:repeat(${lineCount}, 1fr);align-items:start;">${linesHtml}</div>
     `;
   }).join('<div style="height:2px;background:#e6dddd;margin:8px 0;"></div>');
@@ -17760,7 +17803,23 @@ header.top .hr-lock-proxy:active{ transform:scale(.94); }
 }
 .jc-card .mrow{ margin-bottom:4px !important; padding:2px 0 !important; gap:6px; }
 .jc-row3{ grid-template-columns:repeat(3,minmax(0,1fr)); }
-.jc-row4{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+.jc-row4{ grid-template-columns:repeat(5,minmax(0,1fr)); }
+/* زر "زيادة؟" في تسجيل الجرد: سويتش زي بتاع تنفيذ التارجت — لما يتشغّل، العجز المكتوب بيتسجّل زيادة (فايض) */
+.jsw-wrap{ height:28px; display:flex; align-items:center; justify-content:center; }
+.jc-card input.jsw[type="checkbox"]{
+  appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  width:40px !important; height:22px !important; min-height:0 !important; margin:0; padding:0 !important;
+  border-radius:999px; border:1.5px solid var(--line); background:#fbfafa;
+  position:relative; cursor:pointer; outline:none; flex:0 0 auto;
+  transition:background .15s ease, border-color .15s ease;
+}
+.jc-card input.jsw[type="checkbox"]::after{
+  content:''; position:absolute; top:2px; right:2px; width:16px; height:16px;
+  border-radius:50%; background:#fff; border:1px solid var(--line);
+  transition:right .15s ease, border-color .15s ease;
+}
+.jc-card input.jsw[type="checkbox"]:checked{ background:var(--green); border-color:var(--green); }
+.jc-card input.jsw[type="checkbox"]:checked::after{ right:20px; border-color:var(--green); }
 .jc-card .mf label{ font-size:9.5px !important; margin:0 0 2px !important; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .jc-card .mf input{ height:28px !important; min-height:0 !important; min-width:0; width:100%; padding:0 8px !important; font-size:12px; border-radius:999px; box-sizing:border-box; }
 #jard-flat-body td{ padding:1px 4px !important; }
