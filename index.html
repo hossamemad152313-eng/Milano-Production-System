@@ -14428,13 +14428,56 @@ function execExtraSectionsHtml(plan, l, execLine){
     const head = `⏭️ شغل الأرض في الفترة اللي بعدها (${tdupEsc(next.from)} → ${tdupEsc(next.to)})`;
     if(!nl) nextHtml = `<div class="texec-x"><div class="texec-x-title">${head}</div><div class="texec-x-muted">الخط ${tdupEsc(l.line)} مش موجود في تارجت الفترة دي.</div></div>`;
     else if(!nfw.length) nextHtml = `<div class="texec-x"><div class="texec-x-title">${head}</div><div class="texec-x-muted">مفيش شغل أرض مسجّل للخط ده في الفترة دي.</div></div>`;
-    else nextHtml = `<div class="texec-x">
+    else {
+      // تنبيه: لو نفس الأرتيكل اتحسب عندنا قبل كده (احسبه في اتسلّمت، أو اتعلّم "تم" في التارجت) نوضّح ده جنب صف شغل الأرض
+      const countedExtra = new Map();
+      (execLine.extras||[]).forEach(x => { if(x && x.counted) countedExtra.set(x.key, x); });
+      const doneItems = new Map();
+      (execLine.items||[]).forEach(it => { if(it && it.done){ const k = normArticleCode(it.article); if(k) doneItems.set(k, it); } });
+      // خطوط تانية في نفس الصالة: اتسلّم الأرتيكل في جردها، أو اتحسب له إنتاج (تم / احسبه) في تنفيذ الخط ده
+      const delAll = execJardDelivered(plan);
+      const peAll = TARGET_EXEC.find(x => x.planId === plan.id);
+      const curLine = Number(l.line);
+      const rowsN = nfw.map(r => {
+        const k = normArticleCode(r.article);
+        const warns = [];
+        const red = (txt, tip) => warns.push({sev:'red', html:`<span style="color:var(--red);font-weight:800;" title="${tdupEsc(tip)}">${txt}</span>`});
+        const amb = (txt, tip) => warns.push({sev:'amb', html:`<span style="color:var(--amber-dark);font-weight:800;" title="${tdupEsc(tip)}">${txt}</span>`});
+        if(k && countedExtra.has(k)){
+          const x = countedExtra.get(k);
+          red(`⚠️ اتحسب عندك قبل كده (${Number(x.h)||0}:${String(Number(x.m)||0).padStart(2,'0')})`, 'الأرتيكل ده معلّم عليه احسبه في جدول اتسلّمت ومحسوب في إجمالي اللي اتعلّم عليه');
+        } else if(k && doneItems.has(k)){
+          const a = execItemAmounts(doneItems.get(k));
+          red(`⚠️ اتحسب في التارجت (${fmtMinutes(a.execMin)})`, 'الأرتيكل ده اتعلّم عليه تم في تارجت الفترة دي');
+        }
+        if(k){
+          // اتحسب له إنتاج في خط تاني
+          if(peAll) (peAll.lines||[]).forEach(ol => {
+            if(Number(ol.line) === curLine) return;
+            let mins = 0, hit = false;
+            (ol.items||[]).forEach(it => { if(it && it.done && normArticleCode(it.article) === k){ hit = true; mins += execItemAmounts(it).execMin; } });
+            (ol.extras||[]).forEach(x => { if(x && x.counted && x.key === k){ hit = true; mins += (Number(x.h)||0)*60 + (Number(x.m)||0); } });
+            if(hit) red(`⚠️ اتحسب إنتاج في خط ${ol.line}${mins>0 ? ' ('+fmtMinutes(mins)+')' : ''}`, 'الأرتيكل ده معمول له حسبة إنتاج في خط تاني');
+          });
+          // اتسلّم في جرد خط تاني
+          const d = delAll.get(k);
+          if(d) d.byLine.forEach((q, ln) => {
+            if(Number(ln) === curLine || !(q>0)) return;
+            amb(`📦 اتسلّم في خط ${ln} (${fmtNum(q)})`, 'الأرتيكل ده متسجّل تسليم في جرد خط تاني');
+          });
+        }
+        const warn = warns.map(w => w.html).join('<br>');
+        const bg = warns.some(w => w.sev==='red') ? '#FBE1DC' : (warns.length ? '#FFF3D6' : '');
+        return `<tr${bg ? ` style="background:${bg};"` : ''}><td><b>${tdupEsc(r.article||'-')}</b></td><td>${r.qty ? tdupEsc(r.qty) : '-'}</td><td>${warn || '<span class="texec-x-muted">-</span>'}</td></tr>`;
+      }).join('');
+      nextHtml = `<div class="texec-x">
       <div class="texec-x-title">${head}</div>
-      <div class="texec-x-wrapt"><table class="texec-x-tbl">
-        <thead><tr><th>أرتيكل</th><th>العدد</th></tr></thead>
-        <tbody>${nfw.map(r => `<tr><td><b>${tdupEsc(r.article||'-')}</b></td><td>${r.qty ? tdupEsc(r.qty) : '-'}</td></tr>`).join('')}</tbody>
+      <div class="ttab-exec-wrap"><table class="ttab-exec ttab-exec-x">
+        <thead><tr><th>أرتيكل</th><th>العدد</th><th>تنبيه</th></tr></thead>
+        <tbody>${rowsN}</tbody>
       </table></div>
     </div>`;
+    }
   }
   return extrasHtml + nextHtml;
 }
@@ -14749,6 +14792,62 @@ function applyTargetExecFilter(){
   if(!plans.length){ results.innerHTML = '<div class="empty-state">مفيش خطط تارجت في الفترة دي عشان تتابعها.</div>'; return; }
   results.innerHTML = plans.map(p => renderTargetExecPlan(p)).join('<div style="height:2px;background:var(--line);margin:16px 0;"></div>');
 }
+/* طباعة: أرتيكلات اتسلّمت في الجرد ومش في التارجت واتعلّم عليها "احسبه" (بوقتها) — كانت داخلة في الإجمالي بس مش ظاهرة في الورقة */
+function execPrintExtrasRows(plan, l, execLine){
+  const counted = (execLine.extras||[]).filter(x => x && x.counted);
+  if(!counted.length) return '';
+  const del = execJardDelivered(plan);
+  const rows = counted.map(x => {
+    const e = del.get(x.key);
+    const q = e ? (e.byLine.get(Number(l.line))||0) : 0;
+    const mins = (Number(x.h)||0)*60 + (Number(x.m)||0);
+    return `<tr><td><b>${tdupEsc(x.article||x.key)}</b></td><td colspan="3">اتسلّم: ${q? fmtNum(q) : '-'}</td><td>${fmtMinutes(mins)}</td><td>-</td><td>✔️</td></tr>`;
+  }).join('');
+  return `<tr class="total-row"><td colspan="7">📦 اتسلّمت في الجرد ومش في التارجت</td></tr>${rows}`;
+}
+/* التنقل بالأسهم بين كل خانات الكتابة في شاشة تنفيذ التارجت (بالمكان على الشاشة، فبيشتغل مع RTL وكل الجداول) */
+document.addEventListener('keydown', function(e){
+  const k = e.key;
+  if(k!=='ArrowUp' && k!=='ArrowDown' && k!=='ArrowLeft' && k!=='ArrowRight' && k!=='Enter') return;
+  const cur = e.target;
+  if(!cur || cur.tagName!=='INPUT' || cur.type==='checkbox' || cur.disabled) return;
+  const box = cur.closest && cur.closest('[id^="texec-plan-"]');
+  if(!box) return;
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  // يمين/شمال جوه النص: ما نتحركش إلا لو المؤشر في الحرف الأخير/الأول أو النص كله متحدد (الأرقام بتتحرك على طول)
+  if((k==='ArrowLeft'||k==='ArrowRight') && cur.type==='text'){
+    const a=cur.selectionStart, b=cur.selectionEnd, len=cur.value.length;
+    const all = a===0 && b===len;
+    if(!all){
+      if(a!==b) return;
+      if(k==='ArrowLeft' && a!==len) return;
+      if(k==='ArrowRight' && a!==0) return;
+    }
+  }
+  const list = Array.from(box.querySelectorAll('input:not([type=checkbox]):not([type=hidden]):not([disabled])')).filter(el => el.offsetParent !== null);
+  const r0 = cur.getBoundingClientRect(), cx0 = r0.left+r0.width/2, cy0 = r0.top+r0.height/2;
+  let best=-1, bestKey=null;
+  list.forEach((el,i) => {
+    if(el===cur) return;
+    const r = el.getBoundingClientRect(), cx = r.left+r.width/2, cy = r.top+r.height/2;
+    const dx = cx-cx0, dy = cy-cy0;
+    let key=null;
+    if(k==='ArrowDown' || (k==='Enter' && !e.shiftKey)){ if(dy>6) key=[dy,Math.abs(dx)]; }
+    else if(k==='ArrowUp' || (k==='Enter' && e.shiftKey)){ if(dy<-6) key=[-dy,Math.abs(dx)]; }
+    else if(k==='ArrowLeft'){ if(Math.abs(dy)<=10 && dx<-2) key=[0,-dx]; }
+    else if(k==='ArrowRight'){ if(Math.abs(dy)<=10 && dx>2) key=[0,dx]; }
+    if(!key) return;
+    // الأقرب رأسيًا الأول (بهامش 8px)، وبعدين الأقرب أفقيًا
+    if(!bestKey || key[0] < bestKey[0]-8 || (Math.abs(key[0]-bestKey[0])<=8 && key[1]<bestKey[1])){ best=i; bestKey=key; }
+  });
+  e.preventDefault();
+  if(best<0) return;
+  // blur الأول: لو الخانة اتغيّرت بيحصل onchange وإعادة رسم للكارت، فبنرجّع التركيز بالترتيب بعد الرسم
+  cur.blur();
+  const list2 = Array.from(box.querySelectorAll('input:not([type=checkbox]):not([type=hidden]):not([disabled])')).filter(el => el.offsetParent !== null);
+  const t = list2[best] || list2[Math.min(best, list2.length-1)];
+  if(t){ t.focus(); try{ t.select(); }catch(_){} }
+});
 function printTargetExecDetails(){
   const from = document.getElementById('tex-from').value;
   const to = document.getElementById('tex-to').value;
@@ -14785,6 +14884,7 @@ function printTargetExecDetails(){
             </thead>
             <tbody>
               ${rows.length ? rows.map(r=>`<tr><td><b>${r.article||'-'}</b></td><td>${r.baseTime||'-'}</td><td>${fmtMinutes((r.h||0)*60+(r.m||0))}</td><td>${r.done? fmtMinutes((r.actualH||0)*60+(r.actualM||0)) : '-'}</td><td>${r.done? fmtMinutes(execItemAmounts(r).execMin) : '-'}</td><td>${r.done? (()=>{const _a=execItemAmounts(r); return fmtSignedMinutes(_a.diffMin)+(_a.usingBase?'⚡':'');})() : '-'}</td><td>${r.done?'تم':'لسه'}</td></tr>`).join('') : '<tr><td colspan="7">مفيش</td></tr>'}
+              ${execPrintExtrasRows(p,l,le)}
               <tr class="total-row"><td colspan="3">إجمالي اللي اتعلّم عليه</td><td colspan="4"><b>${fmtMinutes(t.execMin)}</b></td></tr>
               <tr class="total-row"><td colspan="3">إجمالي العجز</td><td colspan="4"><b>${fmtMinDef(t.pendMin)} (${fmtPctDef(t.deficitPct)})</b></td></tr>
             </tbody>
